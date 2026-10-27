@@ -1,5 +1,11 @@
-import { getResolution, isValidCell, latLngToCell } from 'h3-js'
-import { AUSTIN_CENTER, cellPolygon, cellsInView } from '../src/lib/h3.ts'
+import { cellToParent, getResolution, isValidCell, latLngToCell } from 'h3-js'
+import {
+  AUSTIN_CENTER,
+  cellPolygon,
+  cellsInView,
+  readyCellsInParents,
+  snapshotForDisplayCell,
+} from '../src/lib/h3.ts'
 import { associateFeatures } from '../src/lib/associate.ts'
 import { mergeFeatureRows } from '../src/lib/feature-rows.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
@@ -254,6 +260,16 @@ assert(pulledBack.status === 'ready' && pulledBack.ids.length > 0, 'zoomed-out v
 assert(pulledBack.resolution < 8, 'zoomed-out view should step to a coarser resolution')
 const stayed = cellsInView({ west: -97.76, south: 30.25, east: -97.72, north: 30.29 }, 11.1, 8)
 assert(stayed.resolution === 8, 'zoom hysteresis should keep resolution 8 across the band edge')
+const earth = cellsInView({ west: -120, south: 10, east: -70, north: 50 }, 2)
+assert(earth.status === 'zoom-in' && earth.ids.length === 0, 'below the hex floor should be globe, not a coarse grid')
+const wide = cellsInView({ west: -130, south: 10, east: -70, north: 50 }, 7)
+assert(wide.status === 'zoom-in' && wide.ids.length === 0, 'a continent-sized bounds should not draw parent hexes')
+const parent = cellToParent(capitol, 4)
+assert(snapshotForDisplayCell(parent, new Map([[capitol, { h3: capitol, status: 'ready', snapshot: 'current', release_version: '2026-10-21.0', job_id: null }]])) === null, 'parent hexes must not inherit a child snapshot')
+assert(
+  readyCellsInParents([parent], new Map([[capitol, { h3: capitol, status: 'ready', snapshot: 'current', release_version: '2026-10-21.0', job_id: null }]])).includes(capitol),
+  'ready res-8 cells under a parent should still be drawn',
+)
 
 const compiled = buildQuerySpec({
   dataset: 'places',

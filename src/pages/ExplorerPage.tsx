@@ -11,7 +11,7 @@ import { H3Map, type H3MapHandle, type MapInsets } from '../components/map/H3Map
 import { useCellStats, useCompiledQuery, useInspectFeatures } from '../hooks/useCompiledQuery'
 import { useDataSource } from '../hooks/useDataSource'
 import { MOBILE_QUERY, TOUCH_QUERY, useMediaQuery } from '../hooks/useMediaQuery'
-import { snapshotForDisplayCell, type ViewportStatus } from '../lib/h3'
+import { readyCellsInParents, type ViewportStatus } from '../lib/h3'
 import { H3_RESOLUTION } from '../lib/limits'
 import { getHexStatus } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
@@ -80,20 +80,10 @@ export function ExplorerPage() {
       return next
     })
   }, [coverage.data])
-  const coverageByCell = useMemo(() => {
-    const next = new Map(knownCoverage)
-    for (const cell of cells) {
-      if (getResolution(cell) === H3_RESOLUTION) continue
-      const snapshot = snapshotForDisplayCell(cell, knownCoverage)
-      next.set(cell, {
-        h3: cell,
-        status: snapshot ? 'ready' : 'missing',
-        snapshot,
-        release_version: null,
-        job_id: null,
-      })
-    }
-    return next
+  const coverageByCell = knownCoverage
+  const mapCells = useMemo(() => {
+    const extra = readyCellsInParents(cells, knownCoverage)
+    return extra.length === 0 ? cells : [...cells, ...extra]
   }, [cells, knownCoverage])
   const statusMap = useMemo(() => {
     const next = new Map<string, HexDataStatus>()
@@ -181,7 +171,7 @@ export function ExplorerPage() {
     <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
       <H3Map
         ref={mapRef}
-        cells={cells}
+        cells={mapCells}
         counts={counts}
         selected={selected}
         focusedH3={focus?.h3 ?? null}
@@ -383,7 +373,7 @@ function StatusPill({
   noun: string
 }) {
   let text: string | null = null
-  if (status === 'zoom-in') text = 'Zoom in a little to load hexes'
+  if (status === 'zoom-in') text = 'Globe view · zoom in for hexes'
   else if (status === 'too-many') text = 'Too many cells in view. Zoom in to load the grid.'
   else if (status === 'ready' && allZero) text = hasFilters ? `No matching ${noun} in this view` : 'Outside the Austin mock coverage'
   if (!text) return null

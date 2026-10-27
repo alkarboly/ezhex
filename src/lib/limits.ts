@@ -1,7 +1,9 @@
 export const H3_RESOLUTION = 8
-export const MIN_DISPLAY_RESOLUTION = 2
+/** Coarsest hex drawn on the map. Below this zoom the globe has no grid. */
+export const MIN_DISPLAY_RESOLUTION = 4
 export const MAX_VIEWPORT_CELLS = 900
-export const MIN_VIEWPORT_ZOOM = 1.2
+/** Zoom floor for the hex grid. Lower zooms are the earth view. */
+export const MIN_VIEWPORT_ZOOM = 5.4
 export const MAX_SELECTED_CELLS = 300
 export const MAX_QUERY_LIMIT = 2000
 export const DEFAULT_QUERY_LIMIT = 50

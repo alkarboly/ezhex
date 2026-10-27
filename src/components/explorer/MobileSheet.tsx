@@ -170,7 +170,7 @@ export function MobileSheet({
     hexMode === 'off'
       ? 'H3 cells are hidden. Turn them on in Map layers.'
       : viewportStatus === 'zoom-in' || viewportStatus === 'too-many'
-        ? 'Zoom in a little to load hexes.'
+        ? 'Globe view. Zoom in for hexes.'
         : 'Pan the map to line a cell up under the reticle.'
 
   return (

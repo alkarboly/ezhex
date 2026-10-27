@@ -21,9 +21,7 @@ const RESOLUTION_ZOOM = [
   { minZoom: 9.6, resolution: 7 },
   { minZoom: 8.2, resolution: 6 },
   { minZoom: 6.8, resolution: 5 },
-  { minZoom: 5.4, resolution: 4 },
-  { minZoom: 3.8, resolution: 3 },
-  { minZoom: MIN_VIEWPORT_ZOOM, resolution: 2 },
+  { minZoom: MIN_VIEWPORT_ZOOM, resolution: 4 },
 ] as const
 
 export const AUSTIN_CENTER = { lng: -97.7431, lat: 30.2672 }
@@ -31,6 +29,12 @@ export const AUSTIN_ZOOM = 12.4
 /** Opening frame: Africa and Europe, with the Americas still on the limb. */
 export const GLOBE_START = { lng: 18, lat: 12 }
 export const GLOBE_ZOOM = 1.35
+/** Earth-scroll camera after leaving the hex floor. */
+export const EARTH_ZOOM = 1.7
+export const EARTH_MAX_ZOOM = 2.55
+/** First hex camera when coming in from the globe. */
+export const HEX_ENTRY_ZOOM = 6.8
+const MAX_HEX_VIEW_SPAN_DEG = 22
 
 export const MOCK_COVERAGE = {
   west: -97.9,
@@ -85,6 +89,9 @@ export function cellsInView(
   if (bounds.east <= bounds.west || bounds.north <= bounds.south) {
     return { ids: [], status: 'zoom-in', resolution: previousResolution ?? MIN_DISPLAY_RESOLUTION }
   }
+  if (bounds.east - bounds.west > MAX_HEX_VIEW_SPAN_DEG || bounds.north - bounds.south > MAX_HEX_VIEW_SPAN_DEG) {
+    return { ids: [], status: 'zoom-in', resolution: previousResolution ?? MIN_DISPLAY_RESOLUTION }
+  }
   let resolution = resolveDisplayResolution(zoom, previousResolution)
   while (resolution >= MIN_DISPLAY_RESOLUTION) {
     const ids = cellsAtResolution(bounds, resolution)
@@ -119,16 +126,43 @@ export function snapshotForDisplayCell(
   cell: string,
   coverage: ReadonlyMap<string, HexCoverage>,
 ): HexSnapshot | null {
-  const resolution = getResolution(cell)
-  if (resolution === H3_RESOLUTION) return coverage.get(cell)?.snapshot ?? null
-  let stale = false
-  for (const [h3, info] of coverage) {
-    if (info.snapshot == null || getResolution(h3) !== H3_RESOLUTION) continue
-    if (cellToParent(h3, resolution) !== cell) continue
-    if (info.snapshot === 'current') return 'current'
-    stale = true
+  if (getResolution(cell) !== H3_RESOLUTION) return null
+  return coverage.get(cell)?.snapshot ?? null
+}
+
+/** Ready resolution-8 cells that sit under the current parent grid. */
+export function readyCellsInParents(
+  parents: readonly string[],
+  coverage: ReadonlyMap<string, HexCoverage>,
+): string[] {
+  if (parents.length === 0) return []
+  const byRes = new Map<number, Set<string>>()
+  for (const parent of parents) {
+    const resolution = getResolution(parent)
+    const bucket = byRes.get(resolution) ?? new Set<string>()
+    bucket.add(parent)
+    byRes.set(resolution, bucket)
   }
-  return stale ? 'stale' : null
+  const extra: string[] = []
+  for (const [h3, info] of coverage) {
+    if (!info.snapshot || getResolution(h3) !== H3_RESOLUTION) continue
+    let hit = false
+    for (const [resolution, set] of byRes) {
+      if (resolution === H3_RESOLUTION) {
+        if (set.has(h3)) {
+          hit = true
+          break
+        }
+        continue
+      }
+      if (set.has(cellToParent(h3, resolution))) {
+        hit = true
+        break
+      }
+    }
+    if (hit && !byRes.get(H3_RESOLUTION)?.has(h3) && !parents.includes(h3)) extra.push(h3)
+  }
+  return extra
 }
 
 /** GeoJSON polygon ring in [lng, lat] order. h3-js already closes GeoJSON loops. */

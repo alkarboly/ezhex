@@ -15,15 +15,18 @@ import { HexHoverCard } from '../explorer/HexHoverCard'
 import {
   AUSTIN_CENTER,
   AUSTIN_ZOOM,
+  EARTH_MAX_ZOOM,
+  EARTH_ZOOM,
   GLOBE_START,
   GLOBE_ZOOM,
+  HEX_ENTRY_ZOOM,
   boundsForCells,
   buildH3Collection,
   cellsInView,
   type ViewportStatus,
 } from '../../lib/h3'
 import { lensFalloff, lensRadius, lensRings } from '../../lib/lens'
-import { H3_RESOLUTION } from '../../lib/limits'
+import { H3_RESOLUTION, MIN_VIEWPORT_ZOOM } from '../../lib/limits'
 import { cn } from '../../lib/utils'
 import { useExplorer, type BasemapId, type FitRequest, type HexMode } from '../../store/explorer-store'
 import type { FeatureRow } from '../../lib/feature-rows'
@@ -113,6 +116,10 @@ export function H3Map({
   const drawnRef = useRef<ReadonlySet<string>>(new Set())
   const appliedBasemap = useRef(basemap)
   const arrivingRef = useRef(false)
+  const viewModeRef = useRef<'hex' | 'earth'>('earth')
+  const bridgingRef = useRef(false)
+  const cameraLockRef = useRef(false)
+  const lastHexCenterRef = useRef(AUSTIN_CENTER)
   const [styleReady, setStyleReady] = useState(0)
   const [cardCell, setCardCell] = useState<string | null>(null)
   const [cardVisible, setCardVisible] = useState(false)
@@ -302,7 +309,11 @@ export function H3Map({
         if (hoverCell) setCellState(hoverCell, { hover: false })
         if (nextHover) setCellState(nextHover, { hover: true })
         hoverCell = nextHover
-        if (!isTouch) revealCard(nextHover)
+        if (!isTouch) {
+          const cardH3 =
+            nextHover && anchor ? cellAt(anchor, H3_RESOLUTION) : nextHover ? cellAt(rest, H3_RESOLUTION) : null
+          revealCard(cardH3)
+        }
       }
       if (nextCenter !== centerCell) {
         centerCell = nextCenter
@@ -327,15 +338,74 @@ export function H3Map({
     let arrivalArmed = false
 
     const report = () => {
-      if (arriving) return
+      if (arriving || bridgingRef.current) return
+      const zoom = map.getZoom()
+      if (viewModeRef.current === 'earth' || zoom < MIN_VIEWPORT_ZOOM) {
+        displayResRef.current = H3_RESOLUTION
+        viewportRef.current([], 'zoom-in', H3_RESOLUTION)
+        return
+      }
       const bounds = map.getBounds()
       const next = cellsInView(
         { west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() },
-        map.getZoom(),
+        zoom,
         displayResRef.current,
       )
       displayResRef.current = next.resolution
       viewportRef.current(next.ids, next.status, next.resolution)
+      if (next.status === 'ready') {
+        const center = map.getCenter()
+        lastHexCenterRef.current = { lng: center.lng, lat: center.lat }
+      }
+    }
+
+    const settleViewMode = () => {
+      viewModeRef.current = map.getZoom() >= MIN_VIEWPORT_ZOOM ? 'hex' : 'earth'
+    }
+
+    const bridgeTo = (mode: 'hex' | 'earth') => {
+      if (bridgingRef.current || arriving) return
+      bridgingRef.current = true
+      viewModeRef.current = mode
+      const hex = lastHexCenterRef.current
+      const camera =
+        mode === 'earth'
+          ? { center: [hex.lng, hex.lat] as [number, number], zoom: EARTH_ZOOM }
+          : {
+              center: [hex.lng, hex.lat] as [number, number],
+              zoom: HEX_ENTRY_ZOOM,
+              offset: insetOffset(insetsRef.current),
+            }
+      if (reducedMotion()) {
+        map.jumpTo(camera)
+        bridgingRef.current = false
+        report()
+        return
+      }
+      map.stop()
+      map.easeTo({
+        ...camera,
+        duration: 1100,
+        easing: easeInOutCubic,
+        essential: true,
+      })
+      map.once('moveend', () => {
+        bridgingRef.current = false
+        settleViewMode()
+        report()
+      })
+    }
+
+    const maybeBridgeZoom = () => {
+      if (arriving || bridgingRef.current || cameraLockRef.current) return
+      const zoom = map.getZoom()
+      if (viewModeRef.current === 'hex' && zoom < MIN_VIEWPORT_ZOOM - 0.02) {
+        bridgeTo('earth')
+        return
+      }
+      if (viewModeRef.current === 'earth' && zoom > EARTH_MAX_ZOOM + 0.02) {
+        bridgeTo('hex')
+      }
     }
 
     let reportTimer = 0
@@ -359,6 +429,7 @@ export function H3Map({
       if (!arriving) return
       arriving = false
       arrivingRef.current = false
+      settleViewMode()
       if (appliedBasemap.current === openingBasemap) {
         report()
         return
@@ -446,9 +517,13 @@ export function H3Map({
     })
     map.on('load', report)
     map.on('moveend', report)
+    map.on('zoom', maybeBridgeZoom)
     map.on('move', () => {
       schedule()
-      if (!arriving) reportSoon()
+      if (!arriving) {
+        maybeBridgeZoom()
+        reportSoon()
+      }
     })
     map.on('mousemove', (event) => {
       if (touchRef.current) return
@@ -464,7 +539,7 @@ export function H3Map({
       if (!cardHeldRef.current && !inspectOpenRef.current) fadeTo(0, 320)
     })
     map.on('click', (event) => {
-      if (modeRef.current === 'off') return
+      if (modeRef.current === 'off' || viewModeRef.current === 'earth') return
       const cell = latLngToCell(event.lngLat.lat, event.lngLat.lng, H3_RESOLUTION)
       const display = latLngToCell(event.lngLat.lat, event.lngLat.lng, displayResRef.current)
       if (!drawnRef.current.has(cell) && !drawnRef.current.has(display)) return
@@ -481,6 +556,7 @@ export function H3Map({
       map.resize()
       setSize({ width: container.clientWidth, height: container.clientHeight })
       schedule()
+      if (!arriving) reportSoon()
     })
     observer.observe(container)
 
@@ -548,11 +624,14 @@ export function H3Map({
     const container = containerRef.current
     const bounds = boundsForCells([...selectedRef.current])
     if (!map || !container || !bounds) return
-    map.fitBounds(bounds, {
-      padding: fitPadding(container, insetsRef.current),
-      maxZoom: fit.zoomIn ? 14.5 : map.getZoom(),
-      duration: reducedMotion() ? 0 : 1180,
-      easing: easeInOutCubic,
+    runLockedCamera(map, cameraLockRef, viewModeRef, () => {
+      viewModeRef.current = 'hex'
+      map.fitBounds(bounds, {
+        padding: fitPadding(container, insetsRef.current),
+        maxZoom: fit.zoomIn ? 14.5 : map.getZoom(),
+        duration: reducedMotion() ? 0 : 1180,
+        easing: easeInOutCubic,
+      })
     })
   }, [fit])
 
@@ -561,13 +640,16 @@ export function H3Map({
     const map = mapRef.current
     if (!map) return
     const [lat, lng] = cellToLatLng(focusRef.current)
-    map.flyTo({
-      center: [lng, lat],
-      zoom: Math.max(map.getZoom(), 13.2),
-      offset: insetOffset(insetsRef.current),
-      duration: reducedMotion() ? 0 : 1200,
-      curve: 1.35,
-      easing: easeInOutCubic,
+    runLockedCamera(map, cameraLockRef, viewModeRef, () => {
+      viewModeRef.current = 'hex'
+      map.flyTo({
+        center: [lng, lat],
+        zoom: Math.max(map.getZoom(), 13.2),
+        offset: insetOffset(insetsRef.current),
+        duration: reducedMotion() ? 0 : 1200,
+        curve: 1.35,
+        easing: easeInOutCubic,
+      })
     })
   }, [focusNonce])
 
@@ -576,21 +658,49 @@ export function H3Map({
     () => ({
       zoomIn: () => {
         const map = mapRef.current
-        if (map) zoomBy(map, ZOOM_STEP, insetsRef.current)
+        if (!map) return
+        if (viewModeRef.current === 'earth') {
+          runLockedCamera(map, cameraLockRef, viewModeRef, () => {
+            viewModeRef.current = 'hex'
+            const hex = lastHexCenterRef.current
+            easeCamera(map, {
+              center: [hex.lng, hex.lat],
+              zoom: HEX_ENTRY_ZOOM,
+              offset: insetOffset(insetsRef.current),
+            })
+          })
+          return
+        }
+        zoomBy(map, ZOOM_STEP, insetsRef.current)
       },
       zoomOut: () => {
         const map = mapRef.current
-        if (map) zoomBy(map, -ZOOM_STEP, insetsRef.current)
+        if (!map) return
+        if (viewModeRef.current === 'hex' && map.getZoom() - ZOOM_STEP < MIN_VIEWPORT_ZOOM) {
+          runLockedCamera(map, cameraLockRef, viewModeRef, () => {
+            viewModeRef.current = 'earth'
+            const hex = lastHexCenterRef.current
+            easeCamera(map, { center: [hex.lng, hex.lat], zoom: EARTH_ZOOM })
+          })
+          return
+        }
+        zoomBy(map, -ZOOM_STEP, insetsRef.current)
       },
-      resetView: () =>
-        mapRef.current?.easeTo({
-          center: [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat],
-          zoom: AUSTIN_ZOOM,
-          bearing: 0,
-          offset: insetOffset(insetsRef.current),
-          duration: reducedMotion() ? 0 : 1280,
-          easing: easeInOutCubic,
-        }),
+      resetView: () => {
+        const map = mapRef.current
+        if (!map) return
+        runLockedCamera(map, cameraLockRef, viewModeRef, () => {
+          viewModeRef.current = 'hex'
+          map.easeTo({
+            center: [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat],
+            zoom: AUSTIN_ZOOM,
+            bearing: 0,
+            offset: insetOffset(insetsRef.current),
+            duration: reducedMotion() ? 0 : 1280,
+            easing: easeInOutCubic,
+          })
+        })
+      },
     }),
     [],
   )
@@ -723,14 +833,43 @@ function easeInOutCubic(progress: number): number {
 }
 
 function zoomBy(map: MapLibreMap, delta: number, inset: MapInsets) {
-  const next = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), map.getZoom() + delta))
-  const camera = { zoom: next, offset: insetOffset(inset) }
+  zoomTo(map, map.getZoom() + delta, inset)
+}
+
+function zoomTo(map: MapLibreMap, zoom: number, inset: MapInsets) {
+  const next = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), zoom))
+  easeCamera(map, { zoom: next, offset: insetOffset(inset) })
+}
+
+function easeCamera(
+  map: MapLibreMap,
+  camera: { center?: [number, number]; zoom: number; offset?: [number, number] },
+) {
   if (reducedMotion()) {
-    map.jumpTo(camera)
+    map.jumpTo(camera.center ? { center: camera.center, zoom: camera.zoom } : { zoom: camera.zoom })
     return
   }
   map.stop()
   map.easeTo({ ...camera, duration: 1180, easing: easeInOutCubic, essential: true })
+}
+
+function runLockedCamera(
+  map: MapLibreMap,
+  lock: { current: boolean },
+  viewMode: { current: 'hex' | 'earth' },
+  run: () => void,
+) {
+  lock.current = true
+  run()
+  const release = () => {
+    lock.current = false
+    viewMode.current = map.getZoom() >= MIN_VIEWPORT_ZOOM ? 'hex' : 'earth'
+  }
+  if (reducedMotion() || !map.isMoving()) {
+    release()
+    return
+  }
+  map.once('moveend', release)
 }
 
 /** Globe in the app palette. Streets colors ease back to the basemap by zoom 7. */

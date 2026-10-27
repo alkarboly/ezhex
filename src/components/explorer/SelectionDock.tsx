@@ -6,7 +6,7 @@ import { useExplorer } from '../../store/explorer-store'
 
 export function viewportLabel(status: ViewportStatus, count: number): string {
   if (status === 'idle') return 'Loading map…'
-  if (status === 'zoom-in') return 'Zoom in a little to load hexes'
+  if (status === 'zoom-in') return 'Globe view · zoom in for hexes'
   if (status === 'too-many') return 'Too many cells · zoom in'
   return `${count} cells in view`
 }
