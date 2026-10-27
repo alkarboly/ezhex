@@ -30,6 +30,7 @@ export function HexInspectWindow({ cells }: { cells: readonly string[] }) {
       <div
         className="flex cursor-grab items-center justify-between gap-2 px-3.5 py-2.5 active:cursor-grabbing"
         onPointerDown={(event) => {
+          if ((event.target as HTMLElement).closest('button')) return
           drag.current = { x: event.clientX, y: event.clientY, left: position.x, top: position.y }
           event.currentTarget.setPointerCapture(event.pointerId)
         }}
@@ -52,7 +53,11 @@ export function HexInspectWindow({ cells }: { cells: readonly string[] }) {
         </div>
         <button
           type="button"
-          onClick={() => setInspectOpen(false)}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation()
+            setInspectOpen(false)
+          }}
           className="h-7 rounded-full bg-white/[0.06] px-2.5 text-[11px] font-medium hover:bg-primary/15 hover:text-primary"
         >
           Close

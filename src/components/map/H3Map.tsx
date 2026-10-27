@@ -25,6 +25,15 @@ import {
   cellsInView,
   type ViewportStatus,
 } from '../../lib/h3'
+import {
+  appearDelayMs,
+  appearDurationMs,
+  appearEase,
+  appearKind,
+  outgoingDurationMs,
+  shouldFadeOutgoing,
+  type AppearKind,
+} from '../../lib/hex-appear'
 import { lensFalloff, lensRadius, lensRings } from '../../lib/lens'
 import { H3_RESOLUTION, MIN_VIEWPORT_ZOOM } from '../../lib/limits'
 import { cn } from '../../lib/utils'
@@ -74,9 +83,12 @@ type Point = { x: number; y: number }
 type LensApi = {
   schedule: () => void
   setInput: (touch: boolean) => void
+  appear: (ids: readonly string[], kind: AppearKind, outgoing: GeoJSON.FeatureCollection | null) => void
 }
 
 const H3_LAYERS = ['h3-fill', 'h3-glow', 'h3-line'] as const
+const H3_OUT_LAYERS = ['h3-out-fill', 'h3-out-line'] as const
+const EMPTY_COLLECTION: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 /** Lens strength before the pointer first reaches the map, so the effect shows on load. */
 const INTRO_STRENGTH = 0.7
 
@@ -104,7 +116,11 @@ export function H3Map({
   const containerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
-  const lensRef = useRef<LensApi>({ schedule: () => {}, setInput: () => {} })
+  const lensRef = useRef<LensApi>({ schedule: () => {}, setInput: () => {}, appear: () => {} })
+  const prevGridRef = useRef<{ ids: Set<string>; collection: GeoJSON.FeatureCollection }>({
+    ids: new Set(),
+    collection: EMPTY_COLLECTION,
+  })
   const clickRef = useRef(onCellClick)
   const actionRef = useRef(onHexAction)
   const coverageRef = useRef(cellCoverage)
@@ -132,7 +148,12 @@ export function H3Map({
   const inspectOpen = useExplorer((state) => state.inspectOpen)
   const inspectOpenRef = useRef(inspectOpen)
   inspectOpenRef.current = inspectOpen
+  const ignoreClickUntilRef = useRef(0)
   const displayResRef = useRef(H3_RESOLUTION)
+
+  useEffect(() => {
+    if (!inspectOpen) ignoreClickUntilRef.current = performance.now() + 400
+  }, [inspectOpen])
 
   useLayoutEffect(() => {
     clickRef.current = onCellClick
@@ -211,6 +232,8 @@ export function H3Map({
     let centerCell: string | null = null
     let strength = 0
     let fade = { from: 0, to: 0, start: 0, duration: 1 }
+    const appearAnims = new Map<string, { start: number; delay: number; duration: number }>()
+    let outFade = { from: 0, to: 0, start: 0, duration: 1, value: 0 }
 
     const schedule = () => {
       if (active && frame === 0) frame = requestAnimationFrame(render)
@@ -268,6 +291,27 @@ export function H3Map({
         const progress = Math.min(1, (now - fade.start) / Math.max(1, fade.duration))
         strength = progress >= 1 ? fade.to : fade.from + (fade.to - fade.from) * (1 - (1 - progress) ** 3)
         again = progress < 1
+      }
+      if (outFade.value !== outFade.to) {
+        const progress = Math.min(1, (now - outFade.start) / Math.max(1, outFade.duration))
+        outFade.value =
+          progress >= 1 ? outFade.to : outFade.from + (outFade.to - outFade.from) * (1 - (1 - progress) ** 3)
+        paintOutgoing(map, outFade.value)
+        if (progress >= 1 && outFade.to === 0) clearOutgoing(map)
+        else again = true
+      }
+      if (appearAnims.size > 0) {
+        for (const [cell, anim] of appearAnims) {
+          const progress = (now - anim.start - anim.delay) / anim.duration
+          if (progress < 0) {
+            again = true
+            continue
+          }
+          const value = appearEase(progress)
+          setCellState(cell, { appear: value })
+          if (progress >= 1) appearAnims.delete(cell)
+          else again = true
+        }
       }
 
       const mode = modeRef.current
@@ -344,6 +388,43 @@ export function H3Map({
           setCardVisible(false)
         }
         fadeTo(restingStrength(), 300)
+      },
+      appear: (ids, kind, outgoing) => {
+        if (kind === 'none' || !map.getSource('h3')) return
+        if (reducedMotion()) {
+          appearAnims.clear()
+          for (const id of ids) setCellState(id, { appear: 1 })
+          clearOutgoing(map)
+          schedule()
+          return
+        }
+        if (outgoing && outgoing.features.length > 0) {
+          const source = map.getSource('h3-out')
+          if (source?.type === 'geojson') (source as GeoJSONSource).setData(outgoing)
+          outFade = { from: 1, to: 0, start: performance.now(), duration: outgoingDurationMs(), value: 1 }
+          paintOutgoing(map, 1)
+        }
+        if (ids.length === 0) {
+          schedule()
+          return
+        }
+        const origin = map.getCenter()
+        const originPt = map.project([origin.lng, origin.lat])
+        const sample = ids[0]
+        const spacing = sample ? neighborSpacing(map, sample) : 48
+        const now = performance.now()
+        const duration = appearDurationMs(kind)
+        for (const id of ids) {
+          const [lat, lng] = cellToLatLng(id)
+          const point = map.project([lng, lat])
+          appearAnims.set(id, {
+            start: now,
+            delay: appearDelayMs(Math.hypot(point.x - originPt.x, point.y - originPt.y), spacing, kind),
+            duration,
+          })
+          setCellState(id, { appear: 0 })
+        }
+        schedule()
       },
     }
 
@@ -516,6 +597,9 @@ export function H3Map({
       applied = new Map()
       hoverCell = null
       strength = 0
+      appearAnims.clear()
+      outFade = { from: 0, to: 0, start: 0, duration: 1, value: 0 }
+      prevGridRef.current = { ids: new Set(), collection: EMPTY_COLLECTION }
       setMapError(null)
       setStyleReady((value) => value + 1)
       fadeTo(restingStrength(), 600)
@@ -553,6 +637,7 @@ export function H3Map({
     })
     map.on('click', (event) => {
       if (modeRef.current === 'off' || viewModeRef.current === 'earth') return
+      if (performance.now() < ignoreClickUntilRef.current) return
       const cell = latLngToCell(event.lngLat.lat, event.lngLat.lng, H3_RESOLUTION)
       const display = latLngToCell(event.lngLat.lat, event.lngLat.lng, displayResRef.current)
       if (!drawnRef.current.has(cell) && !drawnRef.current.has(display)) return
@@ -608,6 +693,27 @@ export function H3Map({
     drawnRef.current = new Set(drawn)
     const source = mapRef.current?.getSource('h3')
     if (source?.type === 'geojson') (source as GeoJSONSource).setData(collection)
+    const previous = prevGridRef.current
+    const kind = appearKind(previous.ids, drawn)
+    const nextIds = new Set(drawn)
+    const added = kind === 'pan' ? drawn.filter((id) => !previous.ids.has(id)) : [...drawn]
+    const removed = [...previous.ids].filter((id) => !nextIds.has(id))
+    const outgoing =
+      shouldFadeOutgoing(kind, removed.length) && previous.collection.features.length > 0
+        ? {
+            type: 'FeatureCollection' as const,
+            features: previous.collection.features.filter((feature) => {
+              const id = feature.properties && typeof feature.properties === 'object' && 'h3' in feature.properties
+                ? String(feature.properties.h3)
+                : ''
+              return removed.includes(id) || kind === 'swap'
+            }),
+          }
+        : null
+    if (kind !== 'none' && (added.length > 0 || outgoing)) {
+      lensRef.current.appear(added, kind, outgoing)
+    }
+    prevGridRef.current = { ids: new Set(drawn), collection }
     lensRef.current.schedule()
   }, [collection, drawn, styleReady])
 
@@ -936,18 +1042,27 @@ type Expression = Extract<NonNullable<FillPaint['fill-opacity']>, readonly unkno
 
 const HOVER: Expression = ['boolean', ['feature-state', 'hover'], false]
 const LENS: Expression = ['number', ['feature-state', 'lens'], 0]
+const APPEAR: Expression = ['number', ['feature-state', 'appear'], 0]
 const SELECTED: Expression = ['==', ['get', 'selected'], 1]
 const FOCUSED: Expression = ['==', ['get', 'focused'], 1]
 const EMPTY: Expression = ['==', ['get', 'snapshot'], 'none']
 
+function withAppear(opacity: Expression): Expression {
+  return ['*', APPEAR, opacity]
+}
+
 function fillOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return ['case', EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5]
+  return withAppear(['case', EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5])
 }
 
 function lineOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return ['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, mode === 'grid' ? 0.22 : ['*', LENS, 0.4], 0.55]
+  return withAppear(['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, mode === 'grid' ? 0.22 : ['*', LENS, 0.4], 0.55])
+}
+
+function glowOpacity(): Expression {
+  return withAppear(['case', HOVER, 0.55, FOCUSED, 0.6, SELECTED, 0.32, 0])
 }
 
 /** Fills go under roads and buildings, so streets cut through the color. */
@@ -964,14 +1079,37 @@ function topLabelLayer(map: MapLibreMap): string | undefined {
 }
 
 function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
+  if (!map.getSource('h3-out')) {
+    map.addSource('h3-out', {
+      type: 'geojson',
+      data: EMPTY_COLLECTION,
+    })
+  }
   if (!map.getSource('h3')) {
     map.addSource('h3', {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
+      data: EMPTY_COLLECTION,
       promoteId: 'h3',
     })
   }
   const visibility = mode === 'off' ? 'none' : 'visible'
+  const instant = { duration: 0, delay: 0 }
+  if (!map.getLayer('h3-out-fill')) {
+    map.addLayer(
+      {
+        id: 'h3-out-fill',
+        type: 'fill',
+        source: 'h3-out',
+        layout: { visibility },
+        paint: {
+          'fill-color': ['get', 'color'],
+          'fill-opacity': 0,
+          'fill-opacity-transition': instant,
+        },
+      },
+      firstSymbolLayer(map),
+    )
+  }
   if (!map.getLayer('h3-fill')) {
     map.addLayer(
       {
@@ -979,7 +1117,11 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         type: 'fill',
         source: 'h3',
         layout: { visibility },
-        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': fillOpacity(mode) },
+        paint: {
+          'fill-color': ['get', 'color'],
+          'fill-opacity': fillOpacity(mode),
+          'fill-opacity-transition': instant,
+        },
       },
       firstSymbolLayer(map),
     )
@@ -1003,7 +1145,8 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
           ],
           'line-width': 7,
           'line-blur': 6,
-          'line-opacity': ['case', HOVER, 0.55, FOCUSED, 0.6, SELECTED, 0.32, 0],
+          'line-opacity': glowOpacity(),
+          'line-opacity-transition': { duration: 0, delay: 0 },
         },
       },
       beforeId,
@@ -1033,6 +1176,31 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
           ],
           'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.8, EMPTY, 0.55, 1.15],
           'line-opacity': lineOpacity(mode),
+          'line-opacity-transition': { duration: 0, delay: 0 },
+        },
+      },
+      beforeId,
+    )
+  }
+  if (!map.getLayer('h3-out-line')) {
+    map.addLayer(
+      {
+        id: 'h3-out-line',
+        type: 'line',
+        source: 'h3-out',
+        layout: { visibility, 'line-join': 'round' },
+        paint: {
+          'line-color': [
+            'case',
+            ['==', ['get', 'snapshot'], 'current'],
+            '#2ee6a6',
+            ['==', ['get', 'snapshot'], 'stale'],
+            '#f5c451',
+            '#6d7d8f',
+          ],
+          'line-width': ['case', ['==', ['get', 'snapshot'], 'none'], 0.55, 1.15],
+          'line-opacity': 0,
+          'line-opacity-transition': { duration: 0, delay: 0 },
         },
       },
       beforeId,
@@ -1099,9 +1267,25 @@ function ensureInspectLayers(map: MapLibreMap) {
 
 function applyHexMode(map: MapLibreMap, mode: HexMode) {
   const visibility = mode === 'off' ? 'none' : 'visible'
-  for (const id of H3_LAYERS) {
+  for (const id of [...H3_LAYERS, ...H3_OUT_LAYERS]) {
     if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visibility)
   }
   map.setPaintProperty('h3-fill', 'fill-opacity', fillOpacity(mode))
   if (map.getLayer('h3-line')) map.setPaintProperty('h3-line', 'line-opacity', lineOpacity(mode))
+  if (map.getLayer('h3-glow')) map.setPaintProperty('h3-glow', 'line-opacity', glowOpacity())
+}
+
+function paintOutgoing(map: MapLibreMap, fade: number) {
+  if (map.getLayer('h3-out-fill')) {
+    map.setPaintProperty('h3-out-fill', 'fill-opacity', ['*', ['case', EMPTY, 0, 0.5], fade])
+  }
+  if (map.getLayer('h3-out-line')) {
+    map.setPaintProperty('h3-out-line', 'line-opacity', ['*', ['case', EMPTY, 0.18, 0.45], fade])
+  }
+}
+
+function clearOutgoing(map: MapLibreMap) {
+  const source = map.getSource('h3-out')
+  if (source?.type === 'geojson') (source as GeoJSONSource).setData(EMPTY_COLLECTION)
+  paintOutgoing(map, 0)
 }

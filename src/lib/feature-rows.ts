@@ -12,6 +12,8 @@ export type FeatureRow = {
   address: string | null
   building: string | null
   extra: string | null
+  height: number | null
+  floors: number | null
   lat: number
   lng: number
   geometry: GeoJsonGeometry | null
@@ -44,6 +46,8 @@ export function mergeFeatureRows(
       address: linkedAddress ? formatLinkedAddress(linkedAddress) : nonempty(text(row.values.address)),
       building: linkedBuilding ? buildingName(linkedBuilding) : null,
       extra: nonempty(text(row.values.phones) || text(row.values.brand_name)),
+      height: linkedBuilding ? numberValue(linkedBuilding.values.height) : null,
+      floors: linkedBuilding ? numberValue(linkedBuilding.values.num_floors) : null,
       lat: row.lat,
       lng: row.lng,
       geometry: row.geometry,
@@ -52,6 +56,7 @@ export function mergeFeatureRows(
 
   for (const row of addresses) {
     if (usedAddresses.has(row.id)) continue
+    const linkedBuilding = row.building_id ? buildingById.get(row.building_id) : undefined
     rows.push({
       key: `addresses:${row.id}`,
       kind: 'addresses',
@@ -60,13 +65,15 @@ export function mergeFeatureRows(
       name: null,
       category: null,
       address: formatLinkedAddress(row),
-      building: row.building_id && buildingById.has(row.building_id) ? buildingName(buildingById.get(row.building_id)!) : null,
+      building: linkedBuilding ? buildingName(linkedBuilding) : null,
       extra: nonempty([text(row.values.unit), text(row.values.postcode)].filter(Boolean).join(' · ')),
+      height: linkedBuilding ? numberValue(linkedBuilding.values.height) : null,
+      floors: linkedBuilding ? numberValue(linkedBuilding.values.num_floors) : null,
       lat: row.lat,
       lng: row.lng,
       geometry: row.geometry,
     })
-    if (row.building_id) usedBuildings.add(row.building_id)
+    if (linkedBuilding) usedBuildings.add(linkedBuilding.id)
   }
 
   for (const row of buildings) {
@@ -81,7 +88,9 @@ export function mergeFeatureRows(
       category: nonempty(text(row.values.subtype) || text(row.values.class)),
       address: linked ? formatLinkedAddress(linked) : null,
       building: buildingName(row),
-      extra: nonempty(buildingExtra(row)),
+      extra: nonempty(text(row.values.class) && text(row.values.class) !== text(row.values.subtype) ? text(row.values.class) : ''),
+      height: numberValue(row.values.height),
+      floors: numberValue(row.values.num_floors),
       lat: row.lat,
       lng: row.lng,
       geometry: row.geometry,
@@ -141,11 +150,8 @@ function formatLinkedAddress(row: ResultRow): string | null {
   return nonempty(text(row.values.address) || `${text(row.values.number)} ${text(row.values.street)}`.trim())
 }
 
-function buildingExtra(row: ResultRow): string {
-  const parts: string[] = []
-  if (typeof row.values.height === 'number') parts.push(`${row.values.height} m`)
-  if (typeof row.values.num_floors === 'number') parts.push(`${row.values.num_floors} fl`)
-  return parts.join(' · ')
+function numberValue(value: string | number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
 function text(value: string | number | null | undefined): string {

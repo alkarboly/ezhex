@@ -7,6 +7,7 @@ import {
   snapshotForDisplayCell,
 } from '../src/lib/h3.ts'
 import { associateFeatures } from '../src/lib/associate.ts'
+import { appearDelayMs, appearKind, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
 import { mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
@@ -163,6 +164,13 @@ assert(joined.length === 3, 'unmatched place, address, or building was dropped')
 assert(joined[0]?.address === null && joined[0]?.building === null, 'unmatched place should keep null links')
 assert(joined.some((row) => row.kind === 'addresses' && row.name === null), 'orphan address was dropped')
 assert(joined.some((row) => row.kind === 'buildings' && row.address === null), 'orphan building was dropped')
+const placeWithBuilding = mergeFeatureRows(
+  [{ ...unmatchedPlace, id: 'p-linked', building_id: 'b-orphan', values: { 'names.primary': 'Linked Cafe', basic_category: 'cafe' } }],
+  [{ ...unmatchedBuilding, values: { ...unmatchedBuilding.values, height: 12.5, num_floors: 3 } }],
+  [],
+)
+assert(placeWithBuilding.length === 1 && placeWithBuilding[0]?.building === 'Lone Building', 'place did not keep the linked building name')
+assert(placeWithBuilding[0]?.height === 12.5 && placeWithBuilding[0]?.floors === 3, 'linked building height or floors were dropped')
 assert(observedValues(joined, 'category').join(',') === 'cafe,commercial', 'observed categories invented a value')
 assert(!observedValues(joined, 'category').includes('restaurant'), 'observed categories leaked a preset')
 assert(
@@ -283,6 +291,15 @@ try {
   failed = true
 }
 assert(failed, 'unknown field was accepted')
+
+assert(appearKind(new Set(), ['a', 'b']) === 'lay', 'empty previous should lay the first grid')
+assert(appearKind(new Set(['a', 'b', 'c']), ['d', 'e', 'f']) === 'swap', 'disjoint hex sets should swap')
+assert(appearKind(new Set(['a', 'b', 'c']), ['a', 'b', 'd']) === 'pan', 'mostly overlapping hexes should pan')
+assert(appearDelayMs(0, 40, 'lay') === 0, 'center hex should not wait')
+assert(appearDelayMs(200, 40, 'lay') === 350, 'five rings at 70ms should delay 350ms')
+assert(shouldFadeOutgoing('swap', 1), 'resolution swaps should fade the last grid')
+assert(shouldFadeOutgoing('pan', 8), 'enough leaving cells should fade out')
+assert(!shouldFadeOutgoing('pan', 2), 'a couple of edge cells should not start a fade')
 
 const view = cellsInView({ west: -97.76, south: 30.25, east: -97.72, north: 30.29 }, 13)
 assert(view.status === 'ready' && view.ids.length > 0, 'viewport cell lookup failed')

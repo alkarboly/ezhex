@@ -14,6 +14,8 @@ const COLUMNS = [
   { field: 'category', label: 'Category', numeric: false },
   { field: 'address', label: 'Address', numeric: false },
   { field: 'building', label: 'Building', numeric: false },
+  { field: 'height', label: 'Height m', numeric: true },
+  { field: 'floors', label: 'Floors', numeric: true },
   { field: 'extra', label: 'Detail', numeric: false },
   { field: 'lat', label: 'Lat', numeric: true },
   { field: 'lng', label: 'Lng', numeric: true },
@@ -189,6 +191,8 @@ export function HexQueryTable() {
                 <td className="max-w-36 truncate px-2 py-1.5">{row.category ?? '—'}</td>
                 <td className="max-w-52 truncate px-2 py-1.5">{row.address ?? '—'}</td>
                 <td className="max-w-36 truncate px-2 py-1.5">{row.building ?? '—'}</td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.height == null ? '—' : row.height}</td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.floors == null ? '—' : row.floors}</td>
                 <td className="max-w-36 truncate px-2 py-1.5">{row.extra ?? '—'}</td>
                 <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.lat.toFixed(5)}</td>
                 <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.lng.toFixed(5)}</td>
