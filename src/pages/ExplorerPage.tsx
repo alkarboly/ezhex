@@ -2,7 +2,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getResolution } from 'h3-js'
 import { LocateFixed } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { HexActionDialog } from '../components/explorer/HexActionDialog'
 import { HexInspectWindow } from '../components/explorer/HexInspectWindow'
 import { LayersButton, MapControls } from '../components/explorer/MapControls'
@@ -320,24 +319,10 @@ function SelectionDock({
         type="button"
         disabled={selected.length === 0 || processing}
         onClick={() => onAction('process')}
-        className="rounded-full px-3 py-1 text-xs text-foreground/85 transition-colors hover:bg-primary/15 hover:text-primary disabled:opacity-40"
+        className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
       >
         Process
       </button>
-      <button
-        type="button"
-        disabled={selected.length === 0}
-        onClick={() => onAction('workflow')}
-        className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-      >
-        Workflow
-      </button>
-      <Link
-        to="/jobs"
-        className="rounded-full px-3 py-1 text-xs text-foreground/85 transition-colors hover:bg-white/[0.06] hover:text-foreground"
-      >
-        Jobs
-      </Link>
     </div>
   )
 }
@@ -347,7 +332,7 @@ function SnapshotLegend() {
     <div className="glass flex items-center gap-2.5 rounded-full px-3 py-1.5 text-[10px] text-muted-foreground">
       <span className="inline-flex items-center gap-1">
         <span className="size-2 rounded-sm border border-[#6d7d8f] bg-transparent" />
-        Empty
+        No Data
       </span>
       <span className="inline-flex items-center gap-1">
         <span className="size-2 rounded-sm bg-[#2ee6a6]" />
@@ -355,7 +340,7 @@ function SnapshotLegend() {
       </span>
       <span className="inline-flex items-center gap-1">
         <span className="size-2 rounded-sm bg-[#f5c451]" />
-        Older
+        Old snapshot
       </span>
     </div>
   )

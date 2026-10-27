@@ -78,7 +78,7 @@ export function HexHoverCard({
 
 function StatusChip({ status, snapshot }: { status: HexDataStatus; snapshot: HexSnapshot | null }) {
   const label =
-    status === 'processing' ? 'Processing' : snapshot === 'current' ? 'Current' : snapshot === 'stale' ? 'Older' : 'Empty'
+    status === 'processing' ? 'Processing' : snapshot === 'current' ? 'Current' : snapshot === 'stale' ? 'Old snapshot' : 'No Data'
   return (
     <span
       className={cn(

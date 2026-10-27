@@ -65,9 +65,9 @@ Switching basemaps calls `setStyle(style, { diff: false })`. That reloads the st
 
 ### Layout
 
-Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selection dock with Query, Process, Workflow, and Jobs. At 767 px and below, the explorer switches to a top bar with menu and map controls, and the same dock sits at the bottom.
+Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selection dock with Query and Process. Workflows and Jobs stay in the side nav. At 767 px and below, the explorer switches to a top bar with menu and map controls, and the same dock sits at the bottom. The snapshot legend is Empty → No Data, current green, and stale yellow labeled Old snapshot.
 
-Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Query on the dock opens the inspect window. Process and Workflow still open from the dock.
+Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Query on the dock opens the inspect window. Process still opens from the dock.
 
 Hexes start as missing until Process finishes. Query unlocks when rows exist in Supabase.
 
