@@ -1,7 +1,8 @@
 import { cellToBoundary, cellToLatLng, getHexagonEdgeLengthAvg, polygonToCells, UNITS } from 'h3-js'
 import type { Feature, FeatureCollection, Polygon } from 'geojson'
 import { H3_RESOLUTION, MAX_VIEWPORT_CELLS, MIN_VIEWPORT_ZOOM } from './limits'
-import { densityColor } from './color-scale'
+import { snapshotColor } from './color-scale'
+import type { HexSnapshot } from '../types/workflows'
 
 const KM_PER_DEGREE_LAT = 110.574
 /** A cell can poke into the view while its center sits up to one edge length outside it. */
@@ -120,30 +121,29 @@ export type H3FeatureProps = {
   count: number
   selected: number
   focused: number
+  snapshot: HexSnapshot | 'none'
   color: string
 }
 
-/** Color scales to the busiest cell in `cells`, so it always spans what is on screen. */
+/** Fills follow snapshot freshness. Empty cells stay unfilled. */
 export function buildH3Collection(input: {
   cells: readonly string[]
   counts: ReadonlyMap<string, number>
+  snapshots: ReadonlyMap<string, HexSnapshot | null>
   selected: ReadonlySet<string>
   focusedH3: string | null
 }): FeatureCollection<Polygon, H3FeatureProps> {
-  let max = 0
-  for (const cell of input.cells) {
-    max = Math.max(max, input.counts.get(cell) ?? 0)
-  }
   const features: Feature<Polygon, H3FeatureProps>[] = input.cells.map((cell) => {
-    const count = input.counts.get(cell) ?? 0
+    const snapshot = input.snapshots.get(cell) ?? null
     return {
       type: 'Feature',
       properties: {
         h3: cell,
-        count,
+        count: input.counts.get(cell) ?? 0,
         selected: input.selected.has(cell) ? 1 : 0,
         focused: input.focusedH3 === cell ? 1 : 0,
-        color: densityColor(count, max),
+        snapshot: snapshot ?? 'none',
+        color: snapshotColor(snapshot),
       },
       geometry: cellPolygon(cell),
     }

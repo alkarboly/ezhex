@@ -14,7 +14,7 @@ import { getHexStatus } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
 import type { CellCount } from '../types/queries'
-import type { HexAction, HexDataStatus, IngestionJob } from '../types/workflows'
+import type { HexAction, HexCoverage, HexDataStatus, IngestionJob } from '../types/workflows'
 
 const NO_COUNTS: CellCount[] = []
 const MOBILE_TOP_BAR = 72
@@ -60,11 +60,16 @@ export function ExplorerPage() {
     queryFn: () => getHexStatus(statusCells),
     staleTime: 4_000,
   })
-  const statusMap = useMemo(() => {
-    const next = new Map<string, HexDataStatus>()
-    for (const cell of coverage.data?.cells ?? []) next.set(cell.h3, cell.status)
+  const coverageByCell = useMemo(() => {
+    const next = new Map<string, HexCoverage>()
+    for (const cell of coverage.data?.cells ?? []) next.set(cell.h3, cell)
     return next
   }, [coverage.data])
+  const statusMap = useMemo(() => {
+    const next = new Map<string, HexDataStatus>()
+    for (const [h3, cell] of coverageByCell) next.set(h3, cell.status)
+    return next
+  }, [coverageByCell])
 
   const insets = useMemo<MapInsets>(
     () =>
@@ -161,7 +166,7 @@ export function ExplorerPage() {
         onCellClick={toggleCell}
         onViewportCells={setViewportCells}
         onCenterCell={setCenterCell}
-        cellStatus={statusMap}
+        cellCoverage={coverageByCell}
         onHexAction={openHexAction}
       />
 
@@ -191,11 +196,17 @@ export function ExplorerPage() {
           >
             {status}
           </div>
+          <div
+            className="pointer-events-none absolute inset-x-3 z-20 flex justify-center"
+            style={{ top: `calc(max(0.75rem, env(safe-area-inset-top)) + 5.6rem)` }}
+          >
+            <SnapshotLegend />
+          </div>
           {queryUnavailable && (
             <div
               role="status"
               className="glass pointer-events-none absolute inset-x-3 z-20 mx-auto max-w-md rounded-full px-3.5 py-2 text-center text-xs text-muted-foreground"
-              style={{ top: `calc(max(0.75rem, env(safe-area-inset-top)) + 6.6rem)` }}
+              style={{ top: `calc(max(0.75rem, env(safe-area-inset-top)) + 8.2rem)` }}
             >
               Set SUPABASE_URL and SUPABASE_ANON_KEY on the server, then process hexes to pull Overture.
             </div>
@@ -211,6 +222,9 @@ export function ExplorerPage() {
         </>
       ) : (
         <>
+          <div className="pointer-events-none absolute top-3 left-3 z-20">
+            <SnapshotLegend />
+          </div>
           <div className="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2">{status}</div>
           {queryUnavailable && (
             <div
@@ -302,6 +316,25 @@ function SelectionDock({
       >
         Jobs
       </Link>
+    </div>
+  )
+}
+
+function SnapshotLegend() {
+  return (
+    <div className="glass flex items-center gap-2.5 rounded-full px-3 py-1.5 text-[10px] text-muted-foreground">
+      <span className="inline-flex items-center gap-1">
+        <span className="size-2 rounded-sm border border-[#6d7d8f] bg-transparent" />
+        Empty
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <span className="size-2 rounded-sm bg-[#2ee6a6]" />
+        Current
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <span className="size-2 rounded-sm bg-[#f5c451]" />
+        Older
+      </span>
     </div>
   )
 }

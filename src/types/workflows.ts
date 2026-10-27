@@ -51,6 +51,9 @@ export type IngestionJobStatus = (typeof INGESTION_JOB_STATUSES)[number]
 export const HEX_DATA_STATUSES = ['ready', 'missing', 'processing'] as const
 export type HexDataStatus = (typeof HEX_DATA_STATUSES)[number]
 
+export const HEX_SNAPSHOTS = ['current', 'stale'] as const
+export type HexSnapshot = (typeof HEX_SNAPSHOTS)[number]
+
 export type HexAction = 'process' | 'query' | 'workflow'
 
 export const JOB_LOG_LEVELS = ['info', 'warn', 'error'] as const
@@ -84,12 +87,17 @@ export type IngestionJob = {
 export type HexCoverage = {
   h3: string
   status: HexDataStatus
+  snapshot: HexSnapshot | null
+  release_version: string | null
   job_id: string | null
 }
 
 export type HexCoverageResponse = {
   cells: HexCoverage[]
+  current_release_version: string
   ready_count: number
+  current_count: number
+  stale_count: number
   missing_count: number
   processing_count: number
 }

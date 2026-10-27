@@ -20,7 +20,7 @@ The server enforces these limits when building a plan. The Spark job enforces th
 ```
 UI / API caller
   -> POST /api/hex-status
-     ready | missing | processing for the asked hexes
+     ready | missing | processing, plus current | stale snapshot
   -> GET /api/query-schemas (dataset + field/operator whitelist + capability)
   -> GET /api/workflow-ingestion/limits
   -> POST /api/workflow-ingestion/plan
@@ -82,7 +82,7 @@ Each log line is `{ at, level, message }` where `level` is `info`, `warn`, or `e
 { "h3_cells": ["88489e3467fffff"] }
 ```
 
-Returns per-hex `ready`, `missing`, or `processing`, plus counts.
+Returns per-hex `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null), `release_version`, and counts including `current_count` and `stale_count`. The current snapshot is `OVERTURE_RELEASE`.
 
 The explorer hover card and `/jobs` create jobs from selected hexes. `/jobs` shows a live log pane per job and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Query opens from a ready hex and uses the same schema whitelist.
 

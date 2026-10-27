@@ -1,19 +1,19 @@
 import { useEffect } from 'react'
-import { densityGradientCss } from '../../lib/color-scale'
 import { formatCount } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useExplorer } from '../../store/explorer-store'
-import type { HexAction, HexDataStatus } from '../../types/workflows'
+import type { HexAction, HexDataStatus, HexSnapshot } from '../../types/workflows'
 import { HexQueryTable } from './HexQueryTable'
 
 export function HexHoverCard({
   h3,
   count,
   countLabel,
-  maxCount,
   selected,
   addMode,
   dataStatus,
+  snapshot,
+  releaseVersion,
   onAction,
   onMouseEnter,
   onMouseLeave,
@@ -21,10 +21,11 @@ export function HexHoverCard({
   h3: string
   count: number
   countLabel: string
-  maxCount: number
   selected: boolean
   addMode: boolean
   dataStatus: HexDataStatus
+  snapshot: HexSnapshot | null
+  releaseVersion: string | null
   onAction: (action: HexAction) => void
   onMouseEnter: () => void
   onMouseLeave: () => void
@@ -65,31 +66,25 @@ export function HexHoverCard({
         <span className="truncate font-mono text-[11px] text-muted-foreground">
           {selectedCells.length > 1 && open ? `${selectedCells.length} hexes` : h3}
         </span>
-        <StatusChip status={dataStatus} />
+        <StatusChip status={dataStatus} snapshot={snapshot} />
       </div>
       {!open && (
-        <>
-          <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-xl font-semibold tracking-tight tabular-nums">{formatCount(count)}</span>
-            <span className="text-xs text-muted-foreground">{countLabel}</span>
-          </div>
-          <div className="relative mt-2 h-1 rounded-full" style={{ background: densityGradientCss() }}>
-            <span
-              className="absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-background"
-              style={{ left: `${maxCount > 0 ? (count / maxCount) * 100 : 0}%` }}
-            />
-          </div>
-        </>
+        <div className="mt-1 flex items-baseline gap-1.5">
+          <span className="text-xl font-semibold tracking-tight tabular-nums">{formatCount(count)}</span>
+          <span className="text-xs text-muted-foreground">{countLabel}</span>
+        </div>
       )}
       {open && ready ? (
         <HexQueryTable />
       ) : (
         <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-          {ready
-            ? 'Open the table to inspect rows in this hex.'
-            : processing
-              ? 'An ingestion job is already queued for this hex.'
-              : 'No processed data yet. Process this hex, then inspect the table.'}
+          {snapshot === 'stale'
+            ? `Older snapshot${releaseVersion ? ` ${releaseVersion}` : ''}. Process again to refresh.`
+            : snapshot === 'current'
+              ? `Current snapshot${releaseVersion ? ` ${releaseVersion}` : ''}. Open the table to inspect rows.`
+              : processing
+                ? 'An ingestion job is already queued for this hex.'
+                : 'No processed data yet. Empty hexes stay unfilled until you process them.'}
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-1.5">
@@ -122,17 +117,20 @@ export function HexHoverCard({
   )
 }
 
-function StatusChip({ status }: { status: HexDataStatus }) {
+function StatusChip({ status, snapshot }: { status: HexDataStatus; snapshot: HexSnapshot | null }) {
+  const label =
+    status === 'processing' ? 'Processing' : snapshot === 'current' ? 'Current' : snapshot === 'stale' ? 'Older' : 'Empty'
   return (
     <span
       className={cn(
         'rounded-full px-1.5 py-px text-[10px] font-medium',
-        status === 'ready' && 'bg-primary/15 text-primary',
+        snapshot === 'current' && 'bg-[#2ee6a6]/15 text-[#2ee6a6]',
+        snapshot === 'stale' && 'bg-[#f5c451]/15 text-[#f5c451]',
         status === 'processing' && 'bg-select/15 text-select',
         status === 'missing' && 'bg-white/10 text-muted-foreground',
       )}
     >
-      {status === 'ready' ? 'Ready' : status === 'processing' ? 'Processing' : 'No data'}
+      {label}
     </span>
   )
 }

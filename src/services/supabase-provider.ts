@@ -1,3 +1,4 @@
+import { compareOvertureRelease } from '../lib/overture'
 import { H3_RESOLUTION, MAX_VIEWPORT_CELLS } from '../lib/limits'
 import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { getSupabaseClient } from '../lib/supabase'
@@ -122,19 +123,28 @@ export const supabaseProvider: DataProvider = {
 }
 
 export async function supabaseReadyHexes(cells: readonly string[]): Promise<Set<string>> {
+  return new Set((await supabaseHexReleases(cells)).keys())
+}
+
+/** Newest `release_version` stored for each hex across the Overture feature tables. */
+export async function supabaseHexReleases(cells: readonly string[]): Promise<Map<string, string>> {
   const client = requireClient()
-  const found = new Set<string>()
-  if (cells.length === 0) return found
+  const newest = new Map<string, string>()
+  if (cells.length === 0) return newest
   for (const table of Object.values(TABLES)) {
     for (const part of chunk(cells, 80)) {
-      const { data, error } = await client.from(table).select('h3_res8').in('h3_res8', part)
+      const { data, error } = await client.from(table).select('h3_res8, release_version').in('h3_res8', part)
       if (error) throw new Error(error.message)
       for (const row of data ?? []) {
-        if (row && typeof row.h3_res8 === 'string') found.add(row.h3_res8)
+        if (!row || typeof row.h3_res8 !== 'string' || typeof row.release_version !== 'string') continue
+        const previous = newest.get(row.h3_res8)
+        if (!previous || compareOvertureRelease(row.release_version, previous) > 0) {
+          newest.set(row.h3_res8, row.release_version)
+        }
       }
     }
   }
-  return found
+  return newest
 }
 
 function requireClient() {

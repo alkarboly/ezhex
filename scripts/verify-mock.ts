@@ -297,6 +297,14 @@ assert(listedJobs.body.some((job) => isRecord(job) && job.id === createdJob.body
 const hexStatus = await routeApi('POST', '/api/hex-status', { h3_cells: [sampleCells[0]] })
 assert(hexStatus.status === 200 && isRecord(hexStatus.body), 'hex status failed')
 assert(hexStatus.body.ready_count === 1, 'capitol hex should be ready in mock mode')
+assert(hexStatus.body.current_count === 1, 'capitol hex should be on the current snapshot')
+assert(typeof hexStatus.body.current_release_version === 'string', 'current release is missing')
+assert(
+  Array.isArray(hexStatus.body.cells) &&
+    isRecord(hexStatus.body.cells[0]) &&
+    hexStatus.body.cells[0].snapshot === 'current',
+  'capitol hex snapshot drifted',
+)
 const outside = latLngToCell(31.2, -97.74, H3_RESOLUTION)
 assert(!first.cells.includes(outside), 'outside cell leaked into Austin coverage')
 const outsideJob = await routeApi('POST', '/api/workflow-ingestion/jobs', {
@@ -316,6 +324,13 @@ assert(ranAgain.status === 200 && isRecord(ranAgain.body) && ranAgain.body.statu
 const outsideStatus = await routeApi('POST', '/api/hex-status', { h3_cells: [outside] })
 assert(outsideStatus.status === 200 && isRecord(outsideStatus.body), 'outside hex status failed')
 assert(outsideStatus.body.ready_count === 1, 'ingested hex should be ready')
+assert(outsideStatus.body.stale_count === 1, 'older-release ingest should be a stale snapshot')
+assert(
+  Array.isArray(outsideStatus.body.cells) &&
+    isRecord(outsideStatus.body.cells[0]) &&
+    outsideStatus.body.cells[0].snapshot === 'stale',
+  'outside hex should be stale against the current Overture release',
+)
 const outsideCounts = await routeApi('POST', '/api/cell-counts', {
   dataset: 'places',
   h3_cells: [outside],

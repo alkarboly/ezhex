@@ -19,6 +19,12 @@ export function defaultOvertureRelease(): string {
   return RELEASE_RE.test(raw) ? raw : DEFAULT_OVERTURE_RELEASE
 }
 
+/** Overture ids are `YYYY-MM-DD.N`, so lexical order matches recency. */
+export function compareOvertureRelease(left: string, right: string): number {
+  if (left === right) return 0
+  return left < right ? -1 : 1
+}
+
 export function assertOvertureRelease(release: string): string {
   const value = release.trim()
   if (!RELEASE_RE.test(value)) throw new Error('release_version is not a valid Overture release id.')

@@ -35,7 +35,7 @@ The planning route validates selected hexes, enforces connectedness, computes bb
 
 Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines from create, DuckDB S3 reads, bbox vs hex filter counts, RPC write batches, and the final row totals. The store keeps the newest 200 lines per job. `/jobs` shows that stream under each job and polls every 1.2s while any job is queued or running.
 
-`POST /api/hex-status` returns `ready`, `missing`, or `processing`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. Processing means a download is running.
+`POST /api/hex-status` returns `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null) and `release_version`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. `current` means the newest stored release is at least `OVERTURE_RELEASE` (`2026-10-21.0` by default). `stale` means the hex has rows from an older release. Processing means a download is running.
 
 `/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. The explorer is hex-first: hover a cell to inspect its rows (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
 
@@ -49,7 +49,7 @@ The projection is a globe. On each style load the map sets that projection and a
 
 Zoom buttons ease 0.85 steps over 820ms with an ease-in-out curve, centered on the unobstructed map area. Wheel zoom is slowed so the globe does not jump. Fit and reset use the same curve. `prefers-reduced-motion` jumps instead.
 
-Cell fill color is the count of records in each visible cell. The scale runs to the busiest drawn cell. Outlines carry state: amber for selected and white under the pointer.
+Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Green (`#2ee6a6`) is the current Overture release. Yellow (`#f5c451`) is an older stored release. Outlines match that fill; hover and selection use white.
 
 ### Cell display
 

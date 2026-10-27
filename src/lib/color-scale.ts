@@ -7,6 +7,12 @@ const STOPS: { t: number; rgb: [number, number, number] }[] = [
 
 const EMPTY_CELL = 'rgb(46 60 74)'
 
+export const SNAPSHOT_FILL = {
+  none: 'rgba(0, 0, 0, 0)',
+  current: '#2ee6a6',
+  stale: '#f5c451',
+} as const
+
 function mix(from: [number, number, number], to: [number, number, number], t: number): string {
   const r = Math.round(from[0] + (to[0] - from[0]) * t)
   const g = Math.round(from[1] + (to[1] - from[1]) * t)
@@ -28,6 +34,12 @@ export function densityColor(count: number, max: number): string {
   }
   const last = STOPS[STOPS.length - 1].rgb
   return `rgb(${last[0]} ${last[1]} ${last[2]})`
+}
+
+export function snapshotColor(snapshot: 'current' | 'stale' | null | undefined): string {
+  if (snapshot === 'current') return SNAPSHOT_FILL.current
+  if (snapshot === 'stale') return SNAPSHOT_FILL.stale
+  return SNAPSHOT_FILL.none
 }
 
 export function densityGradientCss(): string {

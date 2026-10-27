@@ -27,7 +27,7 @@ import { H3_RESOLUTION } from '../../lib/limits'
 import { cn } from '../../lib/utils'
 import { useExplorer, type BasemapId, type FitRequest, type HexMode } from '../../store/explorer-store'
 import type { CellCount } from '../../types/queries'
-import type { HexAction, HexDataStatus } from '../../types/workflows'
+import type { HexAction, HexCoverage } from '../../types/workflows'
 import { styleForBasemap } from './map-style'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
@@ -60,7 +60,7 @@ type H3MapProps = {
   onCellClick: (h3: string, additive: boolean) => void
   onViewportCells: (ids: string[], status: ViewportStatus) => void
   onCenterCell?: (h3: string | null) => void
-  cellStatus?: ReadonlyMap<string, HexDataStatus>
+  cellCoverage?: ReadonlyMap<string, HexCoverage>
   onHexAction?: (h3: string, action: HexAction) => void
 }
 
@@ -92,7 +92,7 @@ export function H3Map({
   onCellClick,
   onViewportCells,
   onCenterCell,
-  cellStatus,
+  cellCoverage,
   onHexAction,
 }: H3MapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -130,7 +130,6 @@ export function H3Map({
   })
 
   const countMap = useMemo(() => new Map(counts.map((entry) => [entry.h3, entry.count])), [counts])
-  const maxCount = useMemo(() => counts.reduce((max, entry) => Math.max(max, entry.count), 0), [counts])
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const drawn = useMemo(() => {
     const all = new Set(cells)
@@ -138,8 +137,15 @@ export function H3Map({
     return [...all]
   }, [cells, selected])
   const collection = useMemo(
-    () => buildH3Collection({ cells: drawn, counts: countMap, selected: selectedSet, focusedH3 }),
-    [drawn, countMap, selectedSet, focusedH3],
+    () =>
+      buildH3Collection({
+        cells: drawn,
+        counts: countMap,
+        snapshots: new Map([...drawn].map((cell) => [cell, cellCoverage?.get(cell)?.snapshot ?? null])),
+        selected: selectedSet,
+        focusedH3,
+      }),
+    [drawn, countMap, cellCoverage, selectedSet, focusedH3],
   )
 
   useEffect(() => {
@@ -564,7 +570,8 @@ export function H3Map({
   }
   const cardCount = cardCell ? (countMap.get(cardCell) ?? 0) : 0
   const cardSelected = cardCell ? selectedSet.has(cardCell) : false
-  const cardStatus = cardCell ? (cellStatus?.get(cardCell) ?? 'missing') : 'missing'
+  const cardCoverage = cardCell ? cellCoverage?.get(cardCell) : undefined
+  const cardStatus = cardCoverage?.status ?? 'missing'
 
   useEffect(() => {
     if (!inspectOpen) return
@@ -610,10 +617,11 @@ export function H3Map({
               h3={cardCell}
               count={cardCount}
               countLabel={countLabel}
-              maxCount={maxCount}
               selected={cardSelected}
               addMode={addMode}
               dataStatus={cardStatus}
+              snapshot={cardCoverage?.snapshot ?? null}
+              releaseVersion={cardCoverage?.release_version ?? null}
               onAction={(action) => {
                 if (action !== 'query' && !inspectOpenRef.current) {
                   cardHeldRef.current = false
@@ -751,15 +759,17 @@ const HOVER: Expression = ['boolean', ['feature-state', 'hover'], false]
 const LENS: Expression = ['number', ['feature-state', 'lens'], 0]
 const SELECTED: Expression = ['==', ['get', 'selected'], 1]
 const FOCUSED: Expression = ['==', ['get', 'focused'], 1]
-const EMPTY: Expression = ['==', ['get', 'count'], 0]
+const EMPTY: Expression = ['==', ['get', 'snapshot'], 'none']
 
 function fillOpacity(mode: HexMode): Expression {
-  if (mode === 'grid') return ['case', HOVER, 0.9, SELECTED, 0.78, EMPTY, 0.2, 0.56]
+  if (mode === 'grid') return ['case', EMPTY, 0, HOVER, 0.72, SELECTED, 0.62, 0.5]
   return [
     'case',
+    EMPTY,
+    0,
     HOVER,
-    ['case', EMPTY, 0.45, 0.88],
-    ['max', ['*', LENS, ['case', EMPTY, 0.3, 0.8]], ['case', SELECTED, 0.42, FOCUSED, 0.5, 0]],
+    0.78,
+    ['max', ['*', LENS, 0.58], ['case', SELECTED, 0.4, FOCUSED, 0.48, 0]],
   ]
 }
 
@@ -811,7 +821,14 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         source: 'h3',
         layout: { visibility, 'line-join': 'round' },
         paint: {
-          'line-color': ['case', HOVER, '#3ddec0', FOCUSED, '#7ef0dc', '#f4c25b'],
+          'line-color': [
+            'case',
+            HOVER,
+            '#ffffff',
+            ['==', ['get', 'snapshot'], 'stale'],
+            '#f5c451',
+            '#2ee6a6',
+          ],
           'line-width': 7,
           'line-blur': 6,
           'line-opacity': ['case', HOVER, 0.55, FOCUSED, 0.6, SELECTED, 0.32, 0],
@@ -828,8 +845,21 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         source: 'h3',
         layout: { visibility, 'line-join': 'round' },
         paint: {
-          'line-color': ['case', HOVER, '#ffffff', FOCUSED, '#7ef0dc', SELECTED, '#f4c25b', '#cfeee8'],
-          'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.6, 0.7],
+          'line-color': [
+            'case',
+            HOVER,
+            '#ffffff',
+            FOCUSED,
+            '#7ef0dc',
+            SELECTED,
+            '#ffffff',
+            ['==', ['get', 'snapshot'], 'current'],
+            '#2ee6a6',
+            ['==', ['get', 'snapshot'], 'stale'],
+            '#f5c451',
+            '#6d7d8f',
+          ],
+          'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.8, EMPTY, 0.55, 1.15],
           'line-opacity': lineOpacity(mode),
         },
       },

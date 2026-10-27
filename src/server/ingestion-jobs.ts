@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto'
 import { mockCoverageCells } from '../lib/h3'
 import { MAX_VIEWPORT_CELLS } from '../lib/limits'
 import { readDataMode } from '../lib/server-env'
+import { compareOvertureRelease, defaultOvertureRelease } from '../lib/overture'
 import { ingestMockCellsNow } from '../services/mock-provider'
-import { supabaseReadyHexes } from '../services/supabase-provider'
+import { supabaseHexReleases } from '../services/supabase-provider'
 import { ingestOverturePlan } from './overture-ingest'
 import type {
   HexCoverage,
   HexCoverageResponse,
+  HexSnapshot,
   IngestionJob,
   JobLogLevel,
   WorkflowIngestionPlanRequest,
@@ -122,12 +124,19 @@ export async function hexCoverageFor(cells: readonly string[]): Promise<HexCover
     throw new Error(`Ask for at most ${MAX_VIEWPORT_CELLS} hexes.`)
   }
   const unique = [...new Set(cells)]
-  const loaded =
-    readDataMode().resolved === 'supabase' ? await supabaseReadyHexes(unique) : mockReadyCells()
-  const listed = unique.map((h3) => coverageForCell(h3, loaded))
+  const currentRelease = defaultOvertureRelease()
+  const ready = mockReadyCells()
+  const releases =
+    readDataMode().resolved === 'supabase'
+      ? await supabaseHexReleases(unique)
+      : new Map(unique.filter((cell) => ready.has(cell)).map((cell) => [cell, currentRelease] as const))
+  const listed = unique.map((h3) => coverageForCell(h3, releases, currentRelease))
   return {
     cells: listed,
+    current_release_version: currentRelease,
     ready_count: listed.filter((cell) => cell.status === 'ready').length,
+    current_count: listed.filter((cell) => cell.snapshot === 'current').length,
+    stale_count: listed.filter((cell) => cell.snapshot === 'stale').length,
     missing_count: listed.filter((cell) => cell.status === 'missing').length,
     processing_count: listed.filter((cell) => cell.status === 'processing').length,
   }
@@ -149,17 +158,41 @@ export function asJobCreateRequest(body: unknown): WorkflowIngestionPlanRequest 
   return body as WorkflowIngestionPlanRequest
 }
 
-function coverageForCell(h3: string, loaded: ReadonlySet<string>): HexCoverage {
+function coverageForCell(
+  h3: string,
+  releases: ReadonlyMap<string, string>,
+  currentRelease: string,
+): HexCoverage {
   const processing = [...jobs.values()].find(
     (job) => job.h3_cells.includes(h3) && (job.status === 'queued' || job.status === 'running'),
   )
-  if (processing) return { h3, status: 'processing', job_id: processing.id }
+  if (processing) {
+    return { h3, status: 'processing', snapshot: null, release_version: null, job_id: processing.id }
+  }
 
   const succeeded = [...jobs.values()].find((job) => job.h3_cells.includes(h3) && job.status === 'succeeded')
-  if (succeeded || loaded.has(h3)) {
-    return { h3, status: 'ready', job_id: succeeded?.id ?? null }
+  const stored = releases.get(h3) ?? null
+  const release = newerRelease(stored, succeeded?.release_version ?? null)
+  if (release || succeeded) {
+    return {
+      h3,
+      status: 'ready',
+      snapshot: snapshotFor(release ?? succeeded?.release_version ?? currentRelease, currentRelease),
+      release_version: release ?? succeeded?.release_version ?? null,
+      job_id: succeeded?.id ?? null,
+    }
   }
-  return { h3, status: 'missing', job_id: null }
+  return { h3, status: 'missing', snapshot: null, release_version: null, job_id: null }
+}
+
+function snapshotFor(release: string, currentRelease: string): HexSnapshot {
+  return compareOvertureRelease(release, currentRelease) >= 0 ? 'current' : 'stale'
+}
+
+function newerRelease(left: string | null, right: string | null): string | null {
+  if (!left) return right
+  if (!right) return left
+  return compareOvertureRelease(left, right) >= 0 ? left : right
 }
 
 function startOvertureJob(id: string): IngestionJob {

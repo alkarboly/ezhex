@@ -63,7 +63,7 @@ It returns a Spark plan JSON with release version, selected hexes, bbox, row cap
 
 `/api/query-schemas` returns dataset/field/operator contracts from the same whitelist used by query validation, plus whether query execution is enabled in the current mode.
 
-`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`) that `/jobs` streams live. `/api/hex-status` is ready when those tables have rows for the hex.
+`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`) that `/jobs` streams live. `/api/hex-status` is ready when those tables have rows for the hex. The map paints empty / green / yellow from that snapshot: no fill, current `OVERTURE_RELEASE`, or an older release.
 
 Workflow ingestion envs in `.env.example`:
 
@@ -102,7 +102,7 @@ render deploys create SERVICE_ID --wait --confirm
 ## What works now
 
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
-- H3 resolution 8 cells for the current view, from `h3-js` boundaries. By default they light up as a lens around the cursor. **Map layers** switches to a full grid or hides them.
+- H3 resolution 8 cells for the current view, from `h3-js` boundaries. Empty hexes stay unfilled. Green is the current Overture snapshot. Yellow is an older snapshot. **Map layers** switches between lens, grid, or hidden.
 - Hex-first explorer: hover a cell to inspect its table (if ready), request processing, or start a workflow. The selection dock does the same for a set of hexes
 - Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase and shows a live log for each job
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
