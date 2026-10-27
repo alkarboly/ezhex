@@ -23,13 +23,16 @@ import {
   boundsForCells,
   buildH3Collection,
   cellsInView,
+  earthHexCells,
   type ViewportStatus,
 } from '../../lib/h3'
 import {
   appearDelayMs,
   appearDurationMs,
   appearEase,
+  appearIsQuiet,
   appearKind,
+  introDelayMs,
   outgoingDurationMs,
   shouldFadeOutgoing,
   type AppearKind,
@@ -138,6 +141,7 @@ export function H3Map({
   const bridgingRef = useRef(false)
   const cameraLockRef = useRef(false)
   const lastHexCenterRef = useRef(AUSTIN_CENTER)
+  const [earthMesh, setEarthMesh] = useState(() => !reducedMotion())
   const [styleReady, setStyleReady] = useState(0)
   const [cardCell, setCardCell] = useState<string | null>(null)
   const [cardVisible, setCardVisible] = useState(false)
@@ -168,10 +172,11 @@ export function H3Map({
   const countMap = useMemo(() => new Map(counts.map((entry) => [entry.h3, entry.count])), [counts])
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const drawn = useMemo(() => {
-    const all = new Set(cells)
+    const base = hexMode === 'off' ? cells : cells.length > 0 ? cells : earthMesh ? earthHexCells() : cells
+    const all = new Set(base)
     for (const cell of selected) all.add(cell)
     return [...all]
-  }, [cells, selected])
+  }, [cells, selected, hexMode, earthMesh])
   const collection = useMemo(
     () =>
       buildH3Collection({
@@ -324,7 +329,7 @@ export function H3Map({
       const next = new Map<string, number>()
       let nextHover: string | null = null
 
-      if (mode !== 'off' && drawnCells.size > 0 && anchor) {
+      if (mode !== 'off' && drawnCells.size > 0 && anchor && viewModeRef.current !== 'earth' && !arriving) {
         const center = cellAt(anchor)
         if (mode === 'lens' && strength > 0.004) {
           const spacing = neighborSpacing(map, center)
@@ -408,6 +413,12 @@ export function H3Map({
           schedule()
           return
         }
+        if (kind !== 'intro' && appearIsQuiet(ids)) {
+          appearAnims.clear()
+          for (const id of ids) setCellState(id, { appear: 1 })
+          schedule()
+          return
+        }
         const origin = map.getCenter()
         const originPt = map.project([origin.lng, origin.lat])
         const sample = ids[0]
@@ -419,7 +430,10 @@ export function H3Map({
           const point = map.project([lng, lat])
           appearAnims.set(id, {
             start: now,
-            delay: appearDelayMs(Math.hypot(point.x - originPt.x, point.y - originPt.y), spacing, kind),
+            delay:
+              kind === 'intro'
+                ? introDelayMs(lat)
+                : appearDelayMs(Math.hypot(point.x - originPt.x, point.y - originPt.y), spacing, kind),
             duration,
           })
           setCellState(id, { appear: 0 })
@@ -436,9 +450,11 @@ export function H3Map({
       const zoom = map.getZoom()
       if (viewModeRef.current === 'earth' || zoom < MIN_VIEWPORT_ZOOM) {
         displayResRef.current = H3_RESOLUTION
+        setEarthMesh(true)
         viewportRef.current([], 'zoom-in', H3_RESOLUTION)
         return
       }
+      setEarthMesh(false)
       const bounds = map.getBounds()
       const next = cellsInView(
         { west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() },
@@ -1046,6 +1062,7 @@ const APPEAR: Expression = ['number', ['feature-state', 'appear'], 0]
 const SELECTED: Expression = ['==', ['get', 'selected'], 1]
 const FOCUSED: Expression = ['==', ['get', 'focused'], 1]
 const EMPTY: Expression = ['==', ['get', 'snapshot'], 'none']
+const EARTH: Expression = ['==', ['get', 'earth'], 1]
 
 function withAppear(opacity: Expression): Expression {
   return ['*', APPEAR, opacity]
@@ -1053,12 +1070,25 @@ function withAppear(opacity: Expression): Expression {
 
 function fillOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return withAppear(['case', EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5])
+  return withAppear(['case', EARTH, 0.08, EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5])
 }
 
 function lineOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return withAppear(['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, mode === 'grid' ? 0.22 : ['*', LENS, 0.4], 0.55])
+  return withAppear([
+    'case',
+    EARTH,
+    0.55,
+    HOVER,
+    1,
+    FOCUSED,
+    1,
+    SELECTED,
+    1,
+    EMPTY,
+    mode === 'grid' ? 0.22 : ['*', LENS, 0.4],
+    0.55,
+  ])
 }
 
 function glowOpacity(): Expression {
@@ -1102,7 +1132,7 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         source: 'h3-out',
         layout: { visibility },
         paint: {
-          'fill-color': ['get', 'color'],
+          'fill-color': ['case', EARTH, '#7ef0dc', ['get', 'color']],
           'fill-opacity': 0,
           'fill-opacity-transition': instant,
         },
@@ -1118,7 +1148,7 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         source: 'h3',
         layout: { visibility },
         paint: {
-          'fill-color': ['get', 'color'],
+          'fill-color': ['case', EARTH, '#7ef0dc', ['get', 'color']],
           'fill-opacity': fillOpacity(mode),
           'fill-opacity-transition': instant,
         },
@@ -1168,13 +1198,15 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
             '#7ef0dc',
             SELECTED,
             '#ffffff',
+            EARTH,
+            '#7ef0dc',
             ['==', ['get', 'snapshot'], 'current'],
             '#2ee6a6',
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
             '#6d7d8f',
           ],
-          'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.8, EMPTY, 0.55, 1.15],
+          'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.8, EARTH, 0.85, EMPTY, 0.55, 1.15],
           'line-opacity': lineOpacity(mode),
           'line-opacity-transition': { duration: 0, delay: 0 },
         },
@@ -1192,13 +1224,15 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         paint: {
           'line-color': [
             'case',
+            EARTH,
+            '#7ef0dc',
             ['==', ['get', 'snapshot'], 'current'],
             '#2ee6a6',
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
             '#6d7d8f',
           ],
-          'line-width': ['case', ['==', ['get', 'snapshot'], 'none'], 0.55, 1.15],
+          'line-width': ['case', EARTH, 0.85, ['==', ['get', 'snapshot'], 'none'], 0.55, 1.15],
           'line-opacity': 0,
           'line-opacity-transition': { duration: 0, delay: 0 },
         },
@@ -1277,10 +1311,10 @@ function applyHexMode(map: MapLibreMap, mode: HexMode) {
 
 function paintOutgoing(map: MapLibreMap, fade: number) {
   if (map.getLayer('h3-out-fill')) {
-    map.setPaintProperty('h3-out-fill', 'fill-opacity', ['*', ['case', EMPTY, 0, 0.5], fade])
+    map.setPaintProperty('h3-out-fill', 'fill-opacity', ['*', ['case', EARTH, 0.08, EMPTY, 0, 0.5], fade])
   }
   if (map.getLayer('h3-out-line')) {
-    map.setPaintProperty('h3-out-line', 'line-opacity', ['*', ['case', EMPTY, 0.18, 0.45], fade])
+    map.setPaintProperty('h3-out-line', 'line-opacity', ['*', ['case', EARTH, 0.45, EMPTY, 0.18, 0.45], fade])
   }
 }
 

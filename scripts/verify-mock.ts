@@ -3,11 +3,12 @@ import {
   AUSTIN_CENTER,
   cellPolygon,
   cellsInView,
+  earthHexCells,
   readyCellsInParents,
   snapshotForDisplayCell,
 } from '../src/lib/h3.ts'
 import { associateFeatures } from '../src/lib/associate.ts'
-import { appearDelayMs, appearKind, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
+import { appearDelayMs, appearIsQuiet, appearKind, introDelayMs, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
 import { mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
@@ -300,6 +301,12 @@ assert(appearDelayMs(200, 40, 'lay') === 350, 'five rings at 70ms should delay 3
 assert(shouldFadeOutgoing('swap', 1), 'resolution swaps should fade the last grid')
 assert(shouldFadeOutgoing('pan', 8), 'enough leaving cells should fade out')
 assert(!shouldFadeOutgoing('pan', 2), 'a couple of edge cells should not start a fade')
+assert(earthHexCells().length === 842, 'earth mesh should be every resolution-1 cell')
+assert(introDelayMs(90) === 0, 'north pole should start the globe wave')
+assert(introDelayMs(-90) === 1800, 'south pole should land last on the globe wave')
+assert(appearIsQuiet([capitol]), 'city hexes should stay still')
+assert(appearKind(new Set(), earthHexCells()) === 'intro', 'first earth mesh should wave in')
+assert(shouldFadeOutgoing('intro', 1), 'leaving the globe should fade the earth mesh')
 
 const view = cellsInView({ west: -97.76, south: 30.25, east: -97.72, north: 30.29 }, 13)
 assert(view.status === 'ready' && view.ids.length > 0, 'viewport cell lookup failed')
