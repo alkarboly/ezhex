@@ -1,12 +1,30 @@
-import { cellToBoundary, cellToLatLng, getHexagonEdgeLengthAvg, polygonToCells, UNITS } from 'h3-js'
+import {
+  cellToBoundary,
+  cellToLatLng,
+  cellToParent,
+  getHexagonEdgeLengthAvg,
+  getResolution,
+  polygonToCells,
+  UNITS,
+} from 'h3-js'
 import type { Feature, FeatureCollection, Polygon } from 'geojson'
-import { H3_RESOLUTION, MAX_VIEWPORT_CELLS, MIN_VIEWPORT_ZOOM } from './limits'
+import { H3_RESOLUTION, MAX_VIEWPORT_CELLS, MIN_DISPLAY_RESOLUTION, MIN_VIEWPORT_ZOOM } from './limits'
 import { snapshotColor } from './color-scale'
-import type { HexSnapshot } from '../types/workflows'
+import type { HexCoverage, HexSnapshot } from '../types/workflows'
 
 const KM_PER_DEGREE_LAT = 110.574
-/** A cell can poke into the view while its center sits up to one edge length outside it. */
-const VIEW_PAD_KM = getHexagonEdgeLengthAvg(H3_RESOLUTION, UNITS.km) * 1.25
+const ZOOM_HYSTERESIS = 0.35
+
+/** Zoom floor at which each display resolution becomes the target. */
+const RESOLUTION_ZOOM = [
+  { minZoom: 11.2, resolution: 8 },
+  { minZoom: 9.6, resolution: 7 },
+  { minZoom: 8.2, resolution: 6 },
+  { minZoom: 6.8, resolution: 5 },
+  { minZoom: 5.4, resolution: 4 },
+  { minZoom: 3.8, resolution: 3 },
+  { minZoom: MIN_VIEWPORT_ZOOM, resolution: 2 },
+] as const
 
 export const AUSTIN_CENTER = { lng: -97.7431, lat: 30.2672 }
 export const AUSTIN_ZOOM = 12.4
@@ -41,37 +59,76 @@ export function mockCoverageCells(): string[] {
   return polygonToCells(ring, H3_RESOLUTION, true)
 }
 
+export function displayResolutionForZoom(zoom: number): number {
+  for (const band of RESOLUTION_ZOOM) {
+    if (zoom >= band.minZoom) return band.resolution
+  }
+  return MIN_DISPLAY_RESOLUTION
+}
+
+/** Keep the current resolution across the band edge so the grid does not flicker. */
+export function resolveDisplayResolution(zoom: number, previous?: number): number {
+  const target = displayResolutionForZoom(zoom)
+  if (previous == null || previous === target) return target
+  const looking = previous > target ? zoom + ZOOM_HYSTERESIS : zoom - ZOOM_HYSTERESIS
+  return displayResolutionForZoom(looking)
+}
+
 export function cellsInView(
   bounds: ViewBounds,
   zoom: number,
-): { ids: string[]; status: Exclude<ViewportStatus, 'idle'> } {
+  previousResolution?: number,
+): { ids: string[]; status: Exclude<ViewportStatus, 'idle'>; resolution: number } {
   if (!Number.isFinite(zoom) || zoom < MIN_VIEWPORT_ZOOM) {
-    return { ids: [], status: 'zoom-in' }
+    return { ids: [], status: 'zoom-in', resolution: MIN_DISPLAY_RESOLUTION }
   }
   if (bounds.east <= bounds.west || bounds.north <= bounds.south) {
-    return { ids: [], status: 'zoom-in' }
+    return { ids: [], status: 'zoom-in', resolution: previousResolution ?? MIN_DISPLAY_RESOLUTION }
   }
-  const latPad = VIEW_PAD_KM / KM_PER_DEGREE_LAT
+  let resolution = resolveDisplayResolution(zoom, previousResolution)
+  while (resolution >= MIN_DISPLAY_RESOLUTION) {
+    const ids = cellsAtResolution(bounds, resolution)
+    if (ids != null && ids.length <= MAX_VIEWPORT_CELLS) {
+      return { ids, status: 'ready', resolution }
+    }
+    resolution -= 1
+  }
+  return { ids: [], status: 'too-many', resolution: MIN_DISPLAY_RESOLUTION }
+}
+
+function cellsAtResolution(bounds: ViewBounds, resolution: number): string[] | null {
+  const padKm = getHexagonEdgeLengthAvg(resolution, UNITS.km) * 1.25
+  const latPad = padKm / KM_PER_DEGREE_LAT
   const midLat = (bounds.north + bounds.south) / 2
   const lngPad = latPad / Math.max(0.2, Math.cos((midLat * Math.PI) / 180))
-  const west = bounds.west - lngPad
-  const east = bounds.east + lngPad
-  const south = bounds.south - latPad
-  const north = bounds.north + latPad
   const ring = [
-    [west, south],
-    [east, south],
-    [east, north],
-    [west, north],
-    [west, south],
+    [bounds.west - lngPad, bounds.south - latPad],
+    [bounds.east + lngPad, bounds.south - latPad],
+    [bounds.east + lngPad, bounds.north + latPad],
+    [bounds.west - lngPad, bounds.north + latPad],
+    [bounds.west - lngPad, bounds.south - latPad],
   ]
   try {
-    const ids = [...new Set(polygonToCells(ring, H3_RESOLUTION, true))]
-    if (ids.length > MAX_VIEWPORT_CELLS) return { ids: [], status: 'too-many' }
-    return { ids, status: 'ready' }
+    return [...new Set(polygonToCells(ring, resolution, true))]
   } catch {
-    return { ids: [], status: 'too-many' }
+    return null
   }
+}
+
+export function snapshotForDisplayCell(
+  cell: string,
+  coverage: ReadonlyMap<string, HexCoverage>,
+): HexSnapshot | null {
+  const resolution = getResolution(cell)
+  if (resolution === H3_RESOLUTION) return coverage.get(cell)?.snapshot ?? null
+  let stale = false
+  for (const [h3, info] of coverage) {
+    if (info.snapshot == null || getResolution(h3) !== H3_RESOLUTION) continue
+    if (cellToParent(h3, resolution) !== cell) continue
+    if (info.snapshot === 'current') return 'current'
+    stale = true
+  }
+  return stale ? 'stale' : null
 }
 
 /** GeoJSON polygon ring in [lng, lat] order. h3-js already closes GeoJSON loops. */

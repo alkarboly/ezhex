@@ -41,13 +41,13 @@ Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines 
 
 ## Map
 
-The map loads H3 resolution 8 cells that intersect the current viewport. It pads the view by 1.25 edge lengths before calling `polygonToCells`, so cells along the edges are drawn whole. Below zoom 11, or above 800 cells, the grid is not drawn. Selected cells are always drawn. Boundaries come from `h3-js` `cellToBoundary` in GeoJSON `[lng, lat]` order. The app does not draw a world-wide grid.
+The map draws H3 cells that intersect the current viewport at a display resolution that follows zoom: resolution 8 in the city, then 7, 6, 5, 4, 3, and 2 as the camera pulls back. It pads the view by 1.25 edge lengths of that resolution before calling `polygonToCells`, so cells along the edges stay whole. If a step would exceed 900 cells, it drops one resolution instead of hiding the grid. Query, Process, and selection stay on resolution 8. Parent hexes inherit snapshot color from any known resolution-8 children (green wins over yellow). Selected resolution-8 cells are always drawn. Boundaries come from `h3-js` `cellToBoundary` in GeoJSON `[lng, lat]` order.
 
 The MapLibre container fills the map slot with absolute positioning. MapLibre's stylesheet sets `.maplibregl-map` to `position: relative`, which collapses that slot and clips the canvas, so the app overrides it. The worker URL is set with `setWorkerUrl` because Vite's prebundle does not sit next to `maplibre-gl-worker.mjs`.
 
 The projection is a globe. On each style load the map sets that projection and a sky in the page background (`#05080c`) with a mint horizon. The atmosphere fades out by zoom 8, so the city view stays flat enough to read the cells. The globe uses the selected basemap. On the dark streets style, land and water are shifted into that same palette below zoom 7 so the continents stay readable, then those paints return to the basemap colors. The camera starts over Africa, turns across the Atlantic onto North America, then flies down to Austin. Viewport cells are not requested until that flight ends, or until the user presses the map, which skips the rest of the flight. `prefers-reduced-motion` skips it and opens on Austin. A basemap change during the flight is applied when the flight ends, and it does not replay.
 
-Zoom buttons ease 0.85 steps over 820ms with an ease-in-out curve, centered on the unobstructed map area. Wheel zoom is slowed so the globe does not jump. Fit and reset use the same curve. `prefers-reduced-motion` jumps instead.
+Zoom buttons ease 0.55 steps over 1180ms with an ease-in-out curve, centered on the unobstructed map area. Wheel zoom is slower so the globe does not jump. The grid updates during the move, and resolution bands have 0.35 zoom of hysteresis so they do not flicker. Fit and reset use the same curve. `prefers-reduced-motion` jumps instead.
 
 Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Green (`#2ee6a6`) is the current Overture release. Yellow (`#f5c451`) is an older stored release. Outlines match that fill; hover and selection use white.
 

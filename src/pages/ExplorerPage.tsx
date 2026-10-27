@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { getResolution } from 'h3-js'
 import { LocateFixed } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -9,7 +10,8 @@ import { H3Map, type H3MapHandle, type MapInsets } from '../components/map/H3Map
 import { useCellStats, useCompiledQuery } from '../hooks/useCompiledQuery'
 import { useDataSource } from '../hooks/useDataSource'
 import { MOBILE_QUERY, TOUCH_QUERY, useMediaQuery } from '../hooks/useMediaQuery'
-import type { ViewportStatus } from '../lib/h3'
+import { snapshotForDisplayCell, type ViewportStatus } from '../lib/h3'
+import { H3_RESOLUTION } from '../lib/limits'
 import { getHexStatus } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
@@ -47,24 +49,49 @@ export function ExplorerPage() {
   const canQueryCells = source.data?.mode === 'mock' || (source.data?.mode === 'supabase' && configured)
   const [action, setAction] = useState<{ mode: HexAction; cells: string[] } | null>(null)
 
-  const stats = useCellStats(canQueryCells ? (cells.length > 0 ? cells : selected) : [], compiled)
+  const queryCells = useMemo(
+    () => cells.filter((cell) => getResolution(cell) === H3_RESOLUTION),
+    [cells],
+  )
+  const stats = useCellStats(canQueryCells ? (queryCells.length > 0 ? queryCells : selected) : [], compiled)
   const meta = DATASET_META[compiled.spec.dataset]
   const counts = canQueryCells && compiled.errors.length === 0 ? (stats.data ?? NO_COUNTS) : NO_COUNTS
   const allZero = stats.isSuccess && counts.length > 0 && counts.every((entry) => entry.count === 0)
   const hasFilters = compiled.spec.filters.length > 0
   const countLabel = hasFilters ? `matching ${meta.plural}` : meta.plural
-  const statusCells = useMemo(() => [...new Set([...cells, ...selected])], [cells, selected])
+  const statusCells = useMemo(() => [...new Set([...queryCells, ...selected])], [queryCells, selected])
   const coverage = useQuery({
     queryKey: ['hex-status', statusCells.join(',')],
     enabled: statusCells.length > 0,
     queryFn: () => getHexStatus(statusCells),
     staleTime: 4_000,
   })
-  const coverageByCell = useMemo(() => {
-    const next = new Map<string, HexCoverage>()
-    for (const cell of coverage.data?.cells ?? []) next.set(cell.h3, cell)
-    return next
+  const [knownCoverage, setKnownCoverage] = useState<Map<string, HexCoverage>>(() => new Map())
+  useEffect(() => {
+    if (!coverage.data) return
+    setKnownCoverage((current) => {
+      const next = new Map(current)
+      for (const cell of coverage.data.cells) {
+        if (getResolution(cell.h3) === H3_RESOLUTION) next.set(cell.h3, cell)
+      }
+      return next
+    })
   }, [coverage.data])
+  const coverageByCell = useMemo(() => {
+    const next = new Map(knownCoverage)
+    for (const cell of cells) {
+      if (getResolution(cell) === H3_RESOLUTION) continue
+      const snapshot = snapshotForDisplayCell(cell, knownCoverage)
+      next.set(cell, {
+        h3: cell,
+        status: snapshot ? 'ready' : 'missing',
+        snapshot,
+        release_version: null,
+        job_id: null,
+      })
+    }
+    return next
+  }, [cells, knownCoverage])
   const statusMap = useMemo(() => {
     const next = new Map<string, HexDataStatus>()
     for (const [h3, cell] of coverageByCell) next.set(h3, cell.status)
@@ -351,7 +378,7 @@ function StatusPill({
   noun: string
 }) {
   let text: string | null = null
-  if (status === 'zoom-in') text = 'Zoom in to reveal H3 resolution 8 cells'
+  if (status === 'zoom-in') text = 'Zoom in a little to load hexes'
   else if (status === 'too-many') text = 'Too many cells in view. Zoom in to load the grid.'
   else if (status === 'ready' && allZero) text = hasFilters ? `No matching ${noun} in this view` : 'Outside the Austin mock coverage'
   if (!text) return null

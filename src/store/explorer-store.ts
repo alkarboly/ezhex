@@ -1,4 +1,4 @@
-import { gridDisk, latLngToCell } from 'h3-js'
+import { getResolution, gridDisk, latLngToCell } from 'h3-js'
 import { create } from 'zustand'
 import { AUSTIN_CENTER, type ViewportStatus } from '../lib/h3'
 import { DEFAULT_QUERY_LIMIT, H3_RESOLUTION, MAX_SELECTED_CELLS } from '../lib/limits'
@@ -42,6 +42,7 @@ type ExplorerState = {
   resultsHeight: number
   filtersOpen: boolean
   viewportCellIds: string[]
+  viewportResolution: number
   viewportStatus: ViewportStatus
   /** Drawn cell at the middle of the unobstructed map area (under the reticle on touch). */
   centerCell: string | null
@@ -72,7 +73,7 @@ type ExplorerState = {
   setResultsOpen: (resultsOpen: boolean) => void
   setResultsHeight: (resultsHeight: number) => void
   setFiltersOpen: (filtersOpen: boolean) => void
-  setViewportCells: (viewportCellIds: string[], viewportStatus: ViewportStatus) => void
+  setViewportCells: (viewportCellIds: string[], viewportStatus: ViewportStatus, viewportResolution: number) => void
   setCenterCell: (centerCell: string | null) => void
   focusCell: (h3: string) => void
   zoomToSelected: () => void
@@ -106,6 +107,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   resultsHeight: 320,
   filtersOpen: true,
   viewportCellIds: [],
+  viewportResolution: H3_RESOLUTION,
   viewportStatus: 'idle',
   centerCell: null,
   focus: null,
@@ -150,7 +152,18 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
       set({ notice: 'Zoom in until H3 cells are on the map.' })
       return
     }
-    const next = state.viewportCellIds.slice(0, MAX_SELECTED_CELLS)
+    const visible = state.viewportCellIds.filter((cell) => {
+      try {
+        return getResolution(cell) === H3_RESOLUTION
+      } catch {
+        return false
+      }
+    })
+    if (visible.length === 0) {
+      set({ notice: 'Zoom in to select individual resolution-8 hexes.' })
+      return
+    }
+    const next = visible.slice(0, MAX_SELECTED_CELLS)
     set({
       selectedCells: next,
       page: 0,
@@ -245,16 +258,17 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   setResultsOpen: (resultsOpen) => set({ resultsOpen }),
   setResultsHeight: (resultsHeight) => set({ resultsHeight }),
   setFiltersOpen: (filtersOpen) => set({ filtersOpen }),
-  setViewportCells: (viewportCellIds, viewportStatus) => {
+  setViewportCells: (viewportCellIds, viewportStatus, viewportResolution) => {
     const current = get()
     if (
       current.viewportStatus === viewportStatus &&
+      current.viewportResolution === viewportResolution &&
       current.viewportCellIds.length === viewportCellIds.length &&
       current.viewportCellIds.every((cell, index) => cell === viewportCellIds[index])
     ) {
       return
     }
-    set({ viewportCellIds, viewportStatus })
+    set({ viewportCellIds, viewportStatus, viewportResolution })
   },
   setCenterCell: (centerCell) => set({ centerCell }),
   focusCell: (h3) =>

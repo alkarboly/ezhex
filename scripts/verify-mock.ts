@@ -213,7 +213,12 @@ assert(failed, 'unknown field was accepted')
 
 const view = cellsInView({ west: -97.76, south: 30.25, east: -97.72, north: 30.29 }, 13)
 assert(view.status === 'ready' && view.ids.length > 0, 'viewport cell lookup failed')
-assert(cellsInView({ west: -97.9, south: 30.1, east: -97.6, north: 30.5 }, 8).status === 'zoom-in', 'low zoom should not draw the grid')
+assert(view.resolution === 8, 'city zoom should draw resolution 8')
+const pulledBack = cellsInView({ west: -97.9, south: 30.1, east: -97.6, north: 30.5 }, 8)
+assert(pulledBack.status === 'ready' && pulledBack.ids.length > 0, 'zoomed-out view should still draw hexes')
+assert(pulledBack.resolution < 8, 'zoomed-out view should step to a coarser resolution')
+const stayed = cellsInView({ west: -97.76, south: 30.25, east: -97.72, north: 30.29 }, 11.1, 8)
+assert(stayed.resolution === 8, 'zoom hysteresis should keep resolution 8 across the band edge')
 
 const compiled = buildQuerySpec({
   dataset: 'places',

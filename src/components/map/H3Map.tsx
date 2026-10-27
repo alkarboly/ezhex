@@ -58,7 +58,7 @@ type H3MapProps = {
   fit: FitRequest
   focusNonce: number
   onCellClick: (h3: string, additive: boolean) => void
-  onViewportCells: (ids: string[], status: ViewportStatus) => void
+  onViewportCells: (ids: string[], status: ViewportStatus, resolution: number) => void
   onCenterCell?: (h3: string | null) => void
   cellCoverage?: ReadonlyMap<string, HexCoverage>
   onHexAction?: (h3: string, action: HexAction) => void
@@ -120,6 +120,7 @@ export function H3Map({
   const inspectOpen = useExplorer((state) => state.inspectOpen)
   const inspectOpenRef = useRef(inspectOpen)
   inspectOpenRef.current = inspectOpen
+  const displayResRef = useRef(H3_RESOLUTION)
 
   useLayoutEffect(() => {
     clickRef.current = onCellClick
@@ -169,8 +170,8 @@ export function H3Map({
       renderWorldCopies: false,
     })
     map.touchZoomRotate.disableRotation()
-    map.scrollZoom.setWheelZoomRate(1 / 720)
-    map.scrollZoom.setZoomRate(1 / 220)
+    map.scrollZoom.setWheelZoomRate(1 / 1100)
+    map.scrollZoom.setZoomRate(1 / 320)
     mapRef.current = map
 
     const revealCard = (cell: string | null) => {
@@ -219,9 +220,9 @@ export function H3Map({
       }
     }
 
-    const cellAt = (point: Point) => {
+    const cellAt = (point: Point, resolution = displayResRef.current) => {
       const lngLat = map.unproject([point.x, point.y])
-      return latLngToCell(lngLat.lat, lngLat.lng, H3_RESOLUTION)
+      return latLngToCell(lngLat.lat, lngLat.lng, resolution)
     }
 
     const setCellState = (cell: string, state: Record<string, number | boolean>) => {
@@ -328,8 +329,19 @@ export function H3Map({
       const next = cellsInView(
         { west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() },
         map.getZoom(),
+        displayResRef.current,
       )
-      viewportRef.current(next.ids, next.status)
+      displayResRef.current = next.resolution
+      viewportRef.current(next.ids, next.status, next.resolution)
+    }
+
+    let reportTimer = 0
+    const reportSoon = () => {
+      if (reportTimer) return
+      reportTimer = window.setTimeout(() => {
+        reportTimer = 0
+        report()
+      }, 80)
     }
 
     let handoffTimer = 0
@@ -430,7 +442,10 @@ export function H3Map({
     })
     map.on('load', report)
     map.on('moveend', report)
-    map.on('move', schedule)
+    map.on('move', () => {
+      schedule()
+      if (!arriving) reportSoon()
+    })
     map.on('mousemove', (event) => {
       if (touchRef.current) return
       pointer = { x: event.point.x, y: event.point.y }
@@ -447,7 +462,8 @@ export function H3Map({
     map.on('click', (event) => {
       if (modeRef.current === 'off') return
       const cell = latLngToCell(event.lngLat.lat, event.lngLat.lng, H3_RESOLUTION)
-      if (!drawnRef.current.has(cell)) return
+      const display = latLngToCell(event.lngLat.lat, event.lngLat.lng, displayResRef.current)
+      if (!drawnRef.current.has(cell) && !drawnRef.current.has(display)) return
       clickRef.current(cell, event.originalEvent.shiftKey || touchRef.current)
     })
 
@@ -470,6 +486,7 @@ export function H3Map({
       window.clearTimeout(slowTimer)
       window.clearTimeout(handoffTimer)
       window.clearTimeout(revealTimer)
+      window.clearTimeout(reportTimer)
       window.clearTimeout(hideCardRef.current)
       observer.disconnect()
       map.remove()
@@ -520,7 +537,7 @@ export function H3Map({
     map.fitBounds(bounds, {
       padding: fitPadding(container, insetsRef.current),
       maxZoom: fit.zoomIn ? 14.5 : map.getZoom(),
-      duration: reducedMotion() ? 0 : 920,
+      duration: reducedMotion() ? 0 : 1180,
       easing: easeInOutCubic,
     })
   }, [fit])
@@ -534,7 +551,7 @@ export function H3Map({
       center: [lng, lat],
       zoom: Math.max(map.getZoom(), 13.2),
       offset: insetOffset(insetsRef.current),
-      duration: reducedMotion() ? 0 : 980,
+      duration: reducedMotion() ? 0 : 1200,
       curve: 1.35,
       easing: easeInOutCubic,
     })
@@ -557,7 +574,7 @@ export function H3Map({
           zoom: AUSTIN_ZOOM,
           bearing: 0,
           offset: insetOffset(insetsRef.current),
-          duration: reducedMotion() ? 0 : 1100,
+          duration: reducedMotion() ? 0 : 1280,
           easing: easeInOutCubic,
         }),
     }),
@@ -696,7 +713,7 @@ function reducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
 
-const ZOOM_STEP = 0.85
+const ZOOM_STEP = 0.55
 
 function easeInOutCubic(progress: number): number {
   return progress < 0.5 ? 4 * progress * progress * progress : 1 - (-2 * progress + 2) ** 3 / 2
@@ -710,7 +727,7 @@ function zoomBy(map: MapLibreMap, delta: number, inset: MapInsets) {
     return
   }
   map.stop()
-  map.easeTo({ ...camera, duration: 820, easing: easeInOutCubic, essential: true })
+  map.easeTo({ ...camera, duration: 1180, easing: easeInOutCubic, essential: true })
 }
 
 /** Globe in the app palette. Streets colors ease back to the basemap by zoom 7. */
