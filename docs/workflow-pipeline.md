@@ -86,7 +86,7 @@ Each log line is `{ at, level, message }` where `level` is `info`, `warn`, or `e
 
 Returns per-hex `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null), `release_version`, and counts including `current_count` and `stale_count`. The current snapshot is `OVERTURE_RELEASE`.
 
-The explorer hover card and `/jobs` create jobs from selected hexes. Process always loads places, buildings, and addresses. `/jobs` shows a live log pane per job, including association match rates, and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Inspect opens a draggable window, fetches all three themes unfiltered, and shows one place-address table with nulls when a link is missing. Building height and floors appear when the Overture row has them.
+The explorer hover card and `/jobs` create jobs from selected hexes. Process always loads places, buildings, and addresses. `/jobs` keeps a live log pane per job, including association match rates, collapsed until Logs is pressed, and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Inspect opens a draggable window, fetches all three themes unfiltered, and shows one place-address table with nulls when a link is missing. Building height and floors appear when the Overture row has them.
 
 `POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
 

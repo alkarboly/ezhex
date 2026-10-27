@@ -122,16 +122,12 @@ export function JobsPage() {
 function JobRow({ job, onRan }: { job: IngestionJob; onRan: () => void }) {
   const live = job.status === 'queued' || job.status === 'running'
   const logs = job.logs ?? []
-  const [open, setOpen] = useState(live || logs.length > 0)
+  const [open, setOpen] = useState(false)
   const run = useMutation({
     mutationFn: () => runIngestionJob(job.id),
     onSuccess: onRan,
   })
   const canRun = job.status === 'queued' || job.status === 'failed'
-
-  useEffect(() => {
-    if (live) setOpen(true)
-  }, [live])
 
   return (
     <article className="rounded-lg border border-border bg-card px-4 py-3">

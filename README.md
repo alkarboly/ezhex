@@ -63,7 +63,7 @@ It returns a Spark plan JSON with release version, selected hexes, bbox, row cap
 
 `/api/query-schemas` returns dataset/field/operator contracts from the same whitelist used by query validation, plus whether query execution is enabled in the current mode.
 
-`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`) that `/jobs` streams live. Process always writes places, buildings, and addresses, including GeoJSON and computed links. `/api/hex-status` is ready when those tables have rows for the hex. The map paints empty / green / yellow from that snapshot and keeps populated hexes visible without hover.
+`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`). `/jobs` keeps that stream collapsed until Logs is pressed. Process always writes places, buildings, and addresses, including GeoJSON and computed links. `/api/hex-status` is ready when those tables have rows for the hex. The map paints empty / green / yellow from that snapshot and keeps populated hexes visible without hover.
 
 Workflow ingestion envs in `.env.example`:
 
@@ -102,9 +102,9 @@ render deploys create SERVICE_ID --wait --confirm
 ## What works now
 
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
-- H3 cells for the current view, from `h3-js` boundaries. City zoom uses resolution 8. Zooming out steps to coarser hexes down to resolution 4. The opening globe draws every resolution-1 cell as a north-to-south wave. City zoom stays still. Zoom swaps fade the last grid out so the hexes do not pop. Parent hexes stay empty; only the exact processed resolution-8 cells take color. Zooming out past that floor eases into a globe you can scroll, still wearing that coarse mesh. Empty hexes stay unfilled. Green is the current Overture snapshot. Yellow is an older snapshot. **Map layers** switches between lens, grid, or hidden.
+- H3 cells for the current view, from `h3-js` boundaries. City zoom uses resolution 8. Zooming out steps to coarser hexes down to resolution 4. The opening load hides the basemap. Resolution-1 hexes fall onto a dark sphere, north first, then the map fades in as the camera dives to Austin. City zoom stays still. Zoom swaps fade the last grid out so the hexes do not pop. Parent hexes stay empty; only the exact processed resolution-8 cells take color. Zooming out past that floor eases into a globe you can scroll, with no hex mesh. Empty hexes stay unfilled. Green is the current Overture snapshot. Yellow is an older snapshot. **Map layers** switches between lens, grid, or hidden.
 - Hex-first explorer: hover a cell to inspect its table (if ready) or request processing. The selection dock has Query and Process. Workflows and Jobs stay in the side nav
-- Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase and shows a live log for each job
+- Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase. Logs stay collapsed until opened.
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
 - Hard caps on hex count, bbox area, and row counts
 
