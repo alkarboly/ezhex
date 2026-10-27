@@ -2,15 +2,16 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { useDataSource } from '../../hooks/useDataSource'
 import { H3_RESOLUTION } from '../../lib/limits'
 import { cn } from '../../lib/utils'
-import { configuredDataMode } from '../../services'
 import { BrandMark } from './BrandMark'
 import { NAV } from './nav'
 
 export function MobileNavButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
-  const mode = configuredDataMode()
+  const source = useDataSource()
+  const mode = source.data?.mode
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
@@ -62,12 +63,12 @@ export function MobileNavButton({ className }: { className?: string }) {
             ))}
           </nav>
           <div className="mt-auto rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 text-xs leading-5 text-muted-foreground">
-            <span className="font-medium text-primary">{mode.resolved === 'mock' ? 'Mock data' : 'Supabase'}</span>
+            <span className="font-medium text-primary">{mode === 'supabase' ? 'Supabase' : 'Mock data'}</span>
             {' · '}H3 resolution {H3_RESOLUTION}
             <p className="mt-1">
-              {mode.resolved === 'mock'
-                ? 'Synthetic Austin records shaped like Overture features.'
-                : 'Reading from the configured Supabase project.'}
+              {mode === 'supabase'
+                ? 'Reading from the configured Supabase project.'
+                : 'Synthetic Austin records shaped like Overture features.'}
             </p>
           </div>
         </Dialog.Content>

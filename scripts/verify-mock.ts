@@ -6,6 +6,10 @@ import { buildMockDatabase } from '../src/services/mock/database.ts'
 import { mockProvider, resetMockDatabaseForTests } from '../src/services/mock-provider.ts'
 import { defaultAddressesForm, defaultBuildingsForm, defaultPlacesForm } from '../src/types/queries.ts'
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
 }
@@ -224,6 +228,20 @@ assert(compiled.errors.length === 0, compiled.errors.join(' '))
 assert(compiled.spec.filters[0]?.field === 'basic_category', 'query spec lost the category filter')
 assert(compiled.spec.filters[0]?.operator === 'in', 'category filter should use in')
 assert(compiled.spec.dataset === 'places', 'query spec dataset drifted')
+
+process.env.DATA_MODE = 'mock'
+const { routeApi } = await import('../src/server/api.ts')
+const health = await routeApi('GET', '/api/health', undefined)
+assert(health.status === 200 && isRecord(health.body) && health.body.ok === true, 'health check failed')
+const servedCounts = await routeApi('POST', '/api/cell-counts', {
+  dataset: 'places',
+  h3_cells: sampleCells,
+  filters: [],
+})
+assert(servedCounts.status === 200 && Array.isArray(servedCounts.body), 'server cell counts failed')
+assert(servedCounts.body.length === sampleCells.length, 'server cell counts drifted')
+const rejected = await routeApi('POST', '/api/query', { dataset: 'places' })
+assert(rejected.status === 400, 'server accepted a partial query')
 
 console.log(
   `verify ok · ${first.cells.length} cells · ${first.totals.places} places · ${first.totals.buildings} buildings · ${first.totals.addresses} addresses`,

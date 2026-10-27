@@ -3,17 +3,18 @@
 This slice is a local explorer. Nothing is written to a database.
 
 ```
-Explorer page
-  → Zustand (dataset, H3 selection, filter forms)
-  → buildQuerySpec() → QuerySpec JSON
-  → validateQuery() whitelist
-  → DataProvider
-       mock: in-memory Austin records
-       supabase: not connected; methods throw
-  → map cell colors and the results table
+Browser
+  → Zustand builds a QuerySpec JSON
+  → POST /api/cell-counts and POST /api/query
+  → Node server
+       validateQuery() whitelist
+       DataProvider, running in the server process
+         mock: in-memory Austin records
+         supabase: not connected; methods throw
+  → JSON back to the map and the results table
 ```
 
-There is no auth hop. Mock records are not user-scoped because they are not stored. The nav rail shows which provider is active. On phones it is in the menu.
+The browser does not import the dataset or the Supabase client. It still uses `h3-js` to draw cell shapes. Filtering and counts run in Node, from the libraries in `node_modules`, so the server can take on packages that do not belong in a page bundle. There is no auth hop. Mock records are not user-scoped because they are not stored. The nav rail shows the mode the server reports. On phones it is in the menu.
 
 ## Map
 
@@ -78,15 +79,20 @@ create table saved_queries (
 );
 ```
 
-The browser client may use the anon key only. The service-role key stays off the frontend.
+The Node server may use the anon key only. The service-role key stays out of the environment and out of the repo. The browser never receives the key.
 
 ## Deploy
 
 ```
 Browser
-  → Render CDN (index.html and hashed files in dist/)
+  → Render web service (Node, port from PORT)
+       /api/* runs the query libraries
+       every other path serves dist/
   → MapLibre loads tiles from OpenFreeMap and Esri
-  → mock records ship inside the JavaScript bundle
 ```
 
-There is no app server. `render.yaml` is a static site on `main`, built with Node 22.16.0. `VITE_DATA_MODE` is `mock`. Vite inlines that value, so changing it requires a new build. Client routes (`/saved`, `/datasets`, `/settings`) have no files of their own. Render serves a real file when one exists, and rewrites every other path to `/index.html`. Hashed files under `/assets/` are cached for a year. The anon key is not in the blueprint. Add it in the Render dashboard only, and never add the service-role key.
+`render.yaml` is a Node web service on `main`, built with Node 22.16.0. The build writes the browser assets to `dist/` and the server bundle to `dist-server/`. `node dist-server/index.js` listens on `0.0.0.0` and `PORT`. Render's health check is `GET /api/health`.
+
+`DATA_MODE=mock` is read when the process handles a request, not baked in by Vite. Changing it still needs a restart, which a Render env change does by redeploying. Paths with no file, such as `/settings`, receive `index.html`. A missing file that has an extension returns 404, so a broken script is not replaced with HTML. Hashed files under `/assets/` are cached for a year.
+
+The anon key is not in the blueprint. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the Render dashboard only, and never add the service-role key. The free instance sleeps after a stretch of no requests and wakes on the next one.

@@ -1,14 +1,10 @@
-import { useQuery } from '@tanstack/react-query'
+import { useDataSource } from '../hooks/useDataSource'
 import { formatCount } from '../lib/format'
 import { H3_RESOLUTION } from '../lib/limits'
-import { getDataProvider } from '../services'
 import { DATASET_IDS, DATASET_META, FIELD_CATALOG } from '../types/datasets'
 
 export function DatasetsPage() {
-  const source = useQuery({
-    queryKey: ['source-description'],
-    queryFn: () => getDataProvider().describeSource(),
-  })
+  const source = useDataSource()
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">

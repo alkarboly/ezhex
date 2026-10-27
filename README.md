@@ -9,7 +9,14 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. The default dataset is Places. No API keys are required.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. The default dataset is Places. No API keys are required.
+
+```bash
+npm run build
+npm start
+```
+
+`start` runs the production server from `dist-server/` and serves the built app from `dist/`.
 
 ```bash
 npm run verify
@@ -22,25 +29,38 @@ npm run build
 
 | Variable | Purpose |
 | --- | --- |
-| `VITE_DATA_MODE` | `mock` (default) or `supabase` |
-| `VITE_SUPABASE_URL` | Project URL, used only when mode is `supabase` |
-| `VITE_SUPABASE_ANON_KEY` | Publishable anon key |
+| `DATA_MODE` | `mock` (default) or `supabase`. The server reads this. |
+| `SUPABASE_URL` | Project URL, used only when mode is `supabase` |
+| `SUPABASE_ANON_KEY` | Publishable anon key, read only by the server |
 
-Copy `.env.example` to `.env` if you want to set them. Vite exposes every `VITE_` variable to the browser. Do not put the Supabase service-role key in this app.
+Copy `.env.example` to `.env` if you want to set them. The `VITE_` names of those three variables still work as aliases. Do not put the Supabase service-role key in this app or on Render.
 
-`supabase` mode does not query Overture tables yet. Leave the mode on `mock` until that routing exists. The active mode is shown in the sidebar, or in the menu on phones.
-
-Vite reads `VITE_` variables when it builds, then inlines them. A change on Render does not reach the site until the next deploy.
+`supabase` mode does not query Overture tables yet. Leave the mode on `mock` until that routing exists. The active mode is shown in the sidebar, or in the menu on phones. It comes from `GET /api/source`.
 
 ## Deploy
 
-Render serves the Vite build as a static site. `render.yaml` builds `main` with Node 22.16.0, publishes `./dist`, and sets `VITE_DATA_MODE=mock`. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`. Paths with no file, such as `/settings`, are rewritten to `index.html`. Files that exist, including the MapLibre worker, are served as themselves.
+Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0, starts `node dist-server/index.js`, and sets `DATA_MODE=mock`. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
 
-Create the site from the blueprint:
+Create the service from the blueprint, then sign in with GitHub and deploy it:
 
 [Deploy to Render](https://render.com/deploy?repo=https://github.com/alkarboly/ezhex)
 
-Pushes to `main` deploy after that. Do not add the Supabase service-role key. The anon key, if you add it later, belongs in the Render dashboard, not in the repo.
+From a terminal, after [installing the Render CLI](https://render.com/docs/cli):
+
+```bash
+winget install render.cli
+render login
+render blueprints validate
+```
+
+`render blueprints validate` checks `render.yaml`. It does not create the service. The first deploy is the blueprint link above, or Dashboard → New → Blueprint. After the service exists, pushes to `main` deploy on their own. A manual deploy is:
+
+```bash
+render services
+render deploys create SERVICE_ID --wait --confirm
+```
+
+`SERVICE_ID` is the id from `render services`, not the name. Do not add the Supabase service-role key. The free instance sleeps when idle and wakes on the next request.
 
 ## What works now
 

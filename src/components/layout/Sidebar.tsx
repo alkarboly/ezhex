@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom'
+import { useDataSource } from '../../hooks/useDataSource'
 import { cn } from '../../lib/utils'
-import { configuredDataMode } from '../../services'
 import { BrandMark } from './BrandMark'
 import { NAV } from './nav'
 
 export function Sidebar() {
-  const mode = configuredDataMode()
+  const source = useDataSource()
+  const mode = source.data?.mode
   return (
     <aside className="relative z-30 flex h-full w-[76px] shrink-0 flex-col items-center border-r border-white/[0.06] bg-[#060a0f] py-3">
       <NavLink to="/" aria-label="WorldPulse home" className="grid size-12 place-items-center rounded-xl">
@@ -43,10 +44,10 @@ export function Sidebar() {
       <div className="mt-auto flex flex-col items-center gap-1.5">
         <span
           data-testid="data-mode"
-          title={mode.resolved === 'mock' ? 'Mock data: synthetic Austin records' : 'Supabase data'}
+          title={mode === 'supabase' ? 'Supabase data' : 'Mock data: synthetic Austin records'}
           className="rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold tracking-wider text-primary uppercase"
         >
-          {mode.resolved === 'mock' ? 'Mock' : 'Supabase'}
+          {mode === 'supabase' ? 'Supabase' : mode === 'mock' ? 'Mock' : '…'}
         </span>
         <span className="font-mono text-[9px] text-muted-foreground">H3 · r8</span>
       </div>

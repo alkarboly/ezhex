@@ -1,5 +1,6 @@
 import { MOCK_COVERAGE } from '../lib/h3'
 import { H3_RESOLUTION, MAX_VIEWPORT_CELLS } from '../lib/limits'
+import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { validateCellList, validateFilters, validateQuery } from '../lib/validate-query'
 import type { DatasetId } from '../types/datasets'
 import type { CellCount, QueryResult, QuerySpec, ResultRow } from '../types/queries'
@@ -65,10 +66,14 @@ export const mockProvider: DataProvider = {
   label: 'Mock data',
   async describeSource() {
     const db = await loadDatabase()
+    const mode = readDataMode()
     return {
       mode: 'mock',
+      rawMode: mode.raw,
+      unrecognized: mode.unrecognized,
       label: 'Mock data',
       note: 'Synthetic Austin records shaped like Overture features. Filters change these counts. This is not a live Overture release.',
+      supabase: supabasePublicConfig(),
       resolution: H3_RESOLUTION,
       cells: db.cells.length,
       counts: { ...db.totals },

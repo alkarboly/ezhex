@@ -5,7 +5,7 @@ import { formatCount, formatValue } from '../../lib/format'
 import type { CompiledQuery } from '../../lib/query-builder'
 import { summarizeQuery } from '../../lib/query-builder'
 import { cn } from '../../lib/utils'
-import { configuredDataMode } from '../../services'
+import { useDataSource } from '../../hooks/useDataSource'
 import { useExplorer } from '../../store/explorer-store'
 import { DATASET_META, RESULT_SEARCH_FIELD } from '../../types/datasets'
 import type { QueryResult } from '../../types/queries'
@@ -14,7 +14,8 @@ import { useResultsModel } from './useResultsModel'
 export const RESULTS_BAR_HEIGHT = 52
 
 export function DataModeChip({ className }: { className?: string }) {
-  const mode = configuredDataMode().resolved
+  const source = useDataSource()
+  const mode = source.data?.mode
   return (
     <span
       className={cn(
@@ -22,7 +23,7 @@ export function DataModeChip({ className }: { className?: string }) {
         className,
       )}
     >
-      {mode === 'supabase' ? 'Supabase' : 'Mock data'}
+      {mode === 'supabase' ? 'Supabase' : mode === 'mock' ? 'Mock data' : '…'}
     </span>
   )
 }

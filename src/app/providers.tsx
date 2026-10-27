@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { TooltipProvider } from '../components/ui/tooltip'
-import { getDataProvider } from '../services'
 
 export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(
@@ -16,12 +15,6 @@ export function Providers({ children }: { children: ReactNode }) {
         },
       }),
   )
-
-  useEffect(() => {
-    void getDataProvider().describeSource().catch(() => {
-      // Dataset queries surface this failure in the explorer.
-    })
-  }, [])
 
   return (
     <QueryClientProvider client={client}>
