@@ -79,3 +79,14 @@ create table saved_queries (
 ```
 
 The browser client may use the anon key only. The service-role key stays off the frontend.
+
+## Deploy
+
+```
+Browser
+  → Render CDN (index.html and hashed files in dist/)
+  → MapLibre loads tiles from OpenFreeMap and Esri
+  → mock records ship inside the JavaScript bundle
+```
+
+There is no app server. `render.yaml` is a static site on `main`, built with Node 22.16.0. `VITE_DATA_MODE` is `mock`. Vite inlines that value, so changing it requires a new build. Client routes (`/saved`, `/datasets`, `/settings`) have no files of their own. Render serves a real file when one exists, and rewrites every other path to `/index.html`. Hashed files under `/assets/` are cached for a year. The anon key is not in the blueprint. Add it in the Render dashboard only, and never add the service-role key.

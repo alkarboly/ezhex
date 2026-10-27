@@ -1,0 +1,28 @@
+# Static site on Render. Vite inlines VITE_ variables during the build, so a
+# change to one of them needs a new deploy. Never put a service-role key here.
+services:
+  - type: web
+    name: worldpulse
+    runtime: static
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    staticPublishPath: ./dist
+    autoDeployTrigger: commit
+    envVars:
+      # Quoted so YAML does not read the version as the number 22.16.
+      - key: NODE_VERSION
+        value: "22.16.0"
+      - key: VITE_DATA_MODE
+        value: mock
+    # Missing files fall through to the app. Files that exist, including the
+    # MapLibre worker, are served as themselves.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    previews:
+      generation: automatic
