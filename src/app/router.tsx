@@ -1,4 +1,4 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AppShell } from '../components/layout/AppShell'
 import { DatasetsPage } from '../pages/DatasetsPage'
 import { ExplorerPage } from '../pages/ExplorerPage'
@@ -11,7 +11,8 @@ export function AppRouter() {
       <Routes>
         <Route element={<AppShell />}>
           <Route index element={<ExplorerPage />} />
-          <Route path="saved" element={<SavedQueriesPage />} />
+          <Route path="workflows" element={<SavedQueriesPage />} />
+          <Route path="saved" element={<Navigate to="/workflows" replace />} />
           <Route path="datasets" element={<DatasetsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

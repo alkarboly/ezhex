@@ -35,7 +35,7 @@ export function Sidebar() {
                 >
                   <item.icon className="size-[18px]" />
                 </span>
-                <span className={cn(isActive && 'text-foreground')}>{item.short}</span>
+                <span className={cn('max-w-14 text-center leading-tight', isActive && 'text-foreground')}>{item.short}</span>
               </>
             )}
           </NavLink>

@@ -242,6 +242,23 @@ assert(servedCounts.status === 200 && Array.isArray(servedCounts.body), 'server 
 assert(servedCounts.body.length === sampleCells.length, 'server cell counts drifted')
 const rejected = await routeApi('POST', '/api/query', { dataset: 'places' })
 assert(rejected.status === 400, 'server accepted a partial query')
+const schemas = await routeApi('GET', '/api/query-schemas', undefined)
+assert(schemas.status === 200 && isRecord(schemas.body), 'query schema route failed')
+assert(Array.isArray(schemas.body.datasets) && schemas.body.datasets.length >= 3, 'query schemas are missing datasets')
+assert(typeof schemas.body.query_enabled === 'boolean', 'query schema capabilities are missing')
+const ingestLimits = await routeApi('GET', '/api/workflow-ingestion/limits', undefined)
+assert(ingestLimits.status === 200 && isRecord(ingestLimits.body), 'workflow ingestion limits failed')
+assert(ingestLimits.body.max_hexes === 20, 'workflow max hex cap drifted')
+const ingestPlan = await routeApi('POST', '/api/workflow-ingestion/plan', {
+  release_version: '2026-09-24.0',
+  h3_cells: [sampleCells[0]],
+})
+assert(ingestPlan.status === 200 && isRecord(ingestPlan.body), 'workflow ingestion plan failed')
+assert(Array.isArray(ingestPlan.body.h3_cells) && ingestPlan.body.h3_cells.length === 1, 'workflow plan lost hexes')
+assert(
+  isRecord(ingestPlan.body.bbox) && typeof ingestPlan.body.bbox.area_km2 === 'number',
+  'workflow plan bbox is missing',
+)
 
 console.log(
   `verify ok · ${first.cells.length} cells · ${first.totals.places} places · ${first.totals.buildings} buildings · ${first.totals.addresses} addresses`,

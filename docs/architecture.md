@@ -1,20 +1,33 @@
 # Architecture
 
-This slice is a local explorer. Nothing is written to a database.
+This slice is a local explorer with a workflow-ingestion scaffold. The explorer queries still run against mock data unless `DATA_MODE=supabase` is wired to real query RPCs.
 
 ```
 Browser
-  → Zustand builds a QuerySpec JSON
-  → POST /api/cell-counts and POST /api/query
+  → Explorer map requests viewport counts: POST /api/cell-counts
+  → Workflows page reads planning contracts:
+       GET /api/query-schemas
+       GET /api/workflow-ingestion/limits
+       POST /api/workflow-ingestion/plan
   → Node server
        validateQuery() whitelist
        DataProvider, running in the server process
          mock: in-memory Austin records
          supabase: not connected; methods throw
-  → JSON back to the map and the results table
+  → JSON back to the map and workflow planner UI
 ```
 
 The browser does not import the dataset or the Supabase client. It still uses `h3-js` to draw cell shapes. Filtering and counts run in Node, from the libraries in `node_modules`, so the server can take on packages that do not belong in a page bundle. There is no auth hop. Mock records are not user-scoped because they are not stored. The nav rail shows the mode the server reports. On phones it is in the menu.
+
+The Node API also exposes workflow-ingestion planning endpoints:
+
+- `GET /api/workflow-ingestion/limits`
+- `POST /api/workflow-ingestion/plan`
+- `GET /api/query-schemas`
+
+The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps so a Spark run cannot request unbounded data.
+
+`/workflows` is a UI shell for this planner: it reads query schemas and limits from the server, builds a plan from selected hexes, and downloads plan JSON for the Spark runner.
 
 ## Map
 
@@ -24,7 +37,7 @@ The MapLibre container fills the map slot with absolute positioning. MapLibre's 
 
 The projection is a globe. On each style load the map sets that projection and a sky in the page background (`#05080c`) with a mint horizon. The atmosphere fades out by zoom 8, so the city view stays flat enough to read the cells. The globe uses the selected basemap. On the dark streets style, land and water are shifted into that same palette below zoom 7 so the continents stay readable, then those paints return to the basemap colors. The camera starts over Africa, turns across the Atlantic onto North America, then flies down to Austin. Viewport cells are not requested until that flight ends, or until the user presses the map, which skips the rest of the flight. `prefers-reduced-motion` skips it and opens on Austin. A basemap change during the flight is applied when the flight ends, and it does not replay.
 
-Cell fill color is the count of records that pass the current attribute filters, including the results search when that dataset has one. The scale runs to the busiest drawn cell. Outlines carry state: amber for selected, mint for the result you clicked, white under the pointer. Clicking a result flies to that cell.
+Cell fill color is the count of records in each visible cell. The scale runs to the busiest drawn cell. Outlines carry state: amber for selected and white under the pointer.
 
 ### Cell display
 
@@ -40,13 +53,11 @@ Switching basemaps calls `setStyle(style, { diff: false })`. That reloads the st
 
 ### Layout
 
-Desktop has a nav rail, a floating query panel, a results panel, and a selection dock. At 767 px and below, the explorer switches to a top bar, a menu drawer, and a bottom sheet with Filters and Results tabs. The sheet snaps to peek, half, and full.
+Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a compact selection/workflows bar. At 767 px and below, the explorer switches to a top bar with menu and map controls.
 
-Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. The sheet's **Add** button toggles the cell under the reticle.
+Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it.
 
-Panels report how much of the map they cover. Fly-to, fit-to-selection, and the lens rest point use those insets, so they center on the visible part of the map.
-
-Examples select the seven cells around the visible center, then pan without zooming so the cells stay clear of the results panel that opens. The postal code 78701 example selects downtown Austin instead and zooms there, because that postcode only exists downtown.
+If `DATA_MODE=supabase` before query RPC wiring exists, the UI shows a non-blocking notice and points users to Workflows ingestion.
 
 ## Mock coverage
 
@@ -61,25 +72,24 @@ Points sit on the cell center, so each record's `h3` matches `latLngToCell`. Cou
 
 Sample place categories are limited to labels named in the Overture places guide. Building `subtype` uses the enum in the Overture building schema. Address `locality` and `region` are the two US `address_levels` values: state, then locality.
 
-## Supabase, next
+## Supabase and Spark workflow scaffold
 
-Not applied. The intended shape:
+Supabase migration `supabase/migrations/20261027_workflows.sql` adds workflow persistence with owner-based RLS:
 
-- `places`, `buildings`, and `addresses` stay read-only for signed-in users. Ingest (outside this app) should store `h3_res8` from the feature point or footprint centroid.
-- A Postgres function accepts the query spec JSON, checks field names and operators against the same whitelist, and returns rows, the total, and counts by cell. The browser never sends SQL or raw column names.
-- `saved_queries` stores `query_config jsonb` as a `QuerySpec`, with RLS `auth.uid() = user_id`.
+- `workflows`: selected hexes (1-20), release version, filters, and status
+- `workflow_subscriptions`: manual/scheduled/release triggers
+- `workflow_runs`: run status, storage prefixes, and enforced row caps
+- `workflow_hex_metrics`: per-hex counts and quality-rate fields
 
-```sql
-create table saved_queries (
-    id uuid primary key default gen_random_uuid(),
-    user_id uuid not null references auth.users (id),
-    name text not null,
-    description text,
-    query_config jsonb not null,
-    created_at timestamptz default now(),
-    updated_at timestamptz default now()
-);
-```
+Safety constraints are enforced in both API and schema:
+
+- selected hexes must be res-8, unique, and <= 20
+- bbox area is capped at 220 km2
+- per-dataset and total row caps are bounded
+
+Spark job scaffold is under `pipelines/spark/workflow_ingest.py`. It reads a plan from `/api/workflow-ingestion/plan`, applies bbox prefilter + exact `h3_res8` filtering, enforces row caps again, and writes segmented outputs plus per-hex metrics.
+
+The query provider path (`DATA_MODE=supabase`) is still not wired to an Overture query RPC yet. Keep `DATA_MODE=mock` for the explorer until that RPC is added.
 
 The Node server may use the anon key only. The service-role key stays out of the environment and out of the repo. The browser never receives the key.
 

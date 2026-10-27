@@ -37,6 +37,32 @@ Copy `.env.example` to `.env` if you want to set them. The `VITE_` names of thos
 
 `supabase` mode does not query Overture tables yet. Leave the mode on `mock` until that routing exists. The active mode is shown in the sidebar, or in the menu on phones. It comes from `GET /api/source`.
 
+## Workflow ingestion planning
+
+The server includes segmented-ingestion planning routes:
+
+- `GET /api/workflow-ingestion/limits`
+- `POST /api/workflow-ingestion/plan`
+
+The plan route enforces:
+
+- max 20 selected hexes
+- one connected hex group
+- H3 resolution 8 only
+- bbox area cap
+- row caps per dataset and per run
+
+It returns a Spark plan JSON with release version, selected hexes, bbox, row caps, and storage prefixes. Spark scaffolding lives in `pipelines/spark/`.
+
+Workflow ingestion envs in `.env.example`:
+
+- `WORKFLOW_MAX_BBOX_AREA_KM2`
+- `WORKFLOW_MAX_ROWS_PER_DATASET`
+- `WORKFLOW_MAX_TOTAL_ROWS`
+- `OVERTURE_SILVER_PREFIX`
+- `WORKFLOW_OUTPUT_PREFIX`
+- `WORKFLOW_METRICS_PREFIX`
+
 ## Deploy
 
 Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0, starts `node dist-server/index.js`, and sets `DATA_MODE=mock`. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
@@ -66,20 +92,18 @@ render deploys create SERVICE_ID --wait --confirm
 
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
 - H3 resolution 8 cells for the current view, from `h3-js` boundaries. By default they light up as a lens around the cursor. **Map layers** switches to a full grid or hides them.
-- Click, shift-click or Add mode, select visible (300 cell cap), clear, and zoom to the selection
-- Places, buildings, and addresses, each with its own filters and a one-click example
-- A JSON query spec, plain-language summary, paged results, and CSV export
-- Cell color shows the filtered count, scaled to the busiest cell on screen
-- Phones get a bottom sheet with Filters and Results tabs. The lens sits under a center reticle, and **Add** selects the cell beneath it.
-
-Selecting cells does not change the color of unselected cells. Color follows the attribute filters. The table lists records inside the selection.
+- Minimal explorer chrome: map controls, status, selection count, and a direct **Workflows** action
+- Workflow ingestion planning endpoints plus a Workflows page that builds/downloads plan JSON from selected hexes
+- Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
+- Spark/Supabase workflow scaffolding with hard caps on hex count, bbox area, and row counts
 
 ## Not in this slice
 
-Sign-in, saved queries, Row Level Security, the Overture query RPC, and Spark ingestion. See `docs/architecture.md`.
+Sign-in UX, workflow-run orchestration from the UI, and the Supabase Overture query RPC for explorer reads. Spark execution still runs outside the app. See `docs/architecture.md`.
 
 ## Docs
 
 - [docs/README.md](docs/README.md)
 - [docs/architecture.md](docs/architecture.md)
 - [docs/query-spec.md](docs/query-spec.md)
+- [docs/workflow-pipeline.md](docs/workflow-pipeline.md)

@@ -2,7 +2,7 @@ import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { getSupabaseClient } from '../lib/supabase'
 import type { DataProvider } from './data-provider'
 
-const NOT_CONNECTED =
+export const SUPABASE_NOT_CONNECTED =
   'Supabase query routing is not connected yet. Keep DATA_MODE=mock until the dataset RPC and saved-query tables are added.'
 
 export const supabaseProvider: DataProvider = {
@@ -27,9 +27,9 @@ export const supabaseProvider: DataProvider = {
     }
   },
   async getCellCounts() {
-    throw new Error(NOT_CONNECTED)
+    throw new Error(SUPABASE_NOT_CONNECTED)
   },
   async runQuery() {
-    throw new Error(NOT_CONNECTED)
+    throw new Error(SUPABASE_NOT_CONNECTED)
   },
 }

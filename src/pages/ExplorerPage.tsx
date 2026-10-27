@@ -1,68 +1,56 @@
 import { LocateFixed } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { DatasetSwitcher } from '../components/explorer/DatasetSwitcher'
+import { useEffect, useMemo, useRef } from 'react'
 import { LayersButton, MapControls } from '../components/explorer/MapControls'
-import { MobileSheet } from '../components/explorer/MobileSheet'
-import { SelectionDock } from '../components/explorer/SelectionDock'
-import { FILTER_PANEL_WIDTH, FilterPanel } from '../components/filters/FilterPanel'
 import { MobileNavButton } from '../components/layout/MobileNav'
 import { H3Map, type H3MapHandle, type MapInsets } from '../components/map/H3Map'
-import { RESULTS_BAR_HEIGHT, ResultsPanel } from '../components/results/ResultsPanel'
-import { useCellStats, useCompiledQuery, useQueryResults } from '../hooks/useCompiledQuery'
+import { useCellStats, useCompiledQuery } from '../hooks/useCompiledQuery'
+import { useDataSource } from '../hooks/useDataSource'
 import { MOBILE_QUERY, TOUCH_QUERY, useMediaQuery } from '../hooks/useMediaQuery'
 import type { ViewportStatus } from '../lib/h3'
-import { useExplorer, type SheetSnap } from '../store/explorer-store'
+import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
 import type { CellCount } from '../types/queries'
+import { Link } from 'react-router-dom'
 
 const NO_COUNTS: CellCount[] = []
-const EDGE = 12
-const DOCK_SPACE = 56
 const MOBILE_TOP_BAR = 72
 
 export function ExplorerPage() {
   const mobile = useMediaQuery(MOBILE_QUERY)
   const touch = useMediaQuery(TOUCH_QUERY)
+  const source = useDataSource()
   const mapRef = useRef<H3MapHandle>(null)
   const compiled = useCompiledQuery()
   const cells = useExplorer((state) => state.viewportCellIds)
   const viewportStatus = useExplorer((state) => state.viewportStatus)
   const selected = useExplorer((state) => state.selectedCells)
+  const clearSelection = useExplorer((state) => state.clearSelection)
   const hexMode = useExplorer((state) => state.hexMode)
   const basemap = useExplorer((state) => state.basemap)
   const focus = useExplorer((state) => state.focus)
   const fit = useExplorer((state) => state.fit)
   const selectionMode = useExplorer((state) => state.selectionMode)
-  const filtersOpen = useExplorer((state) => state.filtersOpen)
-  const resultsOpen = useExplorer((state) => state.resultsOpen)
-  const resultsHeight = useExplorer((state) => state.resultsHeight)
   const toggleCell = useExplorer((state) => state.toggleCell)
   const setViewportCells = useExplorer((state) => state.setViewportCells)
   const setCenterCell = useExplorer((state) => state.setCenterCell)
-  const sheetSnap = useExplorer((state) => state.sheetSnap)
   const notice = useExplorer((state) => state.notice)
   const dismissNotice = useExplorer((state) => state.dismissNotice)
-  const [sheetHeights, setSheetHeights] = useState<Record<SheetSnap, number>>({ peek: 130, half: 440, full: 760 })
-  const sheetHeight = sheetHeights[sheetSnap]
+  const queryUnavailable = source.data?.mode === 'supabase'
+  const canQueryCells = source.data?.mode === 'mock'
 
-  const stats = useCellStats(cells.length > 0 ? cells : selected, compiled)
-  const results = useQueryResults(compiled)
+  const stats = useCellStats(canQueryCells ? (cells.length > 0 ? cells : selected) : [], compiled)
   const meta = DATASET_META[compiled.spec.dataset]
-  const counts = compiled.errors.length === 0 ? (stats.data ?? NO_COUNTS) : NO_COUNTS
-  const countMap = useMemo(() => new Map(counts.map((entry) => [entry.h3, entry.count])), [counts])
+  const counts = canQueryCells && compiled.errors.length === 0 ? (stats.data ?? NO_COUNTS) : NO_COUNTS
   const allZero = stats.isSuccess && counts.length > 0 && counts.every((entry) => entry.count === 0)
   const hasFilters = compiled.spec.filters.length > 0
   const countLabel = hasFilters ? `matching ${meta.plural}` : meta.plural
 
-  const panelRight = filtersOpen ? EDGE + FILTER_PANEL_WIDTH : 0
-  const contentLeft = panelRight + EDGE
-  const resultsSpace = (resultsOpen && selected.length > 0 ? resultsHeight : RESULTS_BAR_HEIGHT) + EDGE
   const insets = useMemo<MapInsets>(
     () =>
       mobile
-        ? { top: MOBILE_TOP_BAR, right: 0, bottom: sheetHeight, left: 0 }
-        : { top: 64, right: 0, bottom: resultsSpace + DOCK_SPACE, left: panelRight },
-    [mobile, sheetHeight, resultsSpace, panelRight],
+        ? { top: MOBILE_TOP_BAR, right: 0, bottom: 0, left: 0 }
+        : { top: 56, right: 0, bottom: 0, left: 0 },
+    [mobile],
   )
 
   useEffect(() => {
@@ -102,9 +90,7 @@ export function ExplorerPage() {
             <div className="pointer-events-auto">
               <MobileNavButton />
             </div>
-            <div className="pointer-events-auto mx-auto min-w-0">
-              <DatasetSwitcher compact />
-            </div>
+            <div className="min-w-0 flex-1" />
             <div className="glass pointer-events-auto flex flex-col overflow-hidden rounded-full">
               <LayersButton touch={touch} side="bottom" align="end" className="size-11" />
               <span className="mx-2.5 h-px bg-white/[0.08]" />
@@ -124,49 +110,72 @@ export function ExplorerPage() {
           >
             {status}
           </div>
-          {notice && sheetSnap !== 'full' && (
+          {queryUnavailable && (
+            <div
+              role="status"
+              className="glass pointer-events-none absolute inset-x-3 z-20 mx-auto max-w-md rounded-full px-3.5 py-2 text-center text-xs text-muted-foreground"
+              style={{ top: `calc(max(0.75rem, env(safe-area-inset-top)) + 6.6rem)` }}
+            >
+              Supabase query mode is not connected yet. Use <span className="font-medium text-foreground">Workflows</span>{' '}
+              for ingestion.
+            </div>
+          )}
+          {notice && (
             <div
               className="pointer-events-none absolute inset-x-3 z-40 flex justify-center"
-              style={{ bottom: sheetHeight + 40 }}
+              style={{ bottom: 20 }}
             >
               <Toast message={notice} onDismiss={dismissNotice} />
             </div>
           )}
-          <MobileSheet
-            compiled={compiled}
-            results={results}
-            counts={countMap}
-            countLabel={countLabel}
-            viewportStatus={viewportStatus}
-            hexMode={hexMode}
-            onHeightsChange={setSheetHeights}
-          />
         </>
       ) : (
         <>
-          <FilterPanel />
           <div
-            className="pointer-events-none absolute top-3 right-16 z-20 flex flex-col items-center gap-2"
-            style={{ left: contentLeft }}
+            className="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2"
           >
-            <div className="pointer-events-auto">
-              <DatasetSwitcher />
-            </div>
             {status}
-            {notice && <Toast message={notice} onDismiss={dismissNotice} />}
           </div>
+          {queryUnavailable && (
+            <div
+              role="status"
+              className="glass pointer-events-none absolute top-14 left-1/2 z-20 -translate-x-1/2 rounded-full px-3.5 py-2 text-xs text-muted-foreground"
+            >
+              Supabase query mode is not connected yet. Use <span className="font-medium text-foreground">Workflows</span>{' '}
+              for ingestion.
+            </div>
+          )}
           <div className="absolute top-3 right-3 z-20">
             <MapControls mapRef={mapRef} touch={touch} />
           </div>
           <div
-            className="pointer-events-none absolute right-3 z-20 flex justify-center transition-[bottom] duration-200"
-            style={{ left: contentLeft, bottom: resultsSpace + EDGE }}
+            className="pointer-events-none absolute right-3 bottom-3 left-3 z-20 flex justify-center"
           >
-            <div className="pointer-events-auto">
-              <SelectionDock viewportStatus={viewportStatus} viewportCount={cells.length} touch={touch} />
+            <div className="glass pointer-events-auto flex items-center gap-2 rounded-full px-2 py-1">
+              <span className="rounded-full bg-white/[0.05] px-2.5 py-1 text-xs text-muted-foreground">
+                {selected.length} selected
+              </span>
+              <button
+                type="button"
+                disabled={selected.length === 0}
+                onClick={() => clearSelection()}
+                className="rounded-full px-3 py-1 text-xs text-foreground/85 transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
+              >
+                Clear
+              </button>
+              <Link
+                to="/workflows"
+                className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                Workflows
+              </Link>
             </div>
           </div>
-          <ResultsPanel compiled={compiled} query={results} left={contentLeft} />
+          {notice && (
+            <div className="pointer-events-none absolute right-3 bottom-16 left-3 z-30 flex justify-center">
+              <Toast message={notice} onDismiss={dismissNotice} />
+            </div>
+          )}
         </>
       )}
     </div>

@@ -1,8 +1,14 @@
 import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { mockProvider } from '../services/mock-provider'
-import { supabaseProvider } from '../services/supabase-provider'
+import { SUPABASE_NOT_CONNECTED, supabaseProvider } from '../services/supabase-provider'
 import type { SourceDescription } from '../services/data-provider'
 import type { CellCountRequest, QuerySpec } from '../types/queries'
+import { DATASET_IDS, DATASET_META, FIELD_CATALOG } from '../types/datasets'
+import {
+  asWorkflowIngestionPlanRequest,
+  planWorkflowIngestion,
+  workflowIngestionLimits,
+} from './workflow-ingestion'
 
 export type ApiResult = { status: number; body: unknown }
 
@@ -36,6 +42,41 @@ export async function routeApi(method: string, pathname: string, body: unknown):
     const spec = asQuerySpec(body)
     if (!spec) return invalid('Request body must be a query spec.')
     return call(() => serverProvider().runQuery(spec))
+  }
+
+  if (method === 'GET' && pathname === '/api/query-schemas') {
+    const mode = readDataMode().resolved
+    const queryEnabled = mode === 'mock'
+    return {
+      status: 200,
+      body: {
+        query_enabled: queryEnabled,
+        reason: queryEnabled ? null : SUPABASE_NOT_CONNECTED,
+        datasets: DATASET_IDS.map((id) => ({
+          id,
+          title: DATASET_META[id].title,
+          singular: DATASET_META[id].singular,
+          plural: DATASET_META[id].plural,
+          fields: FIELD_CATALOG[id].map((field) => ({
+            field: field.field,
+            label: field.label,
+            valueType: field.valueType,
+            operators: [...field.operators],
+            sortable: field.sortable,
+          })),
+        })),
+      },
+    }
+  }
+
+  if (method === 'GET' && pathname === '/api/workflow-ingestion/limits') {
+    return { status: 200, body: workflowIngestionLimits() }
+  }
+
+  if (method === 'POST' && pathname === '/api/workflow-ingestion/plan') {
+    const request = asWorkflowIngestionPlanRequest(body)
+    if (!request) return invalid('Request body must include release_version and h3_cells.')
+    return call(async () => planWorkflowIngestion(request))
   }
 
   return { status: 404, body: { error: 'No such API route.' } }
