@@ -53,6 +53,15 @@ export type HexDataStatus = (typeof HEX_DATA_STATUSES)[number]
 
 export type HexAction = 'process' | 'query' | 'workflow'
 
+export const JOB_LOG_LEVELS = ['info', 'warn', 'error'] as const
+export type JobLogLevel = (typeof JOB_LOG_LEVELS)[number]
+
+export type JobLog = {
+  at: string
+  level: JobLogLevel
+  message: string
+}
+
 export type IngestionJob = {
   id: string
   run_id: string
@@ -66,6 +75,7 @@ export type IngestionJob = {
   rows_total: number
   note: string | null
   error_message: string | null
+  logs: JobLog[]
   created_at: string
   started_at: string | null
   finished_at: string | null

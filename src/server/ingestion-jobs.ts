@@ -9,6 +9,7 @@ import type {
   HexCoverage,
   HexCoverageResponse,
   IngestionJob,
+  JobLogLevel,
   WorkflowIngestionPlanRequest,
 } from '../types/workflows'
 import { planWorkflowIngestion } from './workflow-ingestion'
@@ -63,9 +64,19 @@ export function createIngestionJob(body: unknown): IngestionJob {
       ? 'These hexes already have processed rows.'
       : 'Processing selected hexes on this server.',
     error_message: null,
+    logs: [],
     created_at: now,
     started_at: ready ? now : null,
     finished_at: ready ? now : null,
+  }
+  appendLog(
+    job,
+    'info',
+    `Created ${job.run_id} · ${readDataMode().resolved} · release ${job.release_version} · ${job.h3_cells.length} hexes · ${job.datasets.join(', ')} · ${job.bbox.area_km2} km2`,
+  )
+  appendLog(job, 'info', `Hexes ${job.h3_cells.join(', ')}`)
+  if (ready) {
+    appendLog(job, 'info', 'These hexes already have mock coverage. Marked ready.')
   }
   remember(job)
   if (ready) return job
@@ -85,6 +96,7 @@ export function runIngestionJob(id: string): IngestionJob {
   job.status = 'running'
   job.started_at = now
   job.note = 'Processing selected hexes.'
+  appendLog(job, 'info', `Mock ingest started for ${job.h3_cells.length} hexes.`)
   const result = ingestMockCellsNow(job.h3_cells)
   const finished = new Date().toISOString()
   job.status = 'succeeded'
@@ -95,6 +107,13 @@ export function runIngestionJob(id: string): IngestionJob {
     result.added.length > 0
       ? `Processed ${result.added.length} hexes · ${result.rows} rows. Ready to query.`
       : `These hexes already had rows · ${result.rows} total. Ready to query.`
+  appendLog(
+    job,
+    'info',
+    result.added.length > 0
+      ? `Mock ingest added ${result.added.length} hexes (${result.added.join(', ')}) · ${result.rows} rows.`
+      : `Mock ingest reused coverage · ${result.rows} rows.`,
+  )
   return job
 }
 
@@ -154,6 +173,7 @@ function startOvertureJob(id: string): IngestionJob {
   job.finished_at = null
   job.error_message = null
   job.note = 'Downloading Overture for these hexes.'
+  appendLog(job, 'info', 'Starting Overture download on this Node process.')
   void finishOvertureJob(id)
   return job
 }
@@ -162,18 +182,35 @@ async function finishOvertureJob(id: string) {
   const job = jobs.get(id)
   if (!job) return
   try {
-    const result = await ingestOverturePlan(job.plan)
+    const result = await ingestOverturePlan(job.plan, (level, message) => appendLog(job, level, message))
     job.status = 'succeeded'
     job.finished_at = new Date().toISOString()
     job.rows_total = result.rows
     job.error_message = null
     job.note = `Processed ${result.rows} Overture rows. Ready to query.`
+    const elapsed = job.started_at ? Date.now() - Date.parse(job.started_at) : 0
+    appendLog(
+      job,
+      'info',
+      `Succeeded in ${elapsed}ms · ${result.rows} rows · ${Object.entries(result.by_dataset)
+        .map(([dataset, count]) => `${dataset} ${count ?? 0}`)
+        .join(' · ')}`,
+    )
   } catch (error) {
     job.status = 'failed'
     job.finished_at = new Date().toISOString()
     job.error_message = error instanceof Error ? error.message : 'Overture ingest failed.'
     job.note = job.error_message
+    appendLog(job, 'error', job.error_message)
   }
+}
+
+const MAX_LOGS = 200
+
+function appendLog(job: IngestionJob, level: JobLogLevel, message: string) {
+  if (!job.logs) job.logs = []
+  job.logs.push({ at: new Date().toISOString(), level, message })
+  if (job.logs.length > MAX_LOGS) job.logs.splice(0, job.logs.length - MAX_LOGS)
 }
 
 function sameDatasets(left: readonly string[], right: readonly string[]): boolean {

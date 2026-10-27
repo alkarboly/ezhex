@@ -9,7 +9,9 @@ import {
   cellForPoint,
   overtureParquetGlob,
 } from '../lib/overture'
-import type { WorkflowDataset, WorkflowIngestionPlan } from '../types/workflows'
+import type { JobLogLevel, WorkflowDataset, WorkflowIngestionPlan } from '../types/workflows'
+
+export type JobLogger = (level: JobLogLevel, message: string) => void
 
 const BATCH = 400
 let connection: Promise<DuckDBConnection> | null = null
@@ -19,26 +21,47 @@ export type OvertureIngestResult = {
   by_dataset: Partial<Record<WorkflowDataset, number>>
 }
 
-export async function ingestOverturePlan(plan: WorkflowIngestionPlan): Promise<OvertureIngestResult> {
+export async function ingestOverturePlan(
+  plan: WorkflowIngestionPlan,
+  log: JobLogger = () => {},
+): Promise<OvertureIngestResult> {
   const client = getSupabaseClient()
   if (!client) throw new Error('Set SUPABASE_URL and SUPABASE_ANON_KEY on the server.')
+  log('info', `Supabase client ready. Release ${plan.release_version}.`)
+  log(
+    'info',
+    `Plan ${plan.run_id}: ${plan.h3_cells.length} hexes · ${plan.datasets.join(', ')} · bbox ${plan.bbox.west.toFixed(4)},${plan.bbox.south.toFixed(4)} to ${plan.bbox.east.toFixed(4)},${plan.bbox.north.toFixed(4)} · ${plan.bbox.area_km2} km2`,
+  )
+  log('info', `Caps ${plan.max_rows_by_dataset.places ?? 0} rows / dataset, ${plan.max_total_rows} total.`)
 
   const wanted = new Set(plan.h3_cells)
   const byDataset: Partial<Record<WorkflowDataset, number>> = {}
   let rows = 0
 
   for (const dataset of plan.datasets) {
-    const mapped = await readTheme(dataset, plan)
+    log('info', `Opening ${dataset} parquet ${overtureParquetGlob(plan.release_version, dataset)}`)
+    const mapped = await readTheme(dataset, plan, log)
     const kept = mapped.filter((row) => wanted.has(row.h3_res8))
-    const written = await writeTheme(dataset, plan.release_version, kept)
+    log(
+      kept.length === 0 ? 'warn' : 'info',
+      `${dataset}: ${mapped.length} bbox rows, ${kept.length} in selected hexes`,
+    )
+    const written = await writeTheme(dataset, plan.release_version, kept, log)
     byDataset[dataset] = written
     rows += written
   }
 
+  log('info', `Ingest finished. ${rows} rows written.`)
   return { rows, by_dataset: byDataset }
 }
 
-async function readTheme(dataset: WorkflowDataset, plan: WorkflowIngestionPlan): Promise<IngestRow[]> {
+async function readTheme(
+  dataset: WorkflowDataset,
+  plan: WorkflowIngestionPlan,
+  log: JobLogger,
+): Promise<IngestRow[]> {
+  log('info', `${dataset}: connecting DuckDB and reading public Overture S3`)
+  const started = Date.now()
   const db = await duck()
   const path = overtureParquetGlob(plan.release_version, dataset)
   const limit = plan.max_rows_by_dataset[dataset]
@@ -62,10 +85,23 @@ async function readTheme(dataset: WorkflowDataset, plan: WorkflowIngestionPlan):
   })
   const raw = reader.getRowObjectsJson()
   reader.closeSync()
-  return raw.map((row) => mapRow(dataset, row)).filter((row): row is IngestRow => row != null)
+  const mapped = raw.map((row) => mapRow(dataset, row)).filter((row): row is IngestRow => row != null)
+  log(
+    'info',
+    `${dataset}: DuckDB returned ${raw.length} rows, mapped ${mapped.length} in ${Date.now() - started}ms (limit ${limit})`,
+  )
+  if (raw.length >= limit) {
+    log('warn', `${dataset}: hit the per-dataset row cap (${limit}). Extra rows in this bbox were not read.`)
+  }
+  return mapped
 }
 
-async function writeTheme(dataset: WorkflowDataset, release: string, rows: IngestRow[]): Promise<number> {
+async function writeTheme(
+  dataset: WorkflowDataset,
+  release: string,
+  rows: IngestRow[],
+  log: JobLogger,
+): Promise<number> {
   const rpc =
     dataset === 'places'
       ? 'ingest_overture_places'
@@ -74,12 +110,24 @@ async function writeTheme(dataset: WorkflowDataset, release: string, rows: Inges
         : 'ingest_overture_addresses'
   const client = getSupabaseClient()
   if (!client) throw new Error('Supabase is not configured.')
+  if (rows.length === 0) {
+    log('warn', `${dataset}: nothing to write`)
+    return 0
+  }
+  const batches = Math.ceil(rows.length / BATCH)
+  log('info', `${dataset}: writing ${rows.length} rows through ${rpc} in ${batches} batches`)
   let written = 0
   for (let index = 0; index < rows.length; index += BATCH) {
     const batch = rows.slice(index, index + BATCH)
+    const batchNo = Math.floor(index / BATCH) + 1
     const { data, error } = await client.rpc(rpc, { p_release: release, p_rows: batch })
-    if (error) throw new Error(error.message)
-    written += typeof data === 'number' ? data : batch.length
+    if (error) {
+      log('error', `${dataset}: batch ${batchNo}/${batches} failed: ${error.message}`)
+      throw new Error(error.message)
+    }
+    const count = typeof data === 'number' ? data : batch.length
+    written += count
+    log('info', `${dataset}: batch ${batchNo}/${batches} upserted ${count} rows`)
   }
   return written
 }

@@ -270,6 +270,21 @@ const createdJob = await routeApi('POST', '/api/workflow-ingestion/jobs', {
 assert(createdJob.status === 200 && isRecord(createdJob.body), 'ingestion job create failed')
 assert(createdJob.body.status === 'succeeded', 'mock-covered hexes should resolve as ready')
 assert(typeof createdJob.body.id === 'string', 'ingestion job id is missing')
+assert(Array.isArray(createdJob.body.logs) && createdJob.body.logs.length > 0, 'ready job has no logs')
+assert(
+  createdJob.body.logs.every(
+    (line) =>
+      isRecord(line) &&
+      typeof line.at === 'string' &&
+      (line.level === 'info' || line.level === 'warn' || line.level === 'error') &&
+      typeof line.message === 'string',
+  ),
+  'job log shape drifted',
+)
+assert(
+  createdJob.body.logs.some((line) => isRecord(line) && String(line.message).includes('Created')),
+  'create log missing',
+)
 const createdAgain = await routeApi('POST', '/api/workflow-ingestion/jobs', {
   release_version: '2026-09-24.0',
   h3_cells: [sampleCells[0]],
@@ -291,6 +306,11 @@ const outsideJob = await routeApi('POST', '/api/workflow-ingestion/jobs', {
 assert(outsideJob.status === 200 && isRecord(outsideJob.body), 'outside hex job failed')
 assert(outsideJob.body.status === 'succeeded', 'local mock ingest should run without Spark')
 assert(typeof outsideJob.body.rows_total === 'number' && outsideJob.body.rows_total > 0, 'local ingest wrote no rows')
+assert(
+  Array.isArray(outsideJob.body.logs) &&
+    outsideJob.body.logs.some((line) => isRecord(line) && String(line.message).includes('Mock ingest')),
+  'outside job missing mock ingest log',
+)
 const ranAgain = await routeApi('POST', `/api/workflow-ingestion/jobs/${outsideJob.body.id}/run`, {})
 assert(ranAgain.status === 200 && isRecord(ranAgain.body) && ranAgain.body.status === 'succeeded', 'job rerun failed')
 const outsideStatus = await routeApi('POST', '/api/hex-status', { h3_cells: [outside] })

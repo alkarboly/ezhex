@@ -63,7 +63,7 @@ It returns a Spark plan JSON with release version, selected hexes, bbox, row cap
 
 `/api/query-schemas` returns dataset/field/operator contracts from the same whitelist used by query validation, plus whether query execution is enabled in the current mode.
 
-`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. `/api/hex-status` is ready when those tables have rows for the hex.
+`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`) that `/jobs` streams live. `/api/hex-status` is ready when those tables have rows for the hex.
 
 Workflow ingestion envs in `.env.example`:
 
@@ -76,7 +76,7 @@ Workflow ingestion envs in `.env.example`:
 
 ## Deploy
 
-Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0, starts `node dist-server/index.js`, and sets `DATA_MODE=mock`. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
+Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0, starts `node dist-server/index.js`, and sets `DATA_MODE=supabase`. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
 
 Create the service from the blueprint, then sign in with GitHub and deploy it:
 
@@ -104,7 +104,7 @@ render deploys create SERVICE_ID --wait --confirm
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
 - H3 resolution 8 cells for the current view, from `h3-js` boundaries. By default they light up as a lens around the cursor. **Map layers** switches to a full grid or hides them.
 - Hex-first explorer: hover a cell to query it (if ready), request processing, or start a workflow. The selection dock does the same for a set of hexes
-- Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase
+- Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase and shows a live log for each job
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
 - Hard caps on hex count, bbox area, and row counts
 

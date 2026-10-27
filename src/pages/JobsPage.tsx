@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
-import { formatCount } from '../lib/format'
+import { formatClock, formatCount } from '../lib/format'
 import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
+import { cn } from '../lib/utils'
 import {
   createIngestionJob,
   getWorkflowIngestionLimits,
@@ -13,7 +14,7 @@ import {
 } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
-import type { IngestionJob, IngestionJobStatus, WorkflowDataset } from '../types/workflows'
+import type { IngestionJob, IngestionJobStatus, JobLog, WorkflowDataset } from '../types/workflows'
 import { WORKFLOW_DATASETS } from '../types/workflows'
 
 export function JobsPage() {
@@ -24,7 +25,14 @@ export function JobsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const limits = useQuery({ queryKey: ['workflow-ingestion-limits'], queryFn: getWorkflowIngestionLimits })
-  const jobs = useQuery({ queryKey: ['ingestion-jobs'], queryFn: listIngestionJobs, refetchInterval: 8_000 })
+  const jobs = useQuery({
+    queryKey: ['ingestion-jobs'],
+    queryFn: listIngestionJobs,
+    refetchInterval: (query) => {
+      const rows = query.state.data ?? []
+      return rows.some((job) => job.status === 'queued' || job.status === 'running') ? 1_200 : 8_000
+    },
+  })
   const create = useMutation({
     mutationFn: createIngestionJob,
     onSuccess: async () => {
@@ -67,7 +75,7 @@ export function JobsPage() {
         <header>
           <h1 className="text-xl font-semibold">Jobs</h1>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Process selected hexes from the public Overture Maps release into Supabase. Then query those cells.
+            Process selected hexes from the public Overture Maps release into Supabase. Each job streams a live log of the download, hex filter, and writes.
           </p>
         </header>
 
@@ -135,15 +143,23 @@ export function JobsPage() {
 }
 
 function JobRow({ job, onRan }: { job: IngestionJob; onRan: () => void }) {
+  const live = job.status === 'queued' || job.status === 'running'
+  const logs = job.logs ?? []
+  const [open, setOpen] = useState(live || logs.length > 0)
   const run = useMutation({
     mutationFn: () => runIngestionJob(job.id),
     onSuccess: onRan,
   })
   const canRun = job.status === 'queued' || job.status === 'failed'
+
+  useEffect(() => {
+    if (live) setOpen(true)
+  }, [live])
+
   return (
     <article className="rounded-lg border border-border bg-card px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
-        <StatusDot status={job.status} />
+        <StatusDot status={job.status} live={live} />
         <span className="font-mono text-xs">{job.run_id}</span>
         <span className="text-xs text-muted-foreground">{job.release_version}</span>
         {canRun && (
@@ -151,20 +167,74 @@ function JobRow({ job, onRan }: { job: IngestionJob; onRan: () => void }) {
             {run.isPending ? 'Processing…' : 'Process now'}
           </Button>
         )}
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="ml-auto text-xs text-muted-foreground hover:text-foreground"
+        >
+          {open ? 'Hide logs' : `Logs ${formatCount(logs.length)}`}
+        </button>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         {formatCount(job.h3_cells.length)} hexes · {job.datasets.join(', ')} · {formatCount(job.bbox.area_km2)} km2
+        {job.rows_total > 0 ? ` · ${formatCount(job.rows_total)} rows` : ''}
       </p>
       {job.note && <p className="mt-1 text-xs text-muted-foreground">{job.note}</p>}
       {job.error_message && <p className="mt-1 text-xs text-destructive">{job.error_message}</p>}
       {run.error && <p className="mt-1 text-xs text-destructive">{run.error.message}</p>}
+      {open && <JobLogPane logs={logs} live={live} />}
     </article>
   )
 }
 
-function StatusDot({ status }: { status: IngestionJobStatus }) {
+function JobLogPane({ logs, live }: { logs: readonly JobLog[]; live: boolean }) {
+  const scroller = useRef<HTMLPreElement>(null)
+  useEffect(() => {
+    const node = scroller.current
+    if (node) node.scrollTop = node.scrollHeight
+  }, [logs.length])
+  return (
+    <div className="mt-3 overflow-hidden rounded-md border border-white/[0.08] bg-black/40">
+      <div className="flex items-center justify-between border-b border-white/[0.06] px-3 py-1.5 text-[10px] text-muted-foreground">
+        <span>{live ? 'Live' : 'Log'} · {formatCount(logs.length)} lines</span>
+        {live && <span className="text-primary">updating</span>}
+      </div>
+      <pre
+        ref={scroller}
+        className="max-h-64 overflow-auto px-3 py-2 font-mono text-[11px] leading-5"
+        data-testid="job-log"
+      >
+        {logs.length === 0 ? (
+          <span className="text-muted-foreground">Waiting for the first log line…</span>
+        ) : (
+          logs.map((entry, index) => (
+            <div
+              key={`${entry.at}-${index}`}
+              className={cn(
+                'whitespace-pre-wrap',
+                entry.level === 'error' && 'text-destructive',
+                entry.level === 'warn' && 'text-amber-300',
+                entry.level === 'info' && 'text-foreground/85',
+              )}
+            >
+              <span className="text-muted-foreground">{formatClock(entry.at)}</span>{' '}
+              <span className="uppercase">{entry.level}</span> {entry.message}
+            </div>
+          ))
+        )}
+      </pre>
+    </div>
+  )
+}
+
+function StatusDot({ status, live }: { status: IngestionJobStatus; live?: boolean }) {
   const label = status[0].toUpperCase() + status.slice(1)
-  return <span className="text-xs font-medium text-foreground">{label}</span>
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
+      {live && <span className="size-1.5 animate-pulse rounded-full bg-primary" />}
+      {label}
+    </span>
+  )
 }
 
 function tally(jobs: readonly IngestionJob[]) {

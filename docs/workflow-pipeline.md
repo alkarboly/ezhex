@@ -64,11 +64,17 @@ Returns server-side query schemas (dataset + fields + operators) from the same w
 
 `POST /api/workflow-ingestion/jobs`
 
-Same body as the plan route. Returns an `IngestionJob`. In mock mode the server processes the hexes immediately and writes queryable rows. Creating the same release + hex set + datasets again returns the existing queued, running, or succeeded job.
+Same body as the plan route. Returns an `IngestionJob` including `logs`. In mock mode the server processes the hexes immediately and writes queryable rows. Creating the same release + hex set + datasets again returns the existing queued, running, or succeeded job.
 
 `GET /api/workflow-ingestion/jobs`
 
-Lists jobs in the Node process, newest first. The store keeps at most 200 jobs and is lost on restart.
+Lists jobs in the Node process, newest first, with the same `logs` array. The store keeps at most 200 jobs and 200 log lines per job. The store is lost on restart.
+
+`GET /api/workflow-ingestion/jobs/:id`
+
+Returns one job, including its live log stream.
+
+Each log line is `{ at, level, message }` where `level` is `info`, `warn`, or `error`. Lines cover job create, hex list, DuckDB/S3 reads, bbox vs selected-hex counts, Supabase RPC batches, and success or failure.
 
 `POST /api/hex-status`
 
@@ -78,7 +84,7 @@ Lists jobs in the Node process, newest first. The store keeps at most 200 jobs a
 
 Returns per-hex `ready`, `missing`, or `processing`, plus counts.
 
-The explorer hover card and `/jobs` create jobs from selected hexes. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Query opens from a ready hex and uses the same schema whitelist.
+The explorer hover card and `/jobs` create jobs from selected hexes. `/jobs` shows a live log pane per job and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Query opens from a ready hex and uses the same schema whitelist.
 
 `POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
 

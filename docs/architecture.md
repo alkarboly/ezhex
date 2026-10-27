@@ -33,9 +33,11 @@ The Node API also exposes workflow-ingestion planning and job endpoints:
 
 The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps. Creating a job runs that planner, then Node downloads Overture parquet for that bbox only, keeps rows whose H3 resolution-8 cell is in the selection, and upserts them into Supabase. `POST /api/workflow-ingestion/jobs/:id/run` starts the same download. The default release is `2026-10-21.0` (`OVERTURE_RELEASE`). Jobs themselves stay in the Node process. Feature rows persist in Supabase.
 
+Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines from create, DuckDB S3 reads, bbox vs hex filter counts, RPC write batches, and the final row totals. The store keeps the newest 200 lines per job. `/jobs` shows that stream under each job and polls every 1.2s while any job is queued or running.
+
 `POST /api/hex-status` returns `ready`, `missing`, or `processing`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. Processing means a download is running.
 
-`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection. The explorer is hex-first: hover a cell to query it (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
+`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. The explorer is hex-first: hover a cell to query it (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
 
 ## Map
 
