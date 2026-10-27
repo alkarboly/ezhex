@@ -1,7 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { formatCount } from '../../lib/format'
 import { DEFAULT_OVERTURE_RELEASE } from '../../lib/overture-release'
 import {
@@ -9,8 +9,7 @@ import {
   getQuerySchemas,
   getWorkflowIngestionLimits,
 } from '../../services/workflow-ingestion'
-import { DATASET_META } from '../../types/datasets'
-import type { HexAction, HexDataStatus, IngestionJob, WorkflowDataset } from '../../types/workflows'
+import type { HexAction, HexDataStatus, IngestionJob } from '../../types/workflows'
 import { WORKFLOW_DATASETS } from '../../types/workflows'
 import { HexQueryTable } from './HexQueryTable'
 import { Button } from '../ui/button'
@@ -96,7 +95,6 @@ function JobPane({
   onCreated: (job: IngestionJob) => void
 }) {
   const [releaseVersion, setReleaseVersion] = useState(DEFAULT_OVERTURE_RELEASE)
-  const [datasets, setDatasets] = useState<WorkflowDataset[]>([...WORKFLOW_DATASETS])
   const [error, setError] = useState<string | null>(null)
   const limits = useQuery({ queryKey: ['workflow-ingestion-limits'], queryFn: getWorkflowIngestionLimits })
   useEffect(() => {
@@ -111,33 +109,24 @@ function JobPane({
     onError: (next) => setError(next instanceof Error ? next.message : 'Could not create the job.'),
   })
 
-  const available = useMemo(
-    () => WORKFLOW_DATASETS.map((id) => ({ id, title: DATASET_META[id].title })),
-    [],
-  )
-
   return (
     <form
       className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault()
-        if (datasets.length === 0) {
-          setError('Choose at least one dataset.')
-          return
-        }
         create.mutate({
           release_version: releaseVersion.trim(),
           h3_cells: [...cells],
-          datasets,
+          datasets: [...WORKFLOW_DATASETS],
         })
       }}
     >
       <p className="text-sm leading-6 text-muted-foreground">
         {mode === 'workflow'
-          ? 'A workflow starts from this hex set. If the data is missing, this runs a local ingest first.'
+          ? 'A workflow starts from this hex set. Process loads places, buildings, and addresses together.'
           : ready
-            ? 'These hexes already have data. Creating a job records a reprocess request.'
-            : 'This processes the selected hexes on this server and writes queryable rows.'}
+            ? 'These hexes already have data. Reprocess reloads places, buildings, and addresses with geometry.'
+            : 'This processes the selected hexes and writes places, buildings, and addresses together.'}
       </p>
       {limits.data && (
         <p className="text-xs text-muted-foreground">
@@ -149,28 +138,6 @@ function JobPane({
         Release version
         <Input value={releaseVersion} onChange={(event) => setReleaseVersion(event.target.value)} />
       </label>
-      <div className="flex flex-wrap gap-1.5">
-        {available.map((dataset) => {
-          const on = datasets.includes(dataset.id)
-          return (
-            <Button
-              key={dataset.id}
-              type="button"
-              size="sm"
-              variant={on ? 'default' : 'outline'}
-              onClick={() =>
-                setDatasets((current) =>
-                  current.includes(dataset.id)
-                    ? current.filter((entry) => entry !== dataset.id)
-                    : [...current, dataset.id],
-                )
-              }
-            >
-              {dataset.title}
-            </Button>
-          )
-        })}
-      </div>
       <ul className="max-h-28 overflow-auto rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2 font-mono text-[11px] text-muted-foreground">
         {cells.map((cell) => (
           <li key={cell}>{cell}</li>

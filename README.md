@@ -1,6 +1,6 @@
 # WorldPulse
 
-WorldPulse is an H3 map for exploring Overture building, address, and place records. Process a hex to download that cell from the public Overture release into Supabase.
+WorldPulse is an H3 map for exploring Overture building, address, and place records. Process a hex to download all three themes, with geometry and links, from the public Overture release into Supabase.
 
 ## Run locally
 
@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`. The default dataset is Places.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql` and `supabase/migrations/20261027_overture_features.sql`. Inspect opens one feature table; you do not pick a theme.
 
 ```bash
 npm run build
@@ -63,7 +63,7 @@ It returns a Spark plan JSON with release version, selected hexes, bbox, row cap
 
 `/api/query-schemas` returns dataset/field/operator contracts from the same whitelist used by query validation, plus whether query execution is enabled in the current mode.
 
-`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`) that `/jobs` streams live. `/api/hex-status` is ready when those tables have rows for the hex. The map paints empty / green / yellow from that snapshot: no fill, current `OVERTURE_RELEASE`, or an older release.
+`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`) that `/jobs` streams live. Process always writes places, buildings, and addresses, including GeoJSON and computed links. `/api/hex-status` is ready when those tables have rows for the hex. The map paints empty / green / yellow from that snapshot and keeps populated hexes visible without hover.
 
 Workflow ingestion envs in `.env.example`:
 

@@ -4,12 +4,15 @@ import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { getSupabaseClient } from '../lib/supabase'
 import { validateCellList, validateFilters, validateQuery } from '../lib/validate-query'
 import type { DatasetId } from '../types/datasets'
-import type { CellCount, QueryResult, ResultRow } from '../types/queries'
+import { asPlaceAddresses } from '../lib/associate'
+import type { CellCount, QueryResult } from '../types/queries'
 import type { DataProvider } from './data-provider'
 import {
+  asStringList,
   compareField,
   matchesFilters,
-  readField,
+  parseGeometry,
+  toResultRow,
   type AddressRecord,
   type AnyRecord,
   type BuildingRecord,
@@ -182,12 +185,14 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
   const lat = typeof row.lat === 'number' ? row.lat : Number(row.lat)
   const lng = typeof row.lng === 'number' ? row.lng : Number(row.lng)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  const geometry = parseGeometry(row.geometry)
   if (dataset === 'places') {
     const place: PlaceRecord = {
       id: row.id,
       h3: row.h3_res8,
       lat,
       lng,
+      geometry,
       names: { primary: typeof row.names_primary === 'string' ? row.names_primary : '' },
       basic_category: typeof row.basic_category === 'string' ? row.basic_category : '',
       taxonomy: {
@@ -199,6 +204,15 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
       },
       confidence: typeof row.confidence === 'number' ? row.confidence : null,
       operating_status: typeof row.operating_status === 'string' ? (row.operating_status as PlaceRecord['operating_status']) : 'open',
+      phones: asStringList(row.phones),
+      websites: asStringList(row.websites),
+      socials: asStringList(row.socials),
+      emails: asStringList(row.emails),
+      brand_name: typeof row.brand_name === 'string' ? row.brand_name : null,
+      brand_wikidata: typeof row.brand_wikidata === 'string' ? row.brand_wikidata : null,
+      place_addresses: asPlaceAddresses(row.place_addresses),
+      building_id: typeof row.building_id === 'string' ? row.building_id : null,
+      address_id: typeof row.address_id === 'string' ? row.address_id : null,
     }
     return place
   }
@@ -208,9 +222,25 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
       h3: row.h3_res8,
       lat,
       lng,
+      geometry,
       subtype: typeof row.subtype === 'string' ? (row.subtype as BuildingRecord['subtype']) : null,
+      class: typeof row.class === 'string' ? row.class : null,
+      names: { primary: typeof row.names_primary === 'string' ? row.names_primary : '' },
       height: typeof row.height === 'number' ? row.height : null,
       num_floors: typeof row.num_floors === 'number' ? row.num_floors : null,
+      has_parts: typeof row.has_parts === 'boolean' ? row.has_parts : null,
+      is_underground: typeof row.is_underground === 'boolean' ? row.is_underground : null,
+      num_floors_underground: typeof row.num_floors_underground === 'number' ? row.num_floors_underground : null,
+      min_height: typeof row.min_height === 'number' ? row.min_height : null,
+      min_floor: typeof row.min_floor === 'number' ? row.min_floor : null,
+      level: typeof row.level === 'number' ? row.level : null,
+      facade_color: typeof row.facade_color === 'string' ? row.facade_color : null,
+      facade_material: typeof row.facade_material === 'string' ? row.facade_material : null,
+      roof_material: typeof row.roof_material === 'string' ? row.roof_material : null,
+      roof_shape: typeof row.roof_shape === 'string' ? row.roof_shape : null,
+      roof_direction: typeof row.roof_direction === 'number' ? row.roof_direction : null,
+      roof_color: typeof row.roof_color === 'string' ? row.roof_color : null,
+      address_id: typeof row.address_id === 'string' ? row.address_id : null,
     }
     return building
   }
@@ -219,64 +249,20 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
     h3: row.h3_res8,
     lat,
     lng,
+    geometry,
     country: typeof row.country === 'string' ? row.country : '',
     number: typeof row.number === 'string' ? row.number : '',
     street: typeof row.street === 'string' ? row.street : '',
+    unit: typeof row.unit === 'string' ? row.unit : '',
+    postal_city: typeof row.postal_city === 'string' ? row.postal_city : '',
     postcode: typeof row.postcode === 'string' ? row.postcode : '',
     address_levels: [
       { value: typeof row.region === 'string' ? row.region : '' },
       { value: typeof row.locality === 'string' ? row.locality : '' },
     ],
+    building_id: typeof row.building_id === 'string' ? row.building_id : null,
   }
   return address
-}
-
-function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
-  if (dataset === 'places') {
-    const place = record as PlaceRecord
-    return {
-      id: place.id,
-      h3: place.h3,
-      lat: place.lat,
-      lng: place.lng,
-      values: {
-        'names.primary': readField(dataset, place, 'names.primary'),
-        basic_category: readField(dataset, place, 'basic_category'),
-        'taxonomy.primary': readField(dataset, place, 'taxonomy.primary'),
-        confidence: readField(dataset, place, 'confidence'),
-        operating_status: readField(dataset, place, 'operating_status'),
-      },
-    }
-  }
-  if (dataset === 'buildings') {
-    const building = record as BuildingRecord
-    return {
-      id: building.id,
-      h3: building.h3,
-      lat: building.lat,
-      lng: building.lng,
-      values: {
-        subtype: readField(dataset, building, 'subtype'),
-        height: readField(dataset, building, 'height'),
-        num_floors: readField(dataset, building, 'num_floors'),
-      },
-    }
-  }
-  const address = record as AddressRecord
-  return {
-    id: address.id,
-    h3: address.h3,
-    lat: address.lat,
-    lng: address.lng,
-    values: {
-      number: readField(dataset, address, 'number'),
-      street: readField(dataset, address, 'street'),
-      locality: readField(dataset, address, 'locality'),
-      region: readField(dataset, address, 'region'),
-      postcode: readField(dataset, address, 'postcode'),
-      address: readField(dataset, address, 'address'),
-    },
-  }
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {

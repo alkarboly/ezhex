@@ -26,6 +26,7 @@ import { lensFalloff, lensRadius, lensRings } from '../../lib/lens'
 import { H3_RESOLUTION } from '../../lib/limits'
 import { cn } from '../../lib/utils'
 import { useExplorer, type BasemapId, type FitRequest, type HexMode } from '../../store/explorer-store'
+import type { FeatureRow } from '../../lib/feature-rows'
 import type { CellCount } from '../../types/queries'
 import type { HexAction, HexCoverage } from '../../types/workflows'
 import { styleForBasemap } from './map-style'
@@ -62,6 +63,7 @@ type H3MapProps = {
   onCenterCell?: (h3: string | null) => void
   cellCoverage?: ReadonlyMap<string, HexCoverage>
   onHexAction?: (h3: string, action: HexAction) => void
+  inspectFeatures?: readonly FeatureRow[]
 }
 
 type Point = { x: number; y: number }
@@ -94,6 +96,7 @@ export function H3Map({
   onCenterCell,
   cellCoverage,
   onHexAction,
+  inspectFeatures = [],
 }: H3MapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -181,9 +184,9 @@ export function H3Map({
         setCardVisible(true)
         return
       }
-      if (cardHeldRef.current || inspectOpenRef.current) return
+      if (cardHeldRef.current) return
       hideCardRef.current = window.setTimeout(() => {
-        if (!cardHeldRef.current && !inspectOpenRef.current) setCardVisible(false)
+        if (!cardHeldRef.current) setCardVisible(false)
       }, 700)
     }
 
@@ -282,7 +285,7 @@ export function H3Map({
         } else if (pointer) {
           const under = cellAt(pointer)
           nextHover = drawnCells.has(under) ? under : null
-        } else if (cardHeldRef.current || inspectOpenRef.current) {
+        } else if (cardHeldRef.current) {
           nextHover = hoverCell
         }
       }
@@ -314,7 +317,7 @@ export function H3Map({
       setInput: (isTouch) => {
         if (isTouch) {
           pointer = null
-          if (!inspectOpenRef.current) setCardVisible(false)
+          setCardVisible(false)
         }
         fadeTo(restingStrength(), 300)
       },
@@ -424,6 +427,7 @@ export function H3Map({
     map.on('style.load', () => {
       window.clearTimeout(slowTimer)
       ensureH3Layers(map, modeRef.current)
+      ensureInspectLayers(map)
       showGlobe(map)
       applied = new Map()
       hoverCell = null
@@ -519,6 +523,16 @@ export function H3Map({
   }, [hexMode, styleReady])
 
   useEffect(() => {
+    const map = mapRef.current
+    if (!map || !styleReady || !map.isStyleLoaded()) return
+    ensureInspectLayers(map)
+    const source = map.getSource('inspect-features')
+    if (source?.type === 'geojson') {
+      ;(source as GeoJSONSource).setData(featuresToCollection(inspectOpen ? inspectFeatures : []))
+    }
+  }, [inspectFeatures, inspectOpen, styleReady])
+
+  useEffect(() => {
     touchRef.current = touch
     lensRef.current.setInput(touch)
   }, [touch])
@@ -590,14 +604,6 @@ export function H3Map({
   const cardCoverage = cardCell ? cellCoverage?.get(cardCell) : undefined
   const cardStatus = cardCoverage?.status ?? 'missing'
 
-  useEffect(() => {
-    if (!inspectOpen) return
-    cardHeldRef.current = true
-    window.clearTimeout(hideCardRef.current)
-    setCardVisible(true)
-    if (!cardCell && selected[0]) setCardCell(selected[0])
-  }, [inspectOpen, cardCell, selected])
-
   const holdCard = () => {
     cardHeldRef.current = true
     window.clearTimeout(hideCardRef.current)
@@ -605,10 +611,9 @@ export function H3Map({
   }
 
   const releaseCard = () => {
-    if (inspectOpenRef.current) return
     cardHeldRef.current = false
     hideCardRef.current = window.setTimeout(() => {
-      if (!inspectOpenRef.current) setCardVisible(false)
+      setCardVisible(false)
     }, 500)
   }
 
@@ -620,7 +625,7 @@ export function H3Map({
     >
       <div ref={containerRef} className="absolute inset-0" />
       {touch && hexMode !== 'off' && size.width > 0 && <Reticle x={rest.x} y={rest.y} />}
-      {(!touch || inspectOpen) && (
+      {!touch && (
         <div
           ref={cardRef}
           aria-hidden={!cardVisible}
@@ -640,10 +645,8 @@ export function H3Map({
               snapshot={cardCoverage?.snapshot ?? null}
               releaseVersion={cardCoverage?.release_version ?? null}
               onAction={(action) => {
-                if (action !== 'query' && !inspectOpenRef.current) {
-                  cardHeldRef.current = false
-                  setCardVisible(false)
-                }
+                cardHeldRef.current = false
+                setCardVisible(false)
                 onHexAction?.(cardCell, action)
               }}
               onMouseEnter={holdCard}
@@ -779,20 +782,13 @@ const FOCUSED: Expression = ['==', ['get', 'focused'], 1]
 const EMPTY: Expression = ['==', ['get', 'snapshot'], 'none']
 
 function fillOpacity(mode: HexMode): Expression {
-  if (mode === 'grid') return ['case', EMPTY, 0, HOVER, 0.72, SELECTED, 0.62, 0.5]
-  return [
-    'case',
-    EMPTY,
-    0,
-    HOVER,
-    0.78,
-    ['max', ['*', LENS, 0.58], ['case', SELECTED, 0.4, FOCUSED, 0.48, 0]],
-  ]
+  if (mode === 'off') return ['literal', 0]
+  return ['case', EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5]
 }
 
 function lineOpacity(mode: HexMode): Expression {
-  if (mode === 'grid') return ['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, 0.22]
-  return ['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, ['*', LENS, 0.65]]
+  if (mode === 'off') return ['literal', 0]
+  return ['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, mode === 'grid' ? 0.22 : ['*', LENS, 0.4], 0.55]
 }
 
 /** Fills go under roads and buildings, so streets cut through the color. */
@@ -882,6 +878,63 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
       },
       beforeId,
     )
+  }
+}
+
+function featuresToCollection(rows: readonly FeatureRow[]): GeoJSON.FeatureCollection {
+  return {
+    type: 'FeatureCollection',
+    features: rows.flatMap((row) => {
+      if (!row.geometry) return []
+      return [
+        {
+          type: 'Feature' as const,
+          properties: { kind: row.kind, id: row.id },
+          geometry: row.geometry,
+        },
+      ]
+    }),
+  }
+}
+
+function ensureInspectLayers(map: MapLibreMap) {
+  if (!map.getSource('inspect-features')) {
+    map.addSource('inspect-features', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+    })
+  }
+  if (!map.getLayer('inspect-buildings')) {
+    map.addLayer({
+      id: 'inspect-buildings',
+      type: 'fill',
+      source: 'inspect-features',
+      filter: ['==', ['get', 'kind'], 'buildings'],
+      paint: { 'fill-color': '#7ef0dc', 'fill-opacity': 0.28 },
+    })
+  }
+  if (!map.getLayer('inspect-buildings-line')) {
+    map.addLayer({
+      id: 'inspect-buildings-line',
+      type: 'line',
+      source: 'inspect-features',
+      filter: ['==', ['get', 'kind'], 'buildings'],
+      paint: { 'line-color': '#7ef0dc', 'line-width': 1.2, 'line-opacity': 0.85 },
+    })
+  }
+  if (!map.getLayer('inspect-points')) {
+    map.addLayer({
+      id: 'inspect-points',
+      type: 'circle',
+      source: 'inspect-features',
+      filter: ['in', ['get', 'kind'], ['literal', ['places', 'addresses']]],
+      paint: {
+        'circle-radius': ['case', ['==', ['get', 'kind'], 'places'], 5, 3.5],
+        'circle-color': ['case', ['==', ['get', 'kind'], 'places'], '#2ee6a6', '#f5c451'],
+        'circle-stroke-width': 1,
+        'circle-stroke-color': '#04110d',
+      },
+    })
   }
 }
 

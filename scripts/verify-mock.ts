@@ -1,5 +1,8 @@
 import { getResolution, isValidCell, latLngToCell } from 'h3-js'
 import { AUSTIN_CENTER, cellPolygon, cellsInView } from '../src/lib/h3.ts'
+import { associateFeatures } from '../src/lib/associate.ts'
+import { mergeFeatureRows } from '../src/lib/feature-rows.ts'
+import { pointGeometry, squarePolygon } from '../src/lib/geojson.ts'
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION } from '../src/lib/limits.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
@@ -59,6 +62,32 @@ for (const records of first.places.values()) {
     if (place.operating_status === 'permanently_closed') closed += 1
   }
 }
+const capitolPlace = first.places.get(capitol)?.[0]
+const capitolBuilding = first.buildings.get(capitol)?.[0]
+const capitolAddress = first.addresses.get(capitol)?.[0]
+assert(capitolPlace?.geometry?.type === 'Point', 'mock place is missing point geometry')
+assert(capitolBuilding?.geometry?.type === 'Polygon', 'mock building is missing footprint geometry')
+assert(capitolAddress?.geometry?.type === 'Point', 'mock address is missing point geometry')
+assert(capitolPlace?.building_id, 'mock place was not linked to a building')
+assert(capitolPlace?.address_id, 'mock place was not linked to an address')
+assert(capitolBuilding?.address_id, 'mock building was not linked to an address')
+
+const linked = associateFeatures({
+  buildings: [{ id: 'b1', lat: 30.2672, lng: -97.7431, geometry: squarePolygon(-97.7431, 30.2672, 0.0003) }],
+  addresses: [{ id: 'a1', lat: 30.2672, lng: -97.7431, number: '100', street: 'Congress Ave', postcode: '78701', country: 'US' }],
+  places: [
+    {
+      id: 'p1',
+      lat: 30.2672,
+      lng: -97.7431,
+      place_addresses: [{ number: '100', street: 'Congress Ave', postcode: '78701', country: 'US' }],
+    },
+  ],
+})
+assert(linked.places.get('p1')?.building_id === 'b1', 'point-in-polygon building link failed')
+assert(linked.places.get('p1')?.address_id === 'a1', 'nested address match failed')
+assert(pointGeometry(-97.74, 30.26).type === 'Point', 'point helper drifted')
+
 assert(nullHeight > 0 && tall > 0, 'height filters have nothing to distinguish')
 assert(nullSubtype > 0, 'subtype presence filter has nothing to distinguish')
 assert(nullConfidence > 0 && closed > 0, 'confidence and operating status are not varied')
@@ -92,6 +121,9 @@ assert(allPlaces.total === allExpected, `unfiltered total ${allPlaces.total} != 
 assert(cafes.total === cafeExpected, `cafe total ${cafes.total} != ${cafeExpected}`)
 assert(cafes.total < allPlaces.total, 'cafe filter did not reduce the result')
 assert(cafes.rows.every((row) => row.values.basic_category === 'cafe'), 'non-cafe row leaked')
+assert(cafes.rows.every((row) => row.geometry?.type === 'Point'), 'place query dropped geometry')
+const merged = mergeFeatureRows(allPlaces.rows, [], [])
+assert(merged.some((row) => row.kind === 'places'), 'inspect merge lost places')
 assert(
   cafes.byCell.reduce((sum, cell) => sum + cell.count, 0) === cafes.total,
   'per-cell counts do not add up',

@@ -5,6 +5,11 @@ import { DATASET_IDS, DATASET_META, FIELD_CATALOG } from '../types/datasets'
 
 export function DatasetsPage() {
   const source = useDataSource()
+  const counts = source.data?.counts
+  const total =
+    counts && counts.places != null && counts.buildings != null && counts.addresses != null
+      ? counts.places + counts.buildings + counts.addresses
+      : null
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -12,7 +17,9 @@ export function DatasetsPage() {
         <header>
           <h1 className="text-xl font-semibold">Datasets</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Filters and columns follow Overture source fields. Process a hex to load those rows from the public release.
+            Process a hex to load places, buildings, and addresses from the public Overture release. All three themes
+            are stored together, with geometry and computed building or address links. Inspect does not ask you to pick
+            a theme.
           </p>
         </header>
         <section className="rounded-lg border border-border bg-card p-4">
@@ -25,9 +32,7 @@ export function DatasetsPage() {
               <p className="font-mono text-xs text-muted-foreground">
                 Resolution {source.data.resolution || H3_RESOLUTION}
                 {source.data.cells != null ? ` · ${formatCount(source.data.cells)} H3 cells` : ''}
-                {source.data.coverage
-                  ? ` · ${source.data.coverage.west}, ${source.data.coverage.south} to ${source.data.coverage.east}, ${source.data.coverage.north}`
-                  : ''}
+                {total != null ? ` · ${formatCount(total)} features` : ''}
               </p>
               <ul className="grid gap-2 sm:grid-cols-3">
                 {DATASET_IDS.map((dataset) => (

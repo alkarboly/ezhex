@@ -2,7 +2,7 @@
 
 This is the server query contract. It is not SQL. `validateQuery` rejects unknown datasets, fields, and operators before any records are read.
 
-The explorer opens this contract from a hex. Hover a ready cell and press Inspect, or use Query on the selection dock. That pins the hover tooltip and expands it into a table of rows with a filter box under each column. Those filters write the same `PlacesForm` / `BuildingsForm` / `AddressesForm` fields this builder already compiles. If the hex is missing data, Process downloads Overture for that selection into Supabase first. `GET /api/query-schemas` drives the field whitelist. `query_enabled` is true when Supabase is configured or when `DATA_MODE=mock`.
+The explorer opens this contract from a hex. Hover a ready cell and press Inspect, or use Query on the selection dock. That opens a draggable window and runs the three theme queries, then merges them into one feature table (kind, name, category, address, geometry). Column filters still write `PlacesForm` / `BuildingsForm` / `AddressesForm` and compile to this contract. Process always loads all three themes, including GeoJSON geometry and computed `building_id` / `address_id` links. `GET /api/query-schemas` drives the field whitelist. `query_enabled` is true when Supabase is configured or when `DATA_MODE=mock`.
 
 ```json
 {
@@ -32,6 +32,12 @@ The September 2026 Overture places schema removed `categories`. High-level categ
 | `taxonomy.primary` | `taxonomy.primary` | `eq`, `in` |
 | `confidence` | `confidence` | `gte`, `lte` |
 | `operating_status` | `operating_status` | display and sort only |
+| `phones` | `phones` | `contains` |
+| `websites` | `websites` | `contains` |
+| `brand_name` | `brand.names.primary` | `contains` |
+| `building_id` | computed containing or nearest building GERS id | display only |
+| `address_id` | computed matched or nearest address GERS id | display only |
+| `geometry` | `geometry` (Point) | stored, not a filter |
 
 The mock basic categories are `restaurant`, `cafe`, `bar`, `hotel`, `museum`, `park`, and `hospital`. Primary values also include `art_museum` and `playground`. Those lists are the sample in this mock, not the full Overture taxonomy.
 
@@ -44,6 +50,10 @@ The mock basic categories are `restaurant`, `cafe`, `bar`, `hotel`, `museum`, `p
 | `subtype` | `subtype` | `eq`, `in`, `is_null`, `is_not_null` |
 | `height` | `height`, meters | `gte`, `lte`, `is_null`, `is_not_null` |
 | `num_floors` | `num_floors` | `gte`, `lte`, `is_null`, `is_not_null` |
+| `names.primary` | `names.primary` | `contains` |
+| `class` | `class` | `eq`, `in`, `is_null`, `is_not_null` |
+| `address_id` | computed nearest address GERS id | display only |
+| `geometry` | `geometry` (Polygon or MultiPolygon) | stored, not a filter |
 
 `subtype` values are the Overture building enum: `agricultural`, `civic`, `commercial`, `education`, `entertainment`, `industrial`, `medical`, `military`, `outbuilding`, `religious`, `residential`, `service`, `transportation`. Null means the source value is absent.
 
@@ -59,6 +69,10 @@ Overture stores US locality in `address_levels`, not as top-level columns. For t
 | `region` | `address_levels[0].value` | `contains` |
 | `postcode` | `postcode` | `eq` |
 | `address` | derived from number, street, locality, region, and postcode | `contains` |
+| `unit` | `unit` | `contains` |
+| `postal_city` | `postal_city` | `contains` |
+| `building_id` | computed nearest building GERS id | display only |
+| `geometry` | `geometry` (Point) | stored, not a filter |
 
 `address` is a search string, not an Overture column. Postal codes in the mock are a coarse Austin assignment, not a geocoder.
 

@@ -3,18 +3,10 @@ import { H3_RESOLUTION, MAX_VIEWPORT_CELLS } from '../lib/limits'
 import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { validateCellList, validateFilters, validateQuery } from '../lib/validate-query'
 import type { DatasetId } from '../types/datasets'
-import type { CellCount, QueryResult, QuerySpec, ResultRow } from '../types/queries'
+import type { CellCount, QueryResult, QuerySpec } from '../types/queries'
 import type { DataProvider } from './data-provider'
 import { buildMockDatabase, ingestMockCells, type MockDatabase } from './mock/database'
-import {
-  compareField,
-  matchesFilters,
-  readField,
-  type AddressRecord,
-  type AnyRecord,
-  type BuildingRecord,
-  type PlaceRecord,
-} from './mock/records'
+import { compareField, matchesFilters, toResultRow, type AnyRecord } from './mock/records'
 
 let database: MockDatabase | null = null
 let pending: Promise<MockDatabase> | null = null
@@ -139,54 +131,6 @@ function countCells(
         : records.filter((record) => matchesFilters(dataset, record, filters)).length
     return { h3, count }
   })
-}
-
-function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
-  if (dataset === 'places') {
-    const place = record as PlaceRecord
-    return {
-      id: place.id,
-      h3: place.h3,
-      lat: place.lat,
-      lng: place.lng,
-      values: {
-        'names.primary': readField(dataset, place, 'names.primary'),
-        basic_category: readField(dataset, place, 'basic_category'),
-        'taxonomy.primary': readField(dataset, place, 'taxonomy.primary'),
-        confidence: readField(dataset, place, 'confidence'),
-        operating_status: readField(dataset, place, 'operating_status'),
-      },
-    }
-  }
-  if (dataset === 'buildings') {
-    const building = record as BuildingRecord
-    return {
-      id: building.id,
-      h3: building.h3,
-      lat: building.lat,
-      lng: building.lng,
-      values: {
-        subtype: readField(dataset, building, 'subtype'),
-        height: readField(dataset, building, 'height'),
-        num_floors: readField(dataset, building, 'num_floors'),
-      },
-    }
-  }
-  const address = record as AddressRecord
-  return {
-    id: address.id,
-    h3: address.h3,
-    lat: address.lat,
-    lng: address.lng,
-    values: {
-      number: readField(dataset, address, 'number'),
-      street: readField(dataset, address, 'street'),
-      locality: readField(dataset, address, 'locality'),
-      region: readField(dataset, address, 'region'),
-      postcode: readField(dataset, address, 'postcode'),
-      address: readField(dataset, address, 'address'),
-    },
-  }
 }
 
 export function resetMockDatabaseForTests() {

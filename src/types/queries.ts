@@ -1,5 +1,8 @@
+import type { GeoJsonGeometry } from '../lib/geojson'
 import type { DatasetId } from './datasets'
 import type { FieldOperator } from './datasets'
+
+export type FeatureKind = DatasetId
 
 export type QueryFilter = {
   field: string
@@ -38,6 +41,9 @@ export type ResultRow = {
   h3: string
   lat: number
   lng: number
+  geometry: GeoJsonGeometry | null
+  building_id?: string | null
+  address_id?: string | null
   values: Record<string, string | number | null>
 }
 

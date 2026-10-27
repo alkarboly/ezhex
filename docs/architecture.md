@@ -37,7 +37,7 @@ Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines 
 
 `POST /api/hex-status` returns `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null) and `release_version`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. `current` means the newest stored release is at least `OVERTURE_RELEASE` (`2026-10-21.0` by default). `stale` means the hex has rows from an older release. Processing means a download is running.
 
-`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. The explorer is hex-first: hover a cell to inspect its rows (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
+`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. Process always loads places, buildings, and addresses together. The explorer is hex-first: hover a cell for status and Process, or open Inspect as a draggable window over the map. That window queries all three themes and shows one feature table.
 
 ## Map
 
@@ -49,14 +49,14 @@ The projection is a globe. On each style load the map sets that projection and a
 
 Zoom buttons ease 0.55 steps over 1180ms with an ease-in-out curve, centered on the unobstructed map area. Wheel zoom is slower so the globe does not jump. The grid updates during the move, and resolution bands have 0.35 zoom of hysteresis so they do not flicker. Fit and reset use the same curve. `prefers-reduced-motion` jumps instead.
 
-Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Green (`#2ee6a6`) is the current Overture release. Yellow (`#f5c451`) is an older stored release. Outlines match that fill; hover and selection use white.
+Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Green (`#2ee6a6`) is the current Overture release. Yellow (`#f5c451`) is an older stored release. Those populated fills stay visible without hover. Outlines match that fill; hover and selection use white.
 
 ### Cell display
 
 **Map layers** picks one of three modes:
 
-- **Lens** (default). Cells near the pointer fade in with a smooth falloff, and the hovered cell shows a floating tooltip next to the cursor. The tooltip stays under the pointer long enough to reach: it does not dismiss on map `mouseout` while the pointer is on the widget, and Inspect pins it. Inspect expands that same widget into a row table with per-column filters (`POST /api/query`). Process and Workflow stay on the tooltip. Inspect opens only when that hex is `ready`. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source. Before the pointer first reaches the map, the lens rests at the center of the unobstructed map area.
-- **Grid** colors every drawn cell.
+- **Lens** (default). Empty hex outlines fade in near the pointer. Hexes with current or stale data stay filled and outlined even when the pointer is elsewhere. The hovered cell shows a small tooltip with Process and Inspect. Inspect opens a draggable window, not the tooltip. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source.
+- **Grid** also paints empty-cell outlines across the view.
 - **Hidden** hides the H3 layers.
 
 The fill sits under the basemap's roads and buildings, so streets cut through the color. Outlines sit above roads, where they stay unbroken, and under the place labels.
@@ -67,13 +67,13 @@ Switching basemaps calls `setStyle(style, { diff: false })`. That reloads the st
 
 Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selection dock with Query, Process, Workflow, and Jobs. At 767 px and below, the explorer switches to a top bar with menu and map controls, and the same dock sits at the bottom.
 
-Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Query on the dock pins the same inspect table. Process and Workflow still open from the dock.
+Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Query on the dock opens the inspect window. Process and Workflow still open from the dock.
 
 Hexes start as missing until Process finishes. Query unlocks when rows exist in Supabase.
 
 ## Overture ingest
 
-Process uses DuckDB `httpfs` against the public Overture S3 bucket. It filters by the selection bbox, then by exact H3 resolution-8 indexes, then upserts through `ingest_overture_places`, `ingest_overture_buildings`, and `ingest_overture_addresses`. Anon can SELECT those tables. Direct INSERT is denied.
+Process uses DuckDB `httpfs` and `spatial` against the public Overture S3 bucket. It always reads places, buildings, and addresses. Each theme uses an explicit column list plus `ST_AsGeoJSON(geometry)`. H3 comes from the geometry point or footprint centroid, not the bbox center. Node then associates place→building (point-in-polygon, else nearest within 40 m), place→address (nested `addresses[]` match, else nearest), and building→address (nearest). Those GERS ids are written with the rows. Anon can SELECT those tables. Direct INSERT is denied. Run `supabase/migrations/20261027_overture_features.sql` after the base Overture migration, then reprocess existing hexes.
 
 The Austin mock generator remains behind `DATA_MODE=mock` for `npm run verify` only.
 

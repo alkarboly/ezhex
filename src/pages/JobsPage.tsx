@@ -13,15 +13,13 @@ import {
   runIngestionJob,
 } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
-import { DATASET_META } from '../types/datasets'
-import type { IngestionJob, IngestionJobStatus, JobLog, WorkflowDataset } from '../types/workflows'
+import type { IngestionJob, IngestionJobStatus, JobLog } from '../types/workflows'
 import { WORKFLOW_DATASETS } from '../types/workflows'
 
 export function JobsPage() {
   const selectedCells = useExplorer((state) => state.selectedCells)
   const client = useQueryClient()
   const [releaseVersion, setReleaseVersion] = useState(DEFAULT_OVERTURE_RELEASE)
-  const [datasets, setDatasets] = useState<WorkflowDataset[]>([...WORKFLOW_DATASETS])
   const [error, setError] = useState<string | null>(null)
 
   const limits = useQuery({ queryKey: ['workflow-ingestion-limits'], queryFn: getWorkflowIngestionLimits })
@@ -49,14 +47,10 @@ export function JobsPage() {
       setError('Select hexes on the map first.')
       return
     }
-    if (datasets.length === 0) {
-      setError('Choose at least one dataset.')
-      return
-    }
     create.mutate({
       release_version: releaseVersion.trim(),
       h3_cells: selectedCells,
-      datasets,
+      datasets: [...WORKFLOW_DATASETS],
     })
   }
 
@@ -102,26 +96,9 @@ export function JobsPage() {
             Release version
             <Input value={releaseVersion} onChange={(event) => setReleaseVersion(event.target.value)} />
           </label>
-          <div className="flex flex-wrap gap-1.5">
-            {WORKFLOW_DATASETS.map((id) => {
-              const on = datasets.includes(id)
-              return (
-                <Button
-                  key={id}
-                  type="button"
-                  size="sm"
-                  variant={on ? 'default' : 'outline'}
-                  onClick={() =>
-                    setDatasets((current) =>
-                      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id],
-                    )
-                  }
-                >
-                  {DATASET_META[id].title}
-                </Button>
-              )
-            })}
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Each job loads places, buildings, and addresses for the selected hexes, including geometry and links.
+          </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={create.isPending}>
             {create.isPending ? 'Processing…' : 'Process hexes'}

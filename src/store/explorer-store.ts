@@ -51,6 +51,7 @@ type ExplorerState = {
   fit: FitRequest
   notice: string | null
   inspectOpen: boolean
+  inspectPosition: { x: number; y: number }
   setDataset: (dataset: DatasetId) => void
   toggleCell: (h3: string, shiftKey: boolean) => void
   clearSelection: () => void
@@ -81,6 +82,7 @@ type ExplorerState = {
   dismissNotice: () => void
   setNotice: (notice: string | null) => void
   setInspectOpen: (inspectOpen: boolean) => void
+  setInspectPosition: (inspectPosition: { x: number; y: number }) => void
 }
 
 const initialSort = defaultSort('places')
@@ -114,6 +116,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   fit: { nonce: 0, zoomIn: true },
   notice: null,
   inspectOpen: false,
+  inspectPosition: { x: 24, y: 72 },
   setDataset: (dataset) => {
     const sort = defaultSort(dataset)
     set({
@@ -321,4 +324,5 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   dismissNotice: () => set({ notice: null }),
   setNotice: (notice) => set({ notice }),
   setInspectOpen: (inspectOpen) => set({ inspectOpen }),
+  setInspectPosition: (inspectPosition) => set({ inspectPosition }),
 }))

@@ -1,4 +1,6 @@
 import { latLngToCell } from 'h3-js'
+import { associateFeatures } from '../../lib/associate'
+import { pointGeometry, squarePolygon } from '../../lib/geojson'
 import { AUSTIN_CENTER, cellCenter, mockCoverageCells } from '../../lib/h3'
 import { H3_RESOLUTION } from '../../lib/limits'
 import { BUILDING_SUBTYPES, type BuildingSubtype, type DatasetId } from '../../types/datasets'
@@ -131,6 +133,7 @@ function addCell(
   const placeRows = buildPlaces(cell, center, boost)
   const buildingRows = buildBuildings(cell, center, boost)
   const addressRows = buildAddresses(cell, center, boost)
+  locateAndLink(placeRows, buildingRows, addressRows, center)
   places.set(cell, placeRows)
   buildings.set(cell, buildingRows)
   addresses.set(cell, addressRows)
@@ -168,6 +171,7 @@ function buildPlaces(
       h3: cell,
       lat: center.lat,
       lng: center.lng,
+      geometry: pointGeometry(center.lng, center.lat),
       names: { primary: `${stem} ${identity.form}` },
       basic_category: identity.basic_category,
       taxonomy: {
@@ -177,6 +181,15 @@ function buildPlaces(
       },
       confidence,
       operating_status,
+      phones: [],
+      websites: [],
+      socials: [],
+      emails: [],
+      brand_name: null,
+      brand_wikidata: null,
+      place_addresses: [],
+      building_id: null,
+      address_id: null,
     })
   }
   return rows
@@ -229,9 +242,25 @@ function buildBuildings(
       h3: cell,
       lat: center.lat,
       lng: center.lng,
+      geometry: squarePolygon(center.lng, center.lat),
       subtype,
+      class: subtype,
+      names: { primary: '' },
       height,
       num_floors,
+      has_parts: null,
+      is_underground: null,
+      num_floors_underground: null,
+      min_height: null,
+      min_floor: null,
+      level: null,
+      facade_color: null,
+      facade_material: null,
+      roof_material: null,
+      roof_shape: null,
+      roof_direction: null,
+      roof_color: null,
+      address_id: null,
     })
   }
   return rows
@@ -265,14 +294,70 @@ function buildAddresses(
       h3: cell,
       lat: center.lat,
       lng: center.lng,
+      geometry: pointGeometry(center.lng, center.lat),
       country: 'US',
       number,
       street,
+      unit: '',
+      postal_city: locality,
       postcode,
       address_levels: [{ value: 'TX' }, { value: locality }],
+      building_id: null,
     })
   }
   return rows
+}
+
+function locateAndLink(
+  places: PlaceRecord[],
+  buildings: BuildingRecord[],
+  addresses: AddressRecord[],
+  center: { lat: number; lng: number },
+) {
+  for (let index = 0; index < buildings.length; index += 1) {
+    const lat = center.lat + ((index % 5) - 2) * 0.00018
+    const lng = center.lng + ((index % 7) - 3) * 0.00018
+    buildings[index].lat = lat
+    buildings[index].lng = lng
+    buildings[index].geometry = squarePolygon(lng, lat)
+  }
+  for (let index = 0; index < addresses.length; index += 1) {
+    const host = buildings[index % Math.max(1, buildings.length)] ?? { lat: center.lat, lng: center.lng }
+    addresses[index].lat = host.lat
+    addresses[index].lng = host.lng
+    addresses[index].geometry = pointGeometry(host.lng, host.lat)
+  }
+  for (let index = 0; index < places.length; index += 1) {
+    const host = buildings[index % Math.max(1, buildings.length)] ?? { lat: center.lat, lng: center.lng }
+    const address = addresses[index % Math.max(1, addresses.length)]
+    places[index].lat = host.lat
+    places[index].lng = host.lng
+    places[index].geometry = pointGeometry(host.lng, host.lat)
+    if (address) {
+      places[index].place_addresses = [
+        {
+          number: address.number,
+          street: address.street,
+          postcode: address.postcode,
+          locality: address.address_levels[1].value,
+          region: address.address_levels[0].value,
+          country: address.country,
+        },
+      ]
+    }
+  }
+  const links = associateFeatures({ places, buildings, addresses })
+  for (const place of places) {
+    const link = links.places.get(place.id)
+    place.building_id = link?.building_id ?? null
+    place.address_id = link?.address_id ?? null
+  }
+  for (const building of buildings) {
+    building.address_id = links.buildings.get(building.id)?.address_id ?? null
+  }
+  for (const address of addresses) {
+    address.building_id = links.addresses.get(address.id)?.building_id ?? null
+  }
 }
 
 function localityFor(lat: number, lng: number): string {

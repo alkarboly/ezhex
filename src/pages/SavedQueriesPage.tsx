@@ -11,13 +11,11 @@ import {
   getWorkflowIngestionLimits,
 } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
-import { DATASET_META } from '../types/datasets'
-import { WORKFLOW_DATASETS, type WorkflowDataset, type WorkflowIngestionPlan } from '../types/workflows'
+import { WORKFLOW_DATASETS, type WorkflowIngestionPlan } from '../types/workflows'
 
 export function SavedQueriesPage() {
   const selectedCells = useExplorer((state) => state.selectedCells)
   const [releaseVersion, setReleaseVersion] = useState(DEFAULT_OVERTURE_RELEASE)
-  const [datasets, setDatasets] = useState<WorkflowDataset[]>([...WORKFLOW_DATASETS])
   const [useSelection, setUseSelection] = useState(true)
   const [manualCells, setManualCells] = useState('')
   const [formError, setFormError] = useState<string | null>(null)
@@ -36,17 +34,6 @@ export function SavedQueriesPage() {
     if (limits.data?.default_release_version) setReleaseVersion(limits.data.default_release_version)
   }, [limits.data])
 
-  useEffect(() => {
-    const available = schemas.data?.datasets.map((dataset) => dataset.id)
-    if (!available || available.length === 0) return
-    const allowed = new Set(available)
-    setDatasets((current) => {
-      const filtered = current.filter((dataset) => allowed.has(dataset))
-      if (filtered.length > 0) return filtered
-      return [available[0] as WorkflowDataset]
-    })
-  }, [schemas.data])
-
   const createPlan = useMutation({
     mutationFn: createWorkflowIngestionPlan,
     onSuccess: (nextPlan) => {
@@ -62,35 +49,11 @@ export function SavedQueriesPage() {
     () => (useSelection ? selectedCells : parseCells(manualCells)),
     [manualCells, selectedCells, useSelection],
   )
-  const availableDatasets = useMemo(
-    () =>
-      schemas.data?.datasets ??
-      WORKFLOW_DATASETS.map((id) => ({
-        id,
-        title: DATASET_META[id].title,
-        singular: DATASET_META[id].singular,
-        plural: DATASET_META[id].plural,
-        fields: [],
-      })),
-    [schemas.data],
-  )
-
-  const toggleDataset = (dataset: WorkflowDataset) => {
-    setDatasets((current) => {
-      if (current.includes(dataset)) return current.filter((entry) => entry !== dataset)
-      return [...current, dataset]
-    })
-  }
-
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const release = releaseVersion.trim()
     if (!release) {
       setFormError('Release version is required.')
-      return
-    }
-    if (datasets.length === 0) {
-      setFormError('Choose at least one dataset.')
       return
     }
     if (inputCells.length === 0) {
@@ -100,7 +63,7 @@ export function SavedQueriesPage() {
     createPlan.mutate({
       release_version: release,
       h3_cells: inputCells,
-      datasets,
+      datasets: [...WORKFLOW_DATASETS],
     })
   }
 
@@ -176,25 +139,9 @@ export function SavedQueriesPage() {
             />
           </div>
 
-          <div className="grid gap-2">
-            <span className="text-xs font-medium text-muted-foreground">Datasets</span>
-            <div className="flex flex-wrap gap-2">
-              {availableDatasets.map((dataset) => {
-                const selected = datasets.includes(dataset.id)
-                return (
-                  <Button
-                    key={dataset.id}
-                    size="sm"
-                    variant={selected ? 'default' : 'outline'}
-                    type="button"
-                    onClick={() => toggleDataset(dataset.id)}
-                  >
-                    {dataset.title}
-                  </Button>
-                )
-              })}
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Plans always include places, buildings, and addresses.
+          </p>
 
           <div className="grid gap-2">
             <span className="text-xs font-medium text-muted-foreground">Hex source</span>

@@ -4,10 +4,11 @@ import { LocateFixed } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { HexActionDialog } from '../components/explorer/HexActionDialog'
+import { HexInspectWindow } from '../components/explorer/HexInspectWindow'
 import { LayersButton, MapControls } from '../components/explorer/MapControls'
 import { MobileNavButton } from '../components/layout/MobileNav'
 import { H3Map, type H3MapHandle, type MapInsets } from '../components/map/H3Map'
-import { useCellStats, useCompiledQuery } from '../hooks/useCompiledQuery'
+import { useCellStats, useCompiledQuery, useInspectFeatures } from '../hooks/useCompiledQuery'
 import { useDataSource } from '../hooks/useDataSource'
 import { MOBILE_QUERY, TOUCH_QUERY, useMediaQuery } from '../hooks/useMediaQuery'
 import { snapshotForDisplayCell, type ViewportStatus } from '../lib/h3'
@@ -44,10 +45,12 @@ export function ExplorerPage() {
   const dismissNotice = useExplorer((state) => state.dismissNotice)
   const setNotice = useExplorer((state) => state.setNotice)
   const setInspectOpen = useExplorer((state) => state.setInspectOpen)
+  const inspectOpen = useExplorer((state) => state.inspectOpen)
   const configured = Boolean(source.data?.supabase?.urlConfigured && source.data?.supabase?.anonKeyConfigured)
   const queryUnavailable = source.data?.mode === 'supabase' && !configured
   const canQueryCells = source.data?.mode === 'mock' || (source.data?.mode === 'supabase' && configured)
   const [action, setAction] = useState<{ mode: HexAction; cells: string[] } | null>(null)
+  const inspect = useInspectFeatures(inspectOpen)
 
   const queryCells = useMemo(
     () => cells.filter((cell) => getResolution(cell) === H3_RESOLUTION),
@@ -195,7 +198,9 @@ export function ExplorerPage() {
         onCenterCell={setCenterCell}
         cellCoverage={coverageByCell}
         onHexAction={openHexAction}
+        inspectFeatures={inspect.rows}
       />
+      <HexInspectWindow cells={selected} />
 
       {mobile ? (
         <>
