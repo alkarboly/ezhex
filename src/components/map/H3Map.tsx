@@ -25,7 +25,7 @@ import {
 import { lensFalloff, lensRadius, lensRings } from '../../lib/lens'
 import { H3_RESOLUTION } from '../../lib/limits'
 import { cn } from '../../lib/utils'
-import type { BasemapId, FitRequest, HexMode } from '../../store/explorer-store'
+import { useExplorer, type BasemapId, type FitRequest, type HexMode } from '../../store/explorer-store'
 import type { CellCount } from '../../types/queries'
 import type { HexAction, HexDataStatus } from '../../types/workflows'
 import { styleForBasemap } from './map-style'
@@ -117,6 +117,9 @@ export function H3Map({
   const [mapError, setMapError] = useState<string | null>(null)
   const cardHeldRef = useRef(false)
   const hideCardRef = useRef(0)
+  const inspectOpen = useExplorer((state) => state.inspectOpen)
+  const inspectOpenRef = useRef(inspectOpen)
+  inspectOpenRef.current = inspectOpen
 
   useLayoutEffect(() => {
     clickRef.current = onCellClick
@@ -171,10 +174,10 @@ export function H3Map({
         setCardVisible(true)
         return
       }
-      if (cardHeldRef.current) return
+      if (cardHeldRef.current || inspectOpenRef.current) return
       hideCardRef.current = window.setTimeout(() => {
-        if (!cardHeldRef.current) setCardVisible(false)
-      }, 280)
+        if (!cardHeldRef.current && !inspectOpenRef.current) setCardVisible(false)
+      }, 700)
     }
 
     let active = true
@@ -221,13 +224,15 @@ export function H3Map({
 
     const positionCard = () => {
       const card = cardRef.current
-      if (!card || !pointer) return
-      const width = card.offsetWidth || 288
-      const height = card.offsetHeight || 220
-      let x = pointer.x + 18
-      let y = pointer.y + 18
-      if (x + width > container.clientWidth - 8) x = pointer.x - width - 18
-      if (y + height > container.clientHeight - 8) y = pointer.y - height - 18
+      const anchor = pointer ?? lastPointer ?? restPoint()
+      if (!card) return
+      const width = card.offsetWidth || 256
+      const height = card.offsetHeight || 180
+      const inset = insetsRef.current
+      let x = anchor.x + 12
+      let y = anchor.y + 12
+      if (x + width > container.clientWidth - 8) x = anchor.x - width - 8
+      if (y + height > container.clientHeight - inset.bottom - 8) y = anchor.y - height - 8
       card.style.transform = `translate3d(${Math.max(8, x)}px, ${Math.max(8, y)}px, 0)`
     }
 
@@ -270,6 +275,8 @@ export function H3Map({
         } else if (pointer) {
           const under = cellAt(pointer)
           nextHover = drawnCells.has(under) ? under : null
+        } else if (cardHeldRef.current || inspectOpenRef.current) {
+          nextHover = hoverCell
         }
       }
 
@@ -300,7 +307,7 @@ export function H3Map({
       setInput: (isTouch) => {
         if (isTouch) {
           pointer = null
-          setCardVisible(false)
+          if (!inspectOpenRef.current) setCardVisible(false)
         }
         fadeTo(restingStrength(), 300)
       },
@@ -429,7 +436,7 @@ export function H3Map({
     map.on('mouseout', () => {
       if (touchRef.current) return
       pointer = null
-      fadeTo(0, 320)
+      if (!cardHeldRef.current && !inspectOpenRef.current) fadeTo(0, 320)
     })
     map.on('click', (event) => {
       if (modeRef.current === 'off') return
@@ -559,6 +566,14 @@ export function H3Map({
   const cardSelected = cardCell ? selectedSet.has(cardCell) : false
   const cardStatus = cardCell ? (cellStatus?.get(cardCell) ?? 'missing') : 'missing'
 
+  useEffect(() => {
+    if (!inspectOpen) return
+    cardHeldRef.current = true
+    window.clearTimeout(hideCardRef.current)
+    setCardVisible(true)
+    if (!cardCell && selected[0]) setCardCell(selected[0])
+  }, [inspectOpen, cardCell, selected])
+
   const holdCard = () => {
     cardHeldRef.current = true
     window.clearTimeout(hideCardRef.current)
@@ -566,8 +581,11 @@ export function H3Map({
   }
 
   const releaseCard = () => {
+    if (inspectOpenRef.current) return
     cardHeldRef.current = false
-    hideCardRef.current = window.setTimeout(() => setCardVisible(false), 180)
+    hideCardRef.current = window.setTimeout(() => {
+      if (!inspectOpenRef.current) setCardVisible(false)
+    }, 500)
   }
 
   return (
@@ -578,7 +596,7 @@ export function H3Map({
     >
       <div ref={containerRef} className="absolute inset-0" />
       {touch && hexMode !== 'off' && size.width > 0 && <Reticle x={rest.x} y={rest.y} />}
-      {!touch && (
+      {(!touch || inspectOpen) && (
         <div
           ref={cardRef}
           aria-hidden={!cardVisible}
@@ -597,8 +615,10 @@ export function H3Map({
               addMode={addMode}
               dataStatus={cardStatus}
               onAction={(action) => {
-                cardHeldRef.current = false
-                setCardVisible(false)
+                if (action !== 'query' && !inspectOpenRef.current) {
+                  cardHeldRef.current = false
+                  setCardVisible(false)
+                }
                 onHexAction?.(cardCell, action)
               }}
               onMouseEnter={holdCard}

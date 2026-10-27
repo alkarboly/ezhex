@@ -41,6 +41,7 @@ export function ExplorerPage() {
   const notice = useExplorer((state) => state.notice)
   const dismissNotice = useExplorer((state) => state.dismissNotice)
   const setNotice = useExplorer((state) => state.setNotice)
+  const setInspectOpen = useExplorer((state) => state.setInspectOpen)
   const configured = Boolean(source.data?.supabase?.urlConfigured && source.data?.supabase?.anonKeyConfigured)
   const queryUnavailable = source.data?.mode === 'supabase' && !configured
   const canQueryCells = source.data?.mode === 'mock' || (source.data?.mode === 'supabase' && configured)
@@ -80,8 +81,29 @@ export function ExplorerPage() {
   }, [notice, dismissNotice])
 
   const openHexAction = (h3: string, mode: HexAction) => {
-    if (!selected.includes(h3)) toggleCell(h3, false)
-    openAction(mode, selected.includes(h3) ? selected : [h3])
+    const cells = selected.includes(h3) ? selected : [h3]
+    if (mode === 'query') {
+      if (!selected.includes(h3)) toggleCell(h3, selected.length > 0)
+      openQuery(cells)
+      return
+    }
+    if (!selected.includes(h3)) toggleCell(h3, selected.length > 0)
+    openAction(mode, cells)
+  }
+
+  const openQuery = (next: readonly string[]) => {
+    if (next.length === 0) {
+      setNotice('Select at least one hex.')
+      return
+    }
+    if (next.some((cell) => statusMap.get(cell) !== 'ready')) {
+      setNotice('Process these hexes first. The table unlocks when data is ready.')
+      setInspectOpen(false)
+      setAction({ mode: 'process', cells: [...next] })
+      return
+    }
+    setAction(null)
+    setInspectOpen(true)
   }
 
   const openAction = (mode: HexAction, next: readonly string[]) => {
@@ -89,11 +111,11 @@ export function ExplorerPage() {
       setNotice('Select at least one hex.')
       return
     }
-    if (mode === 'query' && next.some((cell) => statusMap.get(cell) !== 'ready')) {
-      setNotice('Process these hexes first. Query unlocks when data is ready.')
-      setAction({ mode: 'process', cells: [...next] })
+    if (mode === 'query') {
+      openQuery(next)
       return
     }
+    setInspectOpen(false)
     setAction({ mode, cells: [...next] })
   }
 

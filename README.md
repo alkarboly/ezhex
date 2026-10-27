@@ -103,12 +103,12 @@ render deploys create SERVICE_ID --wait --confirm
 
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
 - H3 resolution 8 cells for the current view, from `h3-js` boundaries. By default they light up as a lens around the cursor. **Map layers** switches to a full grid or hides them.
-- Hex-first explorer: hover a cell to query it (if ready), request processing, or start a workflow. The selection dock does the same for a set of hexes
+- Hex-first explorer: hover a cell to inspect its table (if ready), request processing, or start a workflow. The selection dock does the same for a set of hexes
 - Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase and shows a live log for each job
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
 - Hard caps on hex count, bbox area, and row counts
 
-Hover a ready hex or use Query on the dock to open the filter editor. Missing hexes have to be processed first. Process pulls real Overture rows.
+Hover a ready hex and press Inspect, or use Query on the dock, to pin a table of those rows with per-column filters. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 

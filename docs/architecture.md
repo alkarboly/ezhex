@@ -29,7 +29,7 @@ The Node API also exposes workflow-ingestion planning and job endpoints:
 - `POST /api/workflow-ingestion/jobs/:id/run`
 - `POST /api/hex-status`
 - `GET /api/query-schemas`
-- `POST /api/query` (used when a ready hex opens the query editor)
+- `POST /api/query` (used when a ready hex opens the inspect table)
 
 The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps. Creating a job runs that planner, then Node downloads Overture parquet for that bbox only, keeps rows whose H3 resolution-8 cell is in the selection, and upserts them into Supabase. `POST /api/workflow-ingestion/jobs/:id/run` starts the same download. The default release is `2026-10-21.0` (`OVERTURE_RELEASE`). Jobs themselves stay in the Node process. Feature rows persist in Supabase.
 
@@ -37,7 +37,7 @@ Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines 
 
 `POST /api/hex-status` returns `ready`, `missing`, or `processing`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. Processing means a download is running.
 
-`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. The explorer is hex-first: hover a cell to query it (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
+`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. The explorer is hex-first: hover a cell to inspect its rows (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
 
 ## Map
 
@@ -55,7 +55,7 @@ Cell fill color is the count of records in each visible cell. The scale runs to 
 
 **Map layers** picks one of three modes:
 
-- **Lens** (default). Cells near the pointer fade in with a smooth falloff, and the hovered cell shows a linger card with count, coverage status, and actions. The card stays up long enough to click Query, Process, or Workflow. Query opens only when that hex is `ready`. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source. Before the pointer first reaches the map, the lens rests at the center of the unobstructed map area.
+- **Lens** (default). Cells near the pointer fade in with a smooth falloff, and the hovered cell shows a floating tooltip next to the cursor. The tooltip stays under the pointer long enough to reach: it does not dismiss on map `mouseout` while the pointer is on the widget, and Inspect pins it. Inspect expands that same widget into a row table with per-column filters (`POST /api/query`). Process and Workflow stay on the tooltip. Inspect opens only when that hex is `ready`. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source. Before the pointer first reaches the map, the lens rests at the center of the unobstructed map area.
 - **Grid** colors every drawn cell.
 - **Hidden** hides the H3 layers.
 
@@ -67,7 +67,7 @@ Switching basemaps calls `setStyle(style, { diff: false })`. That reloads the st
 
 Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selection dock with Query, Process, Workflow, and Jobs. At 767 px and below, the explorer switches to a top bar with menu and map controls, and the same dock sits at the bottom.
 
-Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Hex actions run from the dock because there is no hover card.
+Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Query on the dock pins the same inspect table. Process and Workflow still open from the dock.
 
 Hexes start as missing until Process finishes. Query unlocks when rows exist in Supabase.
 

@@ -49,6 +49,7 @@ type ExplorerState = {
   /** Request to frame the selection. Without zoomIn the camera only pans, or zooms out to fit. */
   fit: FitRequest
   notice: string | null
+  inspectOpen: boolean
   setDataset: (dataset: DatasetId) => void
   toggleCell: (h3: string, shiftKey: boolean) => void
   clearSelection: () => void
@@ -78,6 +79,7 @@ type ExplorerState = {
   applyExample: (example: ExampleId) => void
   dismissNotice: () => void
   setNotice: (notice: string | null) => void
+  setInspectOpen: (inspectOpen: boolean) => void
 }
 
 const initialSort = defaultSort('places')
@@ -109,6 +111,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   focus: null,
   fit: { nonce: 0, zoomIn: true },
   notice: null,
+  inspectOpen: false,
   setDataset: (dataset) => {
     const sort = defaultSort(dataset)
     set({
@@ -303,4 +306,5 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   },
   dismissNotice: () => set({ notice: null }),
   setNotice: (notice) => set({ notice }),
+  setInspectOpen: (inspectOpen) => set({ inspectOpen }),
 }))

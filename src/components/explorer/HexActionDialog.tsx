@@ -2,7 +2,6 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { useCompiledQuery, useQueryResults } from '../../hooks/useCompiledQuery'
 import { formatCount } from '../../lib/format'
 import { DEFAULT_OVERTURE_RELEASE } from '../../lib/overture-release'
 import {
@@ -10,12 +9,10 @@ import {
   getQuerySchemas,
   getWorkflowIngestionLimits,
 } from '../../services/workflow-ingestion'
-import { useExplorer } from '../../store/explorer-store'
 import { DATASET_META } from '../../types/datasets'
 import type { HexAction, HexDataStatus, IngestionJob, WorkflowDataset } from '../../types/workflows'
 import { WORKFLOW_DATASETS } from '../../types/workflows'
-import { QueryForm } from '../filters/QueryForm'
-import { ResultsList } from '../results/ResultsList'
+import { HexQueryTable } from './HexQueryTable'
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
 
@@ -75,26 +72,16 @@ export function HexActionDialog({
 }
 
 function QueryPane({ ready }: { ready: boolean }) {
-  const compiled = useCompiledQuery()
-  const results = useQueryResults(compiled)
   const schemas = useQuery({ queryKey: ['query-schemas'], queryFn: getQuerySchemas })
-  const focusCell = useExplorer((state) => state.focusCell)
   const enabled = schemas.data?.query_enabled === true
 
   if (!ready) {
-    return <p className="text-sm text-muted-foreground">Process these hexes first. The query editor unlocks when data is ready.</p>
+    return <p className="text-sm text-muted-foreground">Process these hexes first. The table unlocks when data is ready.</p>
   }
   if (schemas.data && !enabled) {
     return <p className="text-sm text-muted-foreground">{schemas.data.reason}</p>
   }
-  return (
-    <div className="grid gap-5">
-      <QueryForm />
-      <div className="rounded-xl border border-white/[0.06]">
-        <ResultsList compiled={compiled} query={results} onFocusCell={focusCell} />
-      </div>
-    </div>
-  )
+  return <HexQueryTable />
 }
 
 function JobPane({
