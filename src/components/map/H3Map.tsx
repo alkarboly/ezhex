@@ -16,6 +16,8 @@ import { formatCount } from '../../lib/format'
 import {
   AUSTIN_CENTER,
   AUSTIN_ZOOM,
+  GLOBE_START,
+  GLOBE_ZOOM,
   boundsForCells,
   buildH3Collection,
   cellsInView,
@@ -103,6 +105,7 @@ export function H3Map({
   const insetsRef = useRef(insets)
   const drawnRef = useRef<ReadonlySet<string>>(new Set())
   const appliedBasemap = useRef(basemap)
+  const arrivingRef = useRef(false)
   const [styleReady, setStyleReady] = useState(0)
   const [cardCell, setCardCell] = useState<string | null>(null)
   const [cardVisible, setCardVisible] = useState(false)
@@ -133,17 +136,22 @@ export function H3Map({
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    const calm = reducedMotion()
+    arrivingRef.current = !calm
+    const openingBasemap = appliedBasemap.current
     const map = new MapLibreMap({
       container,
-      style: styleForBasemap(appliedBasemap.current),
-      center: [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat],
-      zoom: AUSTIN_ZOOM,
+      style: styleForBasemap(openingBasemap),
+      center: calm ? [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat] : [GLOBE_START.lng, GLOBE_START.lat],
+      zoom: calm ? AUSTIN_ZOOM : GLOBE_ZOOM,
+      bearing: calm ? 0 : -14,
       // Box zoom claims every shift-press and swallows the click, which breaks shift-click to add.
       boxZoom: false,
       dragRotate: false,
       pitchWithRotate: false,
       maxPitch: 0,
-      fadeDuration: 0,
+      fadeDuration: 300,
+      renderWorldCopies: false,
     })
     map.touchZoomRotate.disableRotation()
     mapRef.current = map
@@ -280,7 +288,11 @@ export function H3Map({
       },
     }
 
+    let arriving = !calm
+    let arrivalArmed = false
+
     const report = () => {
+      if (arriving) return
       const bounds = map.getBounds()
       const next = cellsInView(
         { west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() },
@@ -289,14 +301,100 @@ export function H3Map({
       viewportRef.current(next.ids, next.status)
     }
 
+    let handoffTimer = 0
+    let revealTimer = 0
+
+    const revealMap = () => {
+      window.clearTimeout(revealTimer)
+      container.dataset.arrival = ''
+    }
+
+    const finishArrival = () => {
+      if (!arriving) return
+      arriving = false
+      arrivingRef.current = false
+      if (appliedBasemap.current === openingBasemap) {
+        report()
+        return
+      }
+      container.dataset.arrival = 'handoff'
+      handoffTimer = window.setTimeout(() => {
+        if (!active) return
+        map.setStyle(styleForBasemap(appliedBasemap.current), { diff: false })
+      }, 320)
+    }
+
+    const beginArrival = () => {
+      if (!active || arrivalArmed) return
+      arrivalArmed = true
+      showGlobe(map)
+      if (!arriving) {
+        report()
+        return
+      }
+      const narrow = container.clientWidth < 768
+      const spinMs = narrow ? 2600 : 3800
+      const diveMs = narrow ? 3200 : 4600
+      let phase: 'spin' | 'dive' = 'spin'
+      let cancelled = false
+      const mark = { t: performance.now() }
+      map.jumpTo({ center: [GLOBE_START.lng, GLOBE_START.lat], zoom: GLOBE_ZOOM, bearing: -14 })
+      map.easeTo({
+        center: [-102, 26],
+        zoom: 1.85,
+        bearing: 6,
+        duration: spinMs,
+        essential: true,
+      })
+      const onEnd = () => {
+        if (cancelled || performance.now() - mark.t < 350 || map.isMoving()) return
+        if (phase === 'spin') {
+          phase = 'dive'
+          mark.t = performance.now()
+          map.flyTo({
+            center: [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat],
+            zoom: AUSTIN_ZOOM,
+            bearing: 0,
+            offset: insetOffset(insetsRef.current),
+            duration: diveMs,
+            curve: 1.2,
+            minZoom: 1.7,
+            essential: true,
+          })
+          return
+        }
+        map.off('moveend', onEnd)
+        finishArrival()
+      }
+      map.on('moveend', onEnd)
+      const interrupt = () => {
+        if (!arriving) return
+        cancelled = true
+        map.off('moveend', onEnd)
+        map.stop()
+        finishArrival()
+      }
+      map.on('mousedown', interrupt)
+      map.on('touchstart', interrupt)
+    }
+
     map.on('style.load', () => {
       ensureH3Layers(map, modeRef.current)
+      showGlobe(map)
       applied = new Map()
       hoverCell = null
       strength = 0
       setMapError(null)
       setStyleReady((value) => value + 1)
       fadeTo(restingStrength(), 600)
+      if (!arrivalArmed) beginArrival()
+      else if (!arriving) {
+        report()
+        if (container.dataset.arrival === 'handoff') {
+          revealTimer = window.setTimeout(revealMap, 1600)
+          map.once('idle', revealMap)
+        }
+      }
     })
     map.on('load', report)
     map.on('moveend', report)
@@ -338,6 +436,8 @@ export function H3Map({
       active = false
       cancelAnimationFrame(frame)
       window.clearTimeout(slowTimer)
+      window.clearTimeout(handoffTimer)
+      window.clearTimeout(revealTimer)
       observer.disconnect()
       map.remove()
       mapRef.current = null
@@ -348,6 +448,7 @@ export function H3Map({
     const map = mapRef.current
     if (!map || appliedBasemap.current === basemap) return
     appliedBasemap.current = basemap
+    if (arrivingRef.current) return
     setMapError(null)
     // A diffed style update would silently drop the H3 source and layers.
     map.setStyle(styleForBasemap(basemap), { diff: false })
@@ -536,6 +637,45 @@ function fitPadding(container: HTMLElement, inset: MapInsets) {
 
 function reducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/** Globe in the app palette. Streets colors ease back to the basemap by zoom 7. */
+function showGlobe(map: MapLibreMap) {
+  map.setProjection({ type: 'globe' })
+  map.setSky({
+    'sky-color': '#05080c',
+    'horizon-color': '#1f8f84',
+    'fog-color': '#05080c',
+    'sky-horizon-blend': 0.48,
+    'horizon-fog-blend': 0.8,
+    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 0.9, 3, 0.55, 6, 0.2, 8, 0],
+  })
+  if (map.getLayer('background')) {
+    map.setPaintProperty('background', 'background-color', [
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      0,
+      '#2e3c4a',
+      3,
+      '#1c2834',
+      7,
+      '#0c0c0c',
+    ])
+  }
+  if (map.getLayer('water')) {
+    map.setPaintProperty('water', 'fill-color', [
+      'interpolate',
+      ['linear'],
+      ['zoom'],
+      0,
+      '#0b141c',
+      3,
+      '#10161c',
+      7,
+      '#1b1b1d',
+    ])
+  }
 }
 
 type FillPaint = NonNullable<Extract<AddLayerObject, { type: 'fill' }>['paint']>

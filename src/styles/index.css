@@ -158,6 +158,15 @@
   height: 100%;
 }
 
+[data-testid='h3-map'] .maplibregl-canvas {
+  animation: wp-fade-in 900ms ease-out;
+  transition: opacity 380ms ease;
+}
+
+[data-testid='h3-map'][data-arrival='handoff'] .maplibregl-canvas {
+  opacity: 0;
+}
+
 /* Capped so a full-height phone sheet covers the attribution instead of pushing it into the top bar. */
 [data-testid='h3-map'] .maplibregl-ctrl-bottom-right,
 [data-testid='h3-map'] .maplibregl-ctrl-bottom-left {

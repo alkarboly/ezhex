@@ -64,7 +64,7 @@ render deploys create SERVICE_ID --wait --confirm
 
 ## What works now
 
-- MapLibre map centered on Austin, with streets (OpenFreeMap) and satellite (Esri) basemaps
+- MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
 - H3 resolution 8 cells for the current view, from `h3-js` boundaries. By default they light up as a lens around the cursor. **Map layers** switches to a full grid or hides them.
 - Click, shift-click or Add mode, select visible (300 cell cap), clear, and zoom to the selection
 - Places, buildings, and addresses, each with its own filters and a one-click example

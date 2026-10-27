@@ -9,6 +9,9 @@ const VIEW_PAD_KM = getHexagonEdgeLengthAvg(H3_RESOLUTION, UNITS.km) * 1.25
 
 export const AUSTIN_CENTER = { lng: -97.7431, lat: 30.2672 }
 export const AUSTIN_ZOOM = 12.4
+/** Opening frame: Africa and Europe, with the Americas still on the limb. */
+export const GLOBE_START = { lng: 18, lat: 12 }
+export const GLOBE_ZOOM = 1.35
 
 export const MOCK_COVERAGE = {
   west: -97.9,
