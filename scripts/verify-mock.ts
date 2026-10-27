@@ -7,7 +7,7 @@ import {
   snapshotForDisplayCell,
 } from '../src/lib/h3.ts'
 import { associateFeatures } from '../src/lib/associate.ts'
-import { mergeFeatureRows } from '../src/lib/feature-rows.ts'
+import { mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION } from '../src/lib/limits.ts'
@@ -132,7 +132,39 @@ assert(cafes.total < allPlaces.total, 'cafe filter did not reduce the result')
 assert(cafes.rows.every((row) => row.values.basic_category === 'cafe'), 'non-cafe row leaked')
 assert(cafes.rows.every((row) => row.geometry?.type === 'Point'), 'place query dropped geometry')
 const merged = mergeFeatureRows(allPlaces.rows, [], [])
+assert(merged.length === allPlaces.rows.length, 'inspect merge dropped place rows')
 assert(merged.some((row) => row.kind === 'places'), 'inspect merge lost places')
+const unmatchedPlace = {
+  id: 'p-orphan',
+  h3: capitol,
+  lat: 30.2672,
+  lng: -97.7431,
+  geometry: pointGeometry(-97.7431, 30.2672),
+  values: { 'names.primary': 'Lone Place', basic_category: 'cafe' },
+}
+const unmatchedAddress = {
+  id: 'a-orphan',
+  h3: capitol,
+  lat: 30.2673,
+  lng: -97.7432,
+  geometry: pointGeometry(-97.7432, 30.2673),
+  values: { address: '1 Main St' },
+}
+const unmatchedBuilding = {
+  id: 'b-orphan',
+  h3: capitol,
+  lat: 30.2674,
+  lng: -97.7433,
+  geometry: squarePolygon(-97.7433, 30.2674, 0.0002),
+  values: { subtype: 'commercial', 'names.primary': 'Lone Building' },
+}
+const joined = mergeFeatureRows([unmatchedPlace], [unmatchedBuilding], [unmatchedAddress])
+assert(joined.length === 3, 'unmatched place, address, or building was dropped')
+assert(joined[0]?.address === null && joined[0]?.building === null, 'unmatched place should keep null links')
+assert(joined.some((row) => row.kind === 'addresses' && row.name === null), 'orphan address was dropped')
+assert(joined.some((row) => row.kind === 'buildings' && row.address === null), 'orphan building was dropped')
+assert(observedValues(joined, 'category').join(',') === 'cafe,commercial', 'observed categories invented a value')
+assert(!observedValues(joined, 'category').includes('restaurant'), 'observed categories leaked a preset')
 assert(
   cafes.byCell.reduce((sum, cell) => sum + cell.count, 0) === cafes.total,
   'per-cell counts do not add up',

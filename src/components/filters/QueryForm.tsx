@@ -1,12 +1,12 @@
 import { ArrowDown, ArrowUp, Building, Check, Copy, Mailbox, Store } from 'lucide-react'
 import { useState, type ComponentType, type ReactNode } from 'react'
-import { useCompiledQuery } from '../../hooks/useCompiledQuery'
+import { useCompiledQuery, useThemeQuery } from '../../hooks/useCompiledQuery'
+import { observedResultValues, withCurrentOption } from '../../lib/feature-rows'
 import { PAGE_SIZES } from '../../lib/limits'
 import { summarizeQuery } from '../../lib/query-builder'
 import { cn } from '../../lib/utils'
 import { useExplorer, type ExampleId } from '../../store/explorer-store'
-import { BUILDING_SUBTYPES, FIELD_CATALOG, type DatasetId } from '../../types/datasets'
-import { BASIC_CATEGORIES, PRIMARY_CATEGORIES } from '../../types/place-presets'
+import { FIELD_CATALOG, type DatasetId } from '../../types/datasets'
 import { Input, nativeSelectClass } from '../ui/input'
 
 const EXAMPLES: { id: ExampleId; label: string; icon: ComponentType<{ className?: string }> }[] = [
@@ -97,6 +97,11 @@ export function QueryForm() {
 function PlacesFields() {
   const form = useExplorer((state) => state.filtersByDataset.places)
   const patch = useExplorer((state) => state.patchPlaces)
+  const selectedCells = useExplorer((state) => state.selectedCells)
+  const observed = useThemeQuery('places', selectedCells.length > 0)
+  const rows = observed.results.data?.rows ?? []
+  const categories = withCurrentOption(observedResultValues(rows, 'basic_category'), form.basicCategories[0])
+  const primaries = withCurrentOption(observedResultValues(rows, 'taxonomy.primary'), form.primaryCategory)
   return (
     <>
       <Field label="Place name" hint="Matches names.primary">
@@ -107,29 +112,29 @@ function PlacesFields() {
           onChange={(event) => patch({ name: event.target.value })}
         />
       </Field>
-      <Field label="Basic category" hint="Sample of Overture basic_category values in this mock.">
+      <Field label="Basic category" hint="Values seen in the selected hexes.">
         <select
           className={nativeSelectClass}
           data-testid="filter-basic-category"
           value={form.basicCategories[0] ?? ''}
           onChange={(event) => patch({ basicCategories: event.target.value ? [event.target.value] : [] })}
         >
-          <option value="">Any</option>
-          {BASIC_CATEGORIES.map((category) => (
+          <option value="">Any observed category</option>
+          {categories.map((category) => (
             <option key={category} value={category}>
               {category.replaceAll('_', ' ')}
             </option>
           ))}
         </select>
       </Field>
-      <Field label="Primary category" hint="taxonomy.primary">
+      <Field label="Primary category" hint="taxonomy.primary values seen in the selected hexes.">
         <select
           className={nativeSelectClass}
           value={form.primaryCategory}
           onChange={(event) => patch({ primaryCategory: event.target.value })}
         >
-          <option value="">Any</option>
-          {PRIMARY_CATEGORIES.map((category) => (
+          <option value="">Any observed primary</option>
+          {primaries.map((category) => (
             <option key={category} value={category}>
               {category.replaceAll('_', ' ')}
             </option>
@@ -154,17 +159,20 @@ function PlacesFields() {
 function BuildingsFields() {
   const form = useExplorer((state) => state.filtersByDataset.buildings)
   const patch = useExplorer((state) => state.patchBuildings)
+  const selectedCells = useExplorer((state) => state.selectedCells)
+  const observed = useThemeQuery('buildings', selectedCells.length > 0)
+  const subtypes = withCurrentOption(observedResultValues(observed.results.data?.rows ?? [], 'subtype'), form.subtypes[0])
   return (
     <>
-      <Field label="Building subtype">
+      <Field label="Building subtype" hint="Values seen in the selected hexes.">
         <select
           className={nativeSelectClass}
           data-testid="filter-building-subtype"
           value={form.subtypes[0] ?? ''}
           onChange={(event) => patch({ subtypes: event.target.value ? [event.target.value] : [] })}
         >
-          <option value="">Any</option>
-          {BUILDING_SUBTYPES.map((subtype) => (
+          <option value="">Any observed subtype</option>
+          {subtypes.map((subtype) => (
             <option key={subtype} value={subtype}>
               {subtype}
             </option>

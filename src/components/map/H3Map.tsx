@@ -106,6 +106,8 @@ export function H3Map({
   const mapRef = useRef<MapLibreMap | null>(null)
   const lensRef = useRef<LensApi>({ schedule: () => {}, setInput: () => {} })
   const clickRef = useRef(onCellClick)
+  const actionRef = useRef(onHexAction)
+  const coverageRef = useRef(cellCoverage)
   const viewportRef = useRef(onViewportCells)
   const centerRef = useRef(onCenterCell)
   const selectedRef = useRef(selected)
@@ -134,6 +136,8 @@ export function H3Map({
 
   useLayoutEffect(() => {
     clickRef.current = onCellClick
+    actionRef.current = onHexAction
+    coverageRef.current = cellCoverage
     viewportRef.current = onViewportCells
     centerRef.current = onCenterCell
     selectedRef.current = selected
@@ -239,17 +243,20 @@ export function H3Map({
       map.setFeatureState({ source: 'h3', id: cell }, state)
     }
 
-    const positionCard = () => {
+    const pinCard = (cell: string) => {
       const card = cardRef.current
-      const anchor = pointer ?? lastPointer ?? restPoint()
       if (!card) return
+      const [lat, lng] = cellToLatLng(cell)
+      const point = map.project([lng, lat])
       const width = card.offsetWidth || 256
       const height = card.offsetHeight || 180
       const inset = insetsRef.current
-      let x = anchor.x + 12
-      let y = anchor.y + 12
-      if (x + width > container.clientWidth - 8) x = anchor.x - width - 8
-      if (y + height > container.clientHeight - inset.bottom - 8) y = anchor.y - height - 8
+      let x = point.x + 22
+      let y = point.y - height / 2
+      if (x + width > container.clientWidth - 8) x = point.x - width - 22
+      if (y + height > container.clientHeight - inset.bottom - 8) {
+        y = container.clientHeight - inset.bottom - height - 8
+      }
       card.style.transform = `translate3d(${Math.max(8, x)}px, ${Math.max(8, y)}px, 0)`
     }
 
@@ -310,16 +317,22 @@ export function H3Map({
         if (nextHover) setCellState(nextHover, { hover: true })
         hoverCell = nextHover
         if (!isTouch) {
-          const cardH3 =
-            nextHover && anchor ? cellAt(anchor, H3_RESOLUTION) : nextHover ? cellAt(rest, H3_RESOLUTION) : null
-          revealCard(cardH3)
+          if (inspectOpenRef.current) {
+            revealCard(null)
+          } else {
+            const cardH3 =
+              nextHover && anchor ? cellAt(anchor, H3_RESOLUTION) : nextHover ? cellAt(rest, H3_RESOLUTION) : null
+            revealCard(cardH3)
+            if (cardH3) pinCard(cardH3)
+          }
         }
+      } else if (!isTouch && hoverCell) {
+        pinCard(hoverCell)
       }
       if (nextCenter !== centerCell) {
         centerCell = nextCenter
         centerRef.current?.(nextCenter)
       }
-      positionCard()
       if (again) schedule()
     }
 
@@ -543,7 +556,14 @@ export function H3Map({
       const cell = latLngToCell(event.lngLat.lat, event.lngLat.lng, H3_RESOLUTION)
       const display = latLngToCell(event.lngLat.lat, event.lngLat.lng, displayResRef.current)
       if (!drawnRef.current.has(cell) && !drawnRef.current.has(display)) return
-      clickRef.current(cell, event.originalEvent.shiftKey || touchRef.current)
+      const shift = event.originalEvent.shiftKey || touchRef.current
+      if (!shift && coverageRef.current?.get(cell)?.status === 'ready') {
+        cardHeldRef.current = false
+        setCardVisible(false)
+        actionRef.current?.(cell, 'query')
+        return
+      }
+      clickRef.current(cell, shift)
     })
 
     const slowTimer = window.setTimeout(() => {

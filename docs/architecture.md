@@ -37,7 +37,7 @@ Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines 
 
 `POST /api/hex-status` returns `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null) and `release_version`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. `current` means the newest stored release is at least `OVERTURE_RELEASE` (`2026-10-21.0` by default). `stale` means the hex has rows from an older release. Processing means a download is running.
 
-`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. Process always loads places, buildings, and addresses together. The explorer is hex-first: hover a cell for status and Process, or open Inspect as a draggable window over the map. That window queries all three themes and shows one scrollable feature table. Kind, place `basic_category`, and building `subtype` are dropdowns from the catalog. Wheel events stay in the window so they do not zoom the map.
+`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. Process always loads places, buildings, and addresses together. The explorer is hex-first: hover a cell for status and Process, or click a ready hex to inspect. Inspect is a draggable window. It fetches all three themes with no form filters, then left-joins each place to its linked address and building. Unmatched places stay in the table with null address or building. Unmatched addresses and buildings are appended. Inspect dropdowns list values seen in those loaded rows, not a preset catalog. Wheel events stay in the window so they do not zoom the map.
 
 ## Map
 
@@ -55,7 +55,7 @@ Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Gre
 
 **Map layers** picks one of three modes:
 
-- **Lens** (default). Empty hex outlines fade in near the pointer. Hexes with current or stale data stay filled and outlined even when the pointer is elsewhere. The hovered cell shows a small tooltip with Process and Inspect. Inspect opens a draggable window, not the tooltip. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source.
+- **Lens** (default). Empty hex outlines fade in near the pointer. Hexes with current or stale data stay filled and outlined even when the pointer is elsewhere. The hovered cell pins a tooltip to the hex centroid (it does not follow the pointer) with Process and Inspect. Click a ready hex to open Inspect. Shift-click still selects. Inspect opens a draggable window, not the tooltip. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source.
 - **Grid** also paints empty-cell outlines across the view.
 - **Hidden** hides the H3 layers.
 

@@ -1,20 +1,19 @@
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, LoaderCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useThemeQuery } from '../../hooks/useCompiledQuery'
-import { filterFeatureRows, mergeFeatureRows, type FeatureRow } from '../../lib/feature-rows'
-import { formatCount, formatValue } from '../../lib/format'
+import { filterFeatureRows, mergeFeatureRows, observedValues, type FeatureRow } from '../../lib/feature-rows'
+import { formatCount } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useExplorer } from '../../store/explorer-store'
-import { BUILDING_SUBTYPES, DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
-import { BASIC_CATEGORIES } from '../../types/place-presets'
+import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
 import { nativeSelectClass } from '../ui/input'
 import { PageButton } from '../results/ResultsPanel'
 
 const COLUMNS = [
-  { field: 'kind', label: 'Kind', numeric: false },
-  { field: 'name', label: 'Name', numeric: false },
+  { field: 'name', label: 'Place', numeric: false },
   { field: 'category', label: 'Category', numeric: false },
   { field: 'address', label: 'Address', numeric: false },
+  { field: 'building', label: 'Building', numeric: false },
   { field: 'extra', label: 'Detail', numeric: false },
   { field: 'lat', label: 'Lat', numeric: true },
   { field: 'lng', label: 'Lng', numeric: true },
@@ -36,6 +35,8 @@ export function HexQueryTable() {
   const focusH3 = useExplorer((state) => state.focus?.h3 ?? null)
   const [kind, setKind] = useState<DatasetId | 'all'>('all')
   const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('')
+  const [building, setBuilding] = useState('')
   const [sortField, setSortField] = useState<ColumnField>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
@@ -48,7 +49,12 @@ export function HexQueryTable() {
       ),
     [places.results.data, buildings.results.data, addresses.results.data],
   )
-  const filtered = useMemo(() => filterFeatureRows(merged, kind, search), [merged, kind, search])
+  const categories = useMemo(() => observedValues(merged, 'category'), [merged])
+  const buildingsSeen = useMemo(() => observedValues(merged, 'building'), [merged])
+  const filtered = useMemo(
+    () => filterFeatureRows(merged, kind, search, category || undefined, building || undefined),
+    [merged, kind, search, category, building],
+  )
   const sorted = useMemo(() => {
     const next = [...filtered]
     next.sort((left, right) => compareFeature(left, right, sortField, sortDirection))
@@ -67,7 +73,7 @@ export function HexQueryTable() {
     <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="hex-query-table">
       <div className="flex shrink-0 flex-wrap items-center gap-1.5">
         <select
-          aria-label="Feature kind"
+          aria-label="Row source"
           className={cn(nativeSelectClass, compactSelectClass, 'w-32')}
           value={kind}
           onChange={(event) => {
@@ -75,10 +81,42 @@ export function HexQueryTable() {
             setPage(0)
           }}
         >
-          <option value="all">All kinds</option>
+          <option value="all">All rows</option>
           {DATASET_IDS.map((id) => (
             <option key={id} value={id}>
               {DATASET_META[id].title}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Observed category"
+          className={cn(nativeSelectClass, compactSelectClass, 'min-w-36')}
+          value={category}
+          onChange={(event) => {
+            setCategory(event.target.value)
+            setPage(0)
+          }}
+        >
+          <option value="">Any observed category</option>
+          {categories.map((value) => (
+            <option key={value} value={value}>
+              {value.replaceAll('_', ' ')}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Observed building"
+          className={cn(nativeSelectClass, compactSelectClass, 'min-w-36')}
+          value={building}
+          onChange={(event) => {
+            setBuilding(event.target.value)
+            setPage(0)
+          }}
+        >
+          <option value="">Any observed building</option>
+          {buildingsSeen.map((value) => (
+            <option key={value} value={value}>
+              {value}
             </option>
           ))}
         </select>
@@ -88,10 +126,10 @@ export function HexQueryTable() {
             setSearch(event.target.value)
             setPage(0)
           }}
-          placeholder="Search name or address"
+          placeholder="Search place or address"
           className="h-6 min-w-36 flex-1 rounded border border-white/[0.08] bg-black/30 px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
         />
-        <span className="text-[11px] tabular-nums text-muted-foreground">{formatCount(filtered.length)} features</span>
+        <span className="text-[11px] tabular-nums text-muted-foreground">{formatCount(filtered.length)} rows</span>
         {fetching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
       </div>
       {invalid[0] && <p className="text-[11px] text-destructive">{invalid[0]}</p>}
@@ -125,9 +163,6 @@ export function HexQueryTable() {
                       {column.label}
                       {sortedCol && (sortDirection === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
                     </button>
-                    {column.field === 'name' && <NameFilter />}
-                    {column.field === 'category' && <CategoryFilter />}
-                    {column.field === 'address' && <AddressFilter />}
                   </th>
                 )
               })}
@@ -150,11 +185,11 @@ export function HexQueryTable() {
                   focusH3 === row.h3 ? 'bg-primary/[0.08]' : 'hover:bg-white/[0.03]',
                 )}
               >
-                <td className="px-2 py-1.5 capitalize">{row.kind === 'places' ? 'place' : row.kind === 'buildings' ? 'building' : 'address'}</td>
-                <td className="max-w-44 truncate px-2 py-1.5">{row.name || '—'}</td>
-                <td className="max-w-36 truncate px-2 py-1.5">{formatValue('basic_category', row.category || null)}</td>
-                <td className="max-w-52 truncate px-2 py-1.5">{row.address || '—'}</td>
-                <td className="max-w-36 truncate px-2 py-1.5">{row.extra || '—'}</td>
+                <td className="max-w-44 truncate px-2 py-1.5">{row.name ?? '—'}</td>
+                <td className="max-w-36 truncate px-2 py-1.5">{row.category ?? '—'}</td>
+                <td className="max-w-52 truncate px-2 py-1.5">{row.address ?? '—'}</td>
+                <td className="max-w-36 truncate px-2 py-1.5">{row.building ?? '—'}</td>
+                <td className="max-w-36 truncate px-2 py-1.5">{row.extra ?? '—'}</td>
                 <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.lat.toFixed(5)}</td>
                 <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.lng.toFixed(5)}</td>
               </tr>
@@ -177,72 +212,12 @@ export function HexQueryTable() {
   )
 }
 
-function NameFilter() {
-  const value = useExplorer((state) => state.filtersByDataset.places.name)
-  const patchPlaces = useExplorer((state) => state.patchPlaces)
-  return (
-    <input
-      className="mt-1 h-6 w-full min-w-20 rounded border border-white/[0.08] bg-black/30 px-1.5 text-[10px] font-normal text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
-      value={value}
-      placeholder="contains"
-      onChange={(event) => patchPlaces({ name: event.target.value })}
-    />
-  )
-}
-
-function CategoryFilter() {
-  const categories = useExplorer((state) => state.filtersByDataset.places.basicCategories)
-  const patchPlaces = useExplorer((state) => state.patchPlaces)
-  const subtypes = useExplorer((state) => state.filtersByDataset.buildings.subtypes)
-  const patchBuildings = useExplorer((state) => state.patchBuildings)
-  return (
-    <div className="mt-1 grid gap-1">
-      <select
-        aria-label="Place category"
-        className={cn(nativeSelectClass, compactSelectClass, 'w-full min-w-24')}
-        value={categories[0] ?? ''}
-        onChange={(event) => patchPlaces({ basicCategories: event.target.value ? [event.target.value] : [] })}
-      >
-        <option value="">Any place category</option>
-        {BASIC_CATEGORIES.map((category) => (
-          <option key={category} value={category}>
-            {category.replaceAll('_', ' ')}
-          </option>
-        ))}
-      </select>
-      <select
-        aria-label="Building subtype"
-        className={cn(nativeSelectClass, compactSelectClass, 'w-full min-w-24')}
-        value={subtypes[0] ?? ''}
-        onChange={(event) => patchBuildings({ subtypes: event.target.value ? [event.target.value] : [] })}
-      >
-        <option value="">Any building subtype</option>
-        {BUILDING_SUBTYPES.map((subtype) => (
-          <option key={subtype} value={subtype}>
-            {subtype}
-          </option>
-        ))}
-      </select>
-    </div>
-  )
-}
-
-function AddressFilter() {
-  const value = useExplorer((state) => state.filtersByDataset.addresses.address)
-  const patchAddresses = useExplorer((state) => state.patchAddresses)
-  return (
-    <input
-      className="mt-1 h-6 w-full min-w-20 rounded border border-white/[0.08] bg-black/30 px-1.5 text-[10px] font-normal text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
-      value={value}
-      placeholder="contains"
-      onChange={(event) => patchAddresses({ address: event.target.value })}
-    />
-  )
-}
-
 function compareFeature(left: FeatureRow, right: FeatureRow, field: ColumnField, direction: 'asc' | 'desc') {
   const a = left[field]
   const b = right[field]
+  if (a == null && b == null) return 0
+  if (a == null) return 1
+  if (b == null) return -1
   const base =
     typeof a === 'number' && typeof b === 'number'
       ? a - b

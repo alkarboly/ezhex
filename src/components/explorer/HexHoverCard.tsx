@@ -1,6 +1,5 @@
 import { formatCount } from '../../lib/format'
 import { cn } from '../../lib/utils'
-import { useExplorer } from '../../store/explorer-store'
 import type { HexAction, HexDataStatus, HexSnapshot } from '../../types/workflows'
 
 export function HexHoverCard({
@@ -28,9 +27,6 @@ export function HexHoverCard({
   onMouseEnter: () => void
   onMouseLeave: () => void
 }) {
-  const setInspectOpen = useExplorer((state) => state.setInspectOpen)
-  const selectedCells = useExplorer((state) => state.selectedCells)
-  const toggleCell = useExplorer((state) => state.toggleCell)
   const ready = dataStatus === 'ready'
   const processing = dataStatus === 'processing'
 
@@ -59,13 +55,7 @@ export function HexHoverCard({
               : 'No processed data yet. Empty hexes stay unfilled until you process them.'}
       </p>
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <ActionButton
-          disabled={!ready}
-          onClick={() => {
-            if (!selectedCells.includes(h3)) toggleCell(h3, selectedCells.length > 0)
-            setInspectOpen(true)
-          }}
-        >
+        <ActionButton disabled={!ready} onClick={() => onAction('query')}>
           Inspect
         </ActionButton>
         <ActionButton disabled={processing} onClick={() => onAction('process')}>
@@ -74,10 +64,10 @@ export function HexHoverCard({
         <ActionButton onClick={() => onAction('workflow')}>Workflow</ActionButton>
       </div>
       <p className="mt-2 text-[10px] text-muted-foreground">
-        {selected
-          ? addMode
-            ? 'Click the hex to remove it from the set.'
-            : 'Shift-click to remove · the set stays selected'
+        {ready
+          ? selected
+            ? 'Click the hex to inspect · Shift-click to remove it'
+            : 'Click the hex to inspect · Shift-click to add'
           : addMode
             ? 'Click the hex to add it.'
             : 'Click to select · Shift-click to add'}

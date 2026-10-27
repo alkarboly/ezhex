@@ -6,6 +6,7 @@ import { buildQuerySpec, type CompiledQuery } from '../lib/query-builder'
 import { getDataProvider } from '../services'
 import { useExplorer } from '../store/explorer-store'
 import { defaultSort, type DatasetId } from '../types/datasets'
+import { defaultAddressesForm, defaultBuildingsForm, defaultPlacesForm } from '../types/queries'
 
 export function useCompiledQuery(): CompiledQuery {
   const dataset = useExplorer((state) => state.dataset)
@@ -97,24 +98,21 @@ export function useInspectFeatures(enabled: boolean) {
 
 export function useThemeQuery(dataset: DatasetId, enabled: boolean) {
   const selectedCells = useExplorer((state) => state.selectedCells)
-  const places = useExplorer((state) => state.filtersByDataset.places)
-  const buildings = useExplorer((state) => state.filtersByDataset.buildings)
-  const addresses = useExplorer((state) => state.filtersByDataset.addresses)
   const compiled = useMemo(
     () =>
       buildQuerySpec({
         dataset,
         selectedCells,
-        places,
-        buildings,
-        addresses,
+        places: defaultPlacesForm,
+        buildings: defaultBuildingsForm,
+        addresses: defaultAddressesForm,
         sortField: defaultSort(dataset).field,
         sortDirection: defaultSort(dataset).direction,
         limit: MAX_QUERY_LIMIT,
         page: 0,
         resultsSearch: '',
       }),
-    [dataset, selectedCells, places, buildings, addresses],
+    [dataset, selectedCells],
   )
   const results = useQuery({
     queryKey: ['hex-features', compiled.spec],

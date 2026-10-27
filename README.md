@@ -108,7 +108,7 @@ render deploys create SERVICE_ID --wait --confirm
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
 - Hard caps on hex count, bbox area, and row counts
 
-Hover a ready hex and press Inspect, or use Query on the dock, to pin a scrollable table of those rows. Kind, place category, and building subtype are dropdowns. Missing hexes have to be processed first. Process pulls real Overture rows.
+Click a ready hex, press Inspect on the hover card, or use Query on the dock, to pin a scrollable table. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. Category and building dropdowns list values seen in that table. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 
