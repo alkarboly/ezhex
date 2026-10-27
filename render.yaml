@@ -7,7 +7,9 @@ services:
     runtime: node
     plan: free
     branch: main
-    buildCommand: npm ci --include=dev && npm run build
+    # Build heap is 384MB. Do not set NODE_OPTIONS on the service: Render
+    # applies it to the build too, and Vite OOMs at 256MB.
+    buildCommand: npm ci --include=dev && NODE_OPTIONS=--max-old-space-size=384 npm run build:web
     startCommand: NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js
     healthCheckPath: /api/health
     autoDeployTrigger: commit
@@ -15,8 +17,6 @@ services:
       # Quoted so YAML does not read the version as the number 22.16.
       - key: NODE_VERSION
         value: "22.16.0"
-      - key: NODE_OPTIONS
-        value: "--max-old-space-size=256"
       - key: DATA_MODE
         value: supabase
       - key: OVERTURE_RELEASE

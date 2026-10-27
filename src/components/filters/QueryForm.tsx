@@ -7,7 +7,6 @@ import { cn } from '../../lib/utils'
 import { useExplorer, type ExampleId } from '../../store/explorer-store'
 import { BUILDING_SUBTYPES, FIELD_CATALOG, type DatasetId } from '../../types/datasets'
 import { BASIC_CATEGORIES, PRIMARY_CATEGORIES } from '../../types/place-presets'
-import { Chip } from '../ui/chip'
 import { Input, nativeSelectClass } from '../ui/input'
 
 const EXAMPLES: { id: ExampleId; label: string; icon: ComponentType<{ className?: string }> }[] = [
@@ -98,7 +97,6 @@ export function QueryForm() {
 function PlacesFields() {
   const form = useExplorer((state) => state.filtersByDataset.places)
   const patch = useExplorer((state) => state.patchPlaces)
-  const toggle = useExplorer((state) => state.toggleBasicCategory)
   return (
     <>
       <Field label="Place name" hint="Matches names.primary">
@@ -109,20 +107,21 @@ function PlacesFields() {
           onChange={(event) => patch({ name: event.target.value })}
         />
       </Field>
-      <Section title="Basic category" hint="Sample of Overture basic_category values in this mock.">
-        <div className="flex flex-wrap gap-1.5">
+      <Field label="Basic category" hint="Sample of Overture basic_category values in this mock.">
+        <select
+          className={nativeSelectClass}
+          data-testid="filter-basic-category"
+          value={form.basicCategories[0] ?? ''}
+          onChange={(event) => patch({ basicCategories: event.target.value ? [event.target.value] : [] })}
+        >
+          <option value="">Any</option>
           {BASIC_CATEGORIES.map((category) => (
-            <Chip
-              key={category}
-              data-testid={`filter-basic-${category}`}
-              pressed={form.basicCategories.includes(category)}
-              onPressedChange={() => toggle(category)}
-            >
+            <option key={category} value={category}>
               {category.replaceAll('_', ' ')}
-            </Chip>
+            </option>
           ))}
-        </div>
-      </Section>
+        </select>
+      </Field>
       <Field label="Primary category" hint="taxonomy.primary">
         <select
           className={nativeSelectClass}
@@ -155,18 +154,23 @@ function PlacesFields() {
 function BuildingsFields() {
   const form = useExplorer((state) => state.filtersByDataset.buildings)
   const patch = useExplorer((state) => state.patchBuildings)
-  const toggle = useExplorer((state) => state.toggleSubtype)
   return (
     <>
-      <Section title="Building subtype">
-        <div className="flex flex-wrap gap-1.5">
+      <Field label="Building subtype">
+        <select
+          className={nativeSelectClass}
+          data-testid="filter-building-subtype"
+          value={form.subtypes[0] ?? ''}
+          onChange={(event) => patch({ subtypes: event.target.value ? [event.target.value] : [] })}
+        >
+          <option value="">Any</option>
           {BUILDING_SUBTYPES.map((subtype) => (
-            <Chip key={subtype} pressed={form.subtypes.includes(subtype)} onPressedChange={() => toggle(subtype)}>
+            <option key={subtype} value={subtype}>
               {subtype}
-            </Chip>
+            </option>
           ))}
-        </div>
-      </Section>
+        </select>
+      </Field>
       <Presence label="Subtype value" value={form.hasSubtype} onChange={(hasSubtype) => patch({ hasSubtype })} />
       <Range
         label="Height (m)"

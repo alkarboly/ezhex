@@ -76,7 +76,7 @@ Workflow ingestion envs in `.env.example`:
 
 ## Deploy
 
-Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0, starts `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`, and sets `DATA_MODE=supabase`. It also sets the 8,000 / 20,000 ingest caps so the free 512MB instance does not run out of memory. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
+Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0 using `build:web` at a 384MB heap, then starts `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`. Do not set `NODE_OPTIONS` in the dashboard or the Vite build will OOM. It sets `DATA_MODE=supabase` and the 8,000 / 20,000 ingest caps. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
 
 Create the service from the blueprint, then sign in with GitHub and deploy it:
 
@@ -108,7 +108,7 @@ render deploys create SERVICE_ID --wait --confirm
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
 - Hard caps on hex count, bbox area, and row counts
 
-Hover a ready hex and press Inspect, or use Query on the dock, to pin a table of those rows with per-column filters. Missing hexes have to be processed first. Process pulls real Overture rows.
+Hover a ready hex and press Inspect, or use Query on the dock, to pin a scrollable table of those rows. Kind, place category, and building subtype are dropdowns. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 

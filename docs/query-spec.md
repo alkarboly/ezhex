@@ -2,7 +2,7 @@
 
 This is the server query contract. It is not SQL. `validateQuery` rejects unknown datasets, fields, and operators before any records are read.
 
-The explorer opens this contract from a hex. Hover a ready cell and press Inspect, or use Query on the selection dock. That opens a draggable window and runs the three theme queries, then merges them into one feature table (kind, name, category, address, geometry). Column filters still write `PlacesForm` / `BuildingsForm` / `AddressesForm` and compile to this contract. Process always loads all three themes, including GeoJSON geometry and computed `building_id` / `address_id` links. `GET /api/query-schemas` drives the field whitelist. `query_enabled` is true when Supabase is configured or when `DATA_MODE=mock`.
+The explorer opens this contract from a hex. Hover a ready cell and press Inspect, or use Query on the selection dock. That opens a draggable window and runs the three theme queries, then merges them into one feature table (kind, name, category, address, geometry). Column filters still write `PlacesForm` / `BuildingsForm` / `AddressesForm` and compile to this contract. Enum filters (`basic_category`, `subtype`) are dropdowns from those catalog lists, not free text. Process always loads all three themes, including GeoJSON geometry and computed `building_id` / `address_id` links. `GET /api/query-schemas` drives the field whitelist. `query_enabled` is true when Supabase is configured or when `DATA_MODE=mock`.
 
 ```json
 {

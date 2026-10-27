@@ -37,7 +37,7 @@ Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines 
 
 `POST /api/hex-status` returns `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null) and `release_version`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. `current` means the newest stored release is at least `OVERTURE_RELEASE` (`2026-10-21.0` by default). `stale` means the hex has rows from an older release. Processing means a download is running.
 
-`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. Process always loads places, buildings, and addresses together. The explorer is hex-first: hover a cell for status and Process, or open Inspect as a draggable window over the map. That window queries all three themes and shows one feature table.
+`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection, with a live log pane per job. Process always loads places, buildings, and addresses together. The explorer is hex-first: hover a cell for status and Process, or open Inspect as a draggable window over the map. That window queries all three themes and shows one scrollable feature table. Kind, place `basic_category`, and building `subtype` are dropdowns from the catalog. Wheel events stay in the window so they do not zoom the map.
 
 ## Map
 
@@ -108,8 +108,8 @@ Browser
   → MapLibre loads tiles from OpenFreeMap and Esri
 ```
 
-`render.yaml` is a Node web service on `main`, built with Node 22.16.0. The build writes the browser assets to `dist/` and the server bundle to `dist-server/`. `node dist-server/index.js` listens on `0.0.0.0` and `PORT`. Render's health check is `GET /api/health`. The free instance is 512MB, so the blueprint sets `NODE_OPTIONS=--max-old-space-size=256` and ingest caps of 8,000 rows per theme / 20,000 total.
+`render.yaml` is a Node web service on `main`, built with Node 22.16.0. The build writes the browser assets to `dist/` and the server bundle to `dist-server/`. Render's free instance is 512MB. The blueprint build uses `NODE_OPTIONS=--max-old-space-size=384 npm run build:web` (Vite only, no `tsc`) so the compile does not OOM. The start command is `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`. Do not set `NODE_OPTIONS` in the Render dashboard: that env applies to the build as well. Ingest caps stay 8,000 rows per theme / 20,000 total. `node dist-server/index.js` listens on `0.0.0.0` and `PORT`. Render's health check is `GET /api/health`.
 
 `DATA_MODE=supabase` is the default. Changing it still needs a restart, which a Render env change does by redeploying. Paths with no file, such as `/settings`, receive `index.html`. A missing file that has an extension returns 404, so a broken script is not replaced with HTML. Hashed files under `/assets/` are cached for a year.
 
-The anon key is not in the blueprint. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the Render dashboard only, and never add the service-role key. The free instance sleeps after a stretch of no requests and wakes on the next one. If `WORKFLOW_MAX_ROWS_PER_DATASET` was set higher in the Render dashboard, lower it to 8000 or remove it so the blueprint value applies.
+The anon key is not in the blueprint. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the Render dashboard only, and never add the service-role key. The free instance sleeps after a stretch of no requests and wakes on the next one. If `WORKFLOW_MAX_ROWS_PER_DATASET` was set higher in the Render dashboard, lower it to 8000 or remove it so the blueprint value applies. If `NODE_OPTIONS` is set in the dashboard, delete it so only the start command caps the runtime heap.

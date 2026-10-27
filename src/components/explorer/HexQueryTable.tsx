@@ -5,7 +5,9 @@ import { filterFeatureRows, mergeFeatureRows, type FeatureRow } from '../../lib/
 import { formatCount, formatValue } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useExplorer } from '../../store/explorer-store'
-import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
+import { BUILDING_SUBTYPES, DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
+import { BASIC_CATEGORIES } from '../../types/place-presets'
+import { nativeSelectClass } from '../ui/input'
 import { PageButton } from '../results/ResultsPanel'
 
 const COLUMNS = [
@@ -19,6 +21,8 @@ const COLUMNS = [
 ] as const
 
 type ColumnField = (typeof COLUMNS)[number]['field']
+
+const compactSelectClass = 'h-6 rounded border border-white/[0.08] bg-black/30 px-1.5 pr-6 text-[10px] font-normal'
 
 export function HexQueryTable() {
   const inspectOpen = useExplorer((state) => state.inspectOpen)
@@ -60,24 +64,24 @@ export function HexQueryTable() {
   const invalid = [...places.compiled.errors, ...buildings.compiled.errors, ...addresses.compiled.errors]
 
   return (
-    <div className="grid min-h-0 gap-2" data-testid="hex-query-table">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {(['all', ...DATASET_IDS] as const).map((id) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => {
-              setKind(id)
-              setPage(0)
-            }}
-            className={cn(
-              'h-6 rounded-full px-2 text-[11px] font-medium',
-              kind === id ? 'bg-primary/15 text-primary' : 'bg-white/[0.05] text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {id === 'all' ? 'All' : DATASET_META[id].title}
-          </button>
-        ))}
+    <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="hex-query-table">
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <select
+          aria-label="Feature kind"
+          className={cn(nativeSelectClass, compactSelectClass, 'w-32')}
+          value={kind}
+          onChange={(event) => {
+            setKind(event.target.value as DatasetId | 'all')
+            setPage(0)
+          }}
+        >
+          <option value="all">All kinds</option>
+          {DATASET_IDS.map((id) => (
+            <option key={id} value={id}>
+              {DATASET_META[id].title}
+            </option>
+          ))}
+        </select>
         <input
           value={search}
           onChange={(event) => {
@@ -93,7 +97,7 @@ export function HexQueryTable() {
       {invalid[0] && <p className="text-[11px] text-destructive">{invalid[0]}</p>}
       {error && <p className="text-[11px] text-destructive">{error.message}</p>}
       {loading && <p className="text-[11px] text-muted-foreground">Loading features…</p>}
-      <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-white/[0.08]">
+      <div className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-lg border border-white/[0.08]">
         <table className="w-full border-collapse text-left text-[11px]">
           <thead className="sticky top-0 z-10 bg-[#0a1017]">
             <tr>
@@ -158,7 +162,7 @@ export function HexQueryTable() {
           </tbody>
         </table>
       </div>
-      <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
+      <div className="flex shrink-0 items-center justify-end gap-1 text-[10px] text-muted-foreground">
         <PageButton label="Previous page" disabled={pageIndex <= 0} onClick={() => setPage(pageIndex - 1)}>
           <ChevronLeft className="size-3.5" />
         </PageButton>
@@ -187,38 +191,38 @@ function NameFilter() {
 }
 
 function CategoryFilter() {
-  const value = useExplorer((state) => state.filtersByDataset.places.basicCategories.join(', '))
+  const categories = useExplorer((state) => state.filtersByDataset.places.basicCategories)
   const patchPlaces = useExplorer((state) => state.patchPlaces)
-  const subtypes = useExplorer((state) => state.filtersByDataset.buildings.subtypes.join(', '))
+  const subtypes = useExplorer((state) => state.filtersByDataset.buildings.subtypes)
   const patchBuildings = useExplorer((state) => state.patchBuildings)
   return (
     <div className="mt-1 grid gap-1">
-      <input
-        className="h-6 w-full min-w-20 rounded border border-white/[0.08] bg-black/30 px-1.5 text-[10px] font-normal text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
-        value={value}
-        placeholder="place category"
-        onChange={(event) =>
-          patchPlaces({
-            basicCategories: event.target.value
-              .split(',')
-              .map((entry) => entry.trim())
-              .filter(Boolean),
-          })
-        }
-      />
-      <input
-        className="h-6 w-full min-w-20 rounded border border-white/[0.08] bg-black/30 px-1.5 text-[10px] font-normal text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
-        value={subtypes}
-        placeholder="building subtype"
-        onChange={(event) =>
-          patchBuildings({
-            subtypes: event.target.value
-              .split(',')
-              .map((entry) => entry.trim())
-              .filter(Boolean),
-          })
-        }
-      />
+      <select
+        aria-label="Place category"
+        className={cn(nativeSelectClass, compactSelectClass, 'w-full min-w-24')}
+        value={categories[0] ?? ''}
+        onChange={(event) => patchPlaces({ basicCategories: event.target.value ? [event.target.value] : [] })}
+      >
+        <option value="">Any place category</option>
+        {BASIC_CATEGORIES.map((category) => (
+          <option key={category} value={category}>
+            {category.replaceAll('_', ' ')}
+          </option>
+        ))}
+      </select>
+      <select
+        aria-label="Building subtype"
+        className={cn(nativeSelectClass, compactSelectClass, 'w-full min-w-24')}
+        value={subtypes[0] ?? ''}
+        onChange={(event) => patchBuildings({ subtypes: event.target.value ? [event.target.value] : [] })}
+      >
+        <option value="">Any building subtype</option>
+        {BUILDING_SUBTYPES.map((subtype) => (
+          <option key={subtype} value={subtype}>
+            {subtype}
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

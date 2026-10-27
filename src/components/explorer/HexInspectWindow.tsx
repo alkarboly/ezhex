@@ -23,8 +23,9 @@ export function HexInspectWindow({ cells }: { cells: readonly string[] }) {
   return (
     <div
       data-testid="inspect-window"
-      className="glass pointer-events-auto absolute z-30 flex max-h-[min(36rem,calc(100%-1.5rem))] w-[min(52rem,calc(100vw-1.5rem))] flex-col rounded-2xl shadow-[0_18px_50px_-24px_rgba(0,0,0,0.85)]"
+      className="glass pointer-events-auto absolute z-30 flex h-[min(36rem,calc(100%-1.5rem))] w-[min(52rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl shadow-[0_18px_50px_-24px_rgba(0,0,0,0.85)]"
       style={{ left: position.x, top: position.y }}
+      onWheel={(event) => event.stopPropagation()}
     >
       <div
         className="flex cursor-grab items-center justify-between gap-2 px-3.5 py-2.5 active:cursor-grabbing"
@@ -57,7 +58,7 @@ export function HexInspectWindow({ cells }: { cells: readonly string[] }) {
           Close
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden px-3.5 pb-3">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3.5 pb-3">
         <HexQueryTable />
       </div>
     </div>
