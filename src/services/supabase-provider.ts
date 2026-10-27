@@ -190,8 +190,8 @@ async function loadRecords(
   const grouped = new Map<string, AnyRecord[]>()
   for (const cell of cells) grouped.set(cell, [])
   for (const part of chunk(cells, 80)) {
-    const { data, error } = await client.from(TABLES[dataset]).select(columnsFor(dataset, withGeometry) as '*').in('h3_res8', part)
-    if (error) throw new Error(error.message)
+    const { data, error } = await selectRows(client, dataset, part, withGeometry)
+    if (error) throw new Error(schemaError(error.message))
     for (const row of (data ?? []) as Record<string, unknown>[]) {
       const record = asRecord(dataset, row)
       if (!record) continue
@@ -286,6 +286,36 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
     building_id: typeof row.building_id === 'string' ? row.building_id : null,
   }
   return address
+}
+
+async function selectRows(
+  client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  dataset: DatasetId,
+  cells: readonly string[],
+  withGeometry: boolean,
+) {
+  const full = await client.from(TABLES[dataset]).select(columnsFor(dataset, withGeometry) as '*').in('h3_res8', cells)
+  if (!full.error || !missingColumn(full.error.message)) return full
+  return client.from(TABLES[dataset]).select(baseColumnsFor(dataset) as '*').in('h3_res8', cells)
+}
+
+function missingColumn(message: string) {
+  return /does not exist/i.test(message)
+}
+
+function schemaError(message: string) {
+  if (!missingColumn(message)) return message
+  return `${message} Run supabase/migrations/20261027_overture_features.sql in the Supabase SQL editor, then Reprocess the hex.`
+}
+
+function baseColumnsFor(dataset: DatasetId): string {
+  if (dataset === 'places') {
+    return 'id,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,taxonomy_hierarchy,confidence,operating_status'
+  }
+  if (dataset === 'buildings') {
+    return 'id,h3_res8,lat,lng,subtype,height,num_floors'
+  }
+  return 'id,h3_res8,lat,lng,country,number,street,postcode,region,locality'
 }
 
 function columnsFor(dataset: DatasetId, withGeometry: boolean): string {

@@ -291,3 +291,5 @@ revoke all on function public.ingest_overture_addresses(text, jsonb) from public
 grant execute on function public.ingest_overture_places(text, jsonb) to anon, authenticated;
 grant execute on function public.ingest_overture_buildings(text, jsonb) to anon, authenticated;
 grant execute on function public.ingest_overture_addresses(text, jsonb) to anon, authenticated;
+
+notify pgrst, 'reload schema';

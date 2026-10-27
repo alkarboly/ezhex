@@ -246,3 +246,41 @@ revoke all on function public.ingest_overture_addresses(text, jsonb) from public
 grant execute on function public.ingest_overture_places(text, jsonb) to anon, authenticated;
 grant execute on function public.ingest_overture_buildings(text, jsonb) to anon, authenticated;
 grant execute on function public.ingest_overture_addresses(text, jsonb) to anon, authenticated;
+
+alter table public.overture_places
+  add column if not exists geometry jsonb,
+  add column if not exists websites text[],
+  add column if not exists socials text[],
+  add column if not exists emails text[],
+  add column if not exists phones text[],
+  add column if not exists brand_name text,
+  add column if not exists brand_wikidata text,
+  add column if not exists place_addresses jsonb,
+  add column if not exists building_id text,
+  add column if not exists address_id text;
+
+alter table public.overture_buildings
+  add column if not exists geometry jsonb,
+  add column if not exists class text,
+  add column if not exists names_primary text,
+  add column if not exists has_parts boolean,
+  add column if not exists is_underground boolean,
+  add column if not exists num_floors_underground integer,
+  add column if not exists min_height double precision,
+  add column if not exists min_floor integer,
+  add column if not exists level integer,
+  add column if not exists facade_color text,
+  add column if not exists facade_material text,
+  add column if not exists roof_material text,
+  add column if not exists roof_shape text,
+  add column if not exists roof_direction double precision,
+  add column if not exists roof_color text,
+  add column if not exists address_id text;
+
+alter table public.overture_addresses
+  add column if not exists geometry jsonb,
+  add column if not exists unit text,
+  add column if not exists postal_city text,
+  add column if not exists building_id text;
+
+notify pgrst, 'reload schema';

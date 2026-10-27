@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql` and `supabase/migrations/20261027_overture_features.sql`. Inspect opens one feature table; you do not pick a theme.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql` and `supabase/migrations/20261027_overture_features.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table; you do not pick a theme.
 
 ```bash
 npm run build

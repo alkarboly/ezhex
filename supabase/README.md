@@ -6,7 +6,7 @@ Run these migrations in the Supabase SQL editor, in order:
 2. `supabase/migrations/20261027_overture.sql`
 3. `supabase/migrations/20261027_overture_features.sql`
 
-The second file creates `overture_places`, `overture_buildings`, and `overture_addresses`, plus ingest RPCs. The third adds geometry, extra Overture columns, and computed association ids. Anon can read those tables. Writes go through `ingest_overture_*` only. Reprocess hexes after the third migration.
+The second file creates `overture_places`, `overture_buildings`, and `overture_addresses`, plus ingest RPCs, and adds the feature columns (`phones`, geometry, association ids) if the tables already exist. The third replaces the ingest RPCs so those columns are written. Both files notify PostgREST to reload its schema. Anon can read those tables. Writes go through `ingest_overture_*` only. Reprocess hexes after the third migration. If Inspect errors with `column overture_places.phones does not exist`, run the third file.
 
 The server client in `src/lib/supabase.ts` is created only when `SUPABASE_URL` and `SUPABASE_ANON_KEY` are both set (`VITE_` names are aliases). It never reads a service-role key, and the browser bundle does not include it.
 
