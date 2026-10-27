@@ -1,6 +1,8 @@
 # Query spec
 
-The explorer sends this JSON to the data provider. It is not SQL. `validateQuery` rejects unknown datasets, fields, and operators before any records are read.
+This is the server query contract. It is not SQL. `validateQuery` rejects unknown datasets, fields, and operators before any records are read.
+
+The explorer opens this contract from a hex. Hover a ready cell, or use Query on the selection dock, and the query editor plus results list appear. If the hex is missing data, the UI asks to process it first. `GET /api/query-schemas` still drives the field whitelist. `DATA_MODE=supabase` keeps `query_enabled` false until a query RPC exists.
 
 ```json
 {
@@ -15,7 +17,7 @@ The explorer sends this JSON to the data provider. It is not SQL. `validateQuery
 }
 ```
 
-`h3_cells` are `h3-js` indexes. `88489e3467fffff` is the resolution-8 cell for 30.2672, -97.7431. An empty list is valid and returns no rows. A query may include at most 300 cells. `limit` is an integer from 1 to 2000. Page size in the UI is 25, 50, 100, or 250. CSV export asks for up to 2000 rows.
+`h3_cells` are `h3-js` indexes. `88489e3467fffff` is the resolution-8 cell for 30.2672, -97.7431. An empty list is valid and returns no rows. A query may include at most 300 cells. `limit` is an integer from 1 to 2000.
 
 Filters are combined with AND. Missing numeric values do not pass `gte` or `lte`.
 
@@ -62,4 +64,4 @@ Overture stores US locality in `address_levels`, not as top-level columns. For t
 
 ## Map counts
 
-`getCellCounts` uses the same filters and whitelist as `runQuery`. Its `h3_cells` are the cells on screen (up to 800), not the selection. The results table uses the selection.
+`getCellCounts` uses the same filters and whitelist as `runQuery`. Its `h3_cells` are the cells on screen (up to 800), not the selection. This is what drives map coloring.

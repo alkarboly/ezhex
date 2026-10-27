@@ -259,6 +259,25 @@ assert(
   isRecord(ingestPlan.body.bbox) && typeof ingestPlan.body.bbox.area_km2 === 'number',
   'workflow plan bbox is missing',
 )
+const createdJob = await routeApi('POST', '/api/workflow-ingestion/jobs', {
+  release_version: '2026-09-24.0',
+  h3_cells: [sampleCells[0]],
+})
+assert(createdJob.status === 200 && isRecord(createdJob.body), 'ingestion job create failed')
+assert(createdJob.body.status === 'succeeded', 'mock-covered hexes should resolve as ready')
+assert(typeof createdJob.body.id === 'string', 'ingestion job id is missing')
+const createdAgain = await routeApi('POST', '/api/workflow-ingestion/jobs', {
+  release_version: '2026-09-24.0',
+  h3_cells: [sampleCells[0]],
+})
+assert(createdAgain.status === 200 && isRecord(createdAgain.body), 'ingestion job idempotence failed')
+assert(createdAgain.body.id === createdJob.body.id, 'duplicate jobs were created for the same hex set')
+const listedJobs = await routeApi('GET', '/api/workflow-ingestion/jobs', undefined)
+assert(listedJobs.status === 200 && Array.isArray(listedJobs.body), 'ingestion job list failed')
+assert(listedJobs.body.some((job) => isRecord(job) && job.id === createdJob.body.id), 'created job is missing from the list')
+const hexStatus = await routeApi('POST', '/api/hex-status', { h3_cells: [sampleCells[0]] })
+assert(hexStatus.status === 200 && isRecord(hexStatus.body), 'hex status failed')
+assert(hexStatus.body.ready_count === 1, 'capitol hex should be ready in mock mode')
 
 console.log(
   `verify ok · ${first.cells.length} cells · ${first.totals.places} places · ${first.totals.buildings} buildings · ${first.totals.addresses} addresses`,

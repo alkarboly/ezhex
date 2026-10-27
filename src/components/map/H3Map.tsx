@@ -11,8 +11,7 @@ import {
   type CSSProperties,
   type Ref,
 } from 'react'
-import { densityGradientCss } from '../../lib/color-scale'
-import { formatCount } from '../../lib/format'
+import { HexHoverCard } from '../explorer/HexHoverCard'
 import {
   AUSTIN_CENTER,
   AUSTIN_ZOOM,
@@ -28,6 +27,7 @@ import { H3_RESOLUTION } from '../../lib/limits'
 import { cn } from '../../lib/utils'
 import type { BasemapId, FitRequest, HexMode } from '../../store/explorer-store'
 import type { CellCount } from '../../types/queries'
+import type { HexAction, HexDataStatus } from '../../types/workflows'
 import { styleForBasemap } from './map-style'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
@@ -60,6 +60,8 @@ type H3MapProps = {
   onCellClick: (h3: string, additive: boolean) => void
   onViewportCells: (ids: string[], status: ViewportStatus) => void
   onCenterCell?: (h3: string | null) => void
+  cellStatus?: ReadonlyMap<string, HexDataStatus>
+  onHexAction?: (h3: string, action: HexAction) => void
 }
 
 type Point = { x: number; y: number }
@@ -90,6 +92,8 @@ export function H3Map({
   onCellClick,
   onViewportCells,
   onCenterCell,
+  cellStatus,
+  onHexAction,
 }: H3MapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -111,6 +115,8 @@ export function H3Map({
   const [cardVisible, setCardVisible] = useState(false)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [mapError, setMapError] = useState<string | null>(null)
+  const cardHeldRef = useRef(false)
+  const hideCardRef = useRef(0)
 
   useLayoutEffect(() => {
     clickRef.current = onCellClick
@@ -154,7 +160,22 @@ export function H3Map({
       renderWorldCopies: false,
     })
     map.touchZoomRotate.disableRotation()
+    map.scrollZoom.setWheelZoomRate(1 / 720)
+    map.scrollZoom.setZoomRate(1 / 220)
     mapRef.current = map
+
+    const revealCard = (cell: string | null) => {
+      window.clearTimeout(hideCardRef.current)
+      if (cell) {
+        setCardCell(cell)
+        setCardVisible(true)
+        return
+      }
+      if (cardHeldRef.current) return
+      hideCardRef.current = window.setTimeout(() => {
+        if (!cardHeldRef.current) setCardVisible(false)
+      }, 280)
+    }
 
     let active = true
     let frame = 0
@@ -201,8 +222,8 @@ export function H3Map({
     const positionCard = () => {
       const card = cardRef.current
       if (!card || !pointer) return
-      const width = card.offsetWidth || 224
-      const height = card.offsetHeight || 112
+      const width = card.offsetWidth || 288
+      const height = card.offsetHeight || 220
       let x = pointer.x + 18
       let y = pointer.y + 18
       if (x + width > container.clientWidth - 8) x = pointer.x - width - 18
@@ -264,10 +285,7 @@ export function H3Map({
         if (hoverCell) setCellState(hoverCell, { hover: false })
         if (nextHover) setCellState(nextHover, { hover: true })
         hoverCell = nextHover
-        if (!isTouch) {
-          if (nextHover) setCardCell(nextHover)
-          setCardVisible(nextHover != null)
-        }
+        if (!isTouch) revealCard(nextHover)
       }
       if (nextCenter !== centerCell) {
         centerCell = nextCenter
@@ -379,6 +397,7 @@ export function H3Map({
     }
 
     map.on('style.load', () => {
+      window.clearTimeout(slowTimer)
       ensureH3Layers(map, modeRef.current)
       showGlobe(map)
       applied = new Map()
@@ -438,6 +457,7 @@ export function H3Map({
       window.clearTimeout(slowTimer)
       window.clearTimeout(handoffTimer)
       window.clearTimeout(revealTimer)
+      window.clearTimeout(hideCardRef.current)
       observer.disconnect()
       map.remove()
       mapRef.current = null
@@ -487,7 +507,8 @@ export function H3Map({
     map.fitBounds(bounds, {
       padding: fitPadding(container, insetsRef.current),
       maxZoom: fit.zoomIn ? 14.5 : map.getZoom(),
-      duration: reducedMotion() ? 0 : 700,
+      duration: reducedMotion() ? 0 : 920,
+      easing: easeInOutCubic,
     })
   }, [fit])
 
@@ -500,21 +521,31 @@ export function H3Map({
       center: [lng, lat],
       zoom: Math.max(map.getZoom(), 13.2),
       offset: insetOffset(insetsRef.current),
-      duration: reducedMotion() ? 0 : 650,
+      duration: reducedMotion() ? 0 : 980,
+      curve: 1.35,
+      easing: easeInOutCubic,
     })
   }, [focusNonce])
 
   useImperativeHandle(
     ref,
     () => ({
-      zoomIn: () => mapRef.current?.zoomIn({ duration: reducedMotion() ? 0 : 220 }),
-      zoomOut: () => mapRef.current?.zoomOut({ duration: reducedMotion() ? 0 : 220 }),
+      zoomIn: () => {
+        const map = mapRef.current
+        if (map) zoomBy(map, ZOOM_STEP, insetsRef.current)
+      },
+      zoomOut: () => {
+        const map = mapRef.current
+        if (map) zoomBy(map, -ZOOM_STEP, insetsRef.current)
+      },
       resetView: () =>
-        mapRef.current?.flyTo({
+        mapRef.current?.easeTo({
           center: [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat],
           zoom: AUSTIN_ZOOM,
+          bearing: 0,
           offset: insetOffset(insetsRef.current),
-          duration: reducedMotion() ? 0 : 800,
+          duration: reducedMotion() ? 0 : 1100,
+          easing: easeInOutCubic,
         }),
     }),
     [],
@@ -526,6 +557,18 @@ export function H3Map({
   }
   const cardCount = cardCell ? (countMap.get(cardCell) ?? 0) : 0
   const cardSelected = cardCell ? selectedSet.has(cardCell) : false
+  const cardStatus = cardCell ? (cellStatus?.get(cardCell) ?? 'missing') : 'missing'
+
+  const holdCard = () => {
+    cardHeldRef.current = true
+    window.clearTimeout(hideCardRef.current)
+    setCardVisible(true)
+  }
+
+  const releaseCard = () => {
+    cardHeldRef.current = false
+    hideCardRef.current = window.setTimeout(() => setCardVisible(false), 180)
+  }
 
   return (
     <div
@@ -539,42 +582,28 @@ export function H3Map({
         <div
           ref={cardRef}
           aria-hidden={!cardVisible}
-          data-testid="hover-card"
           className={cn(
-            'glass pointer-events-none absolute top-0 left-0 z-20 w-56 rounded-xl px-3 py-2.5 transition-opacity duration-150',
-            cardVisible && cardCell ? 'opacity-100' : 'opacity-0',
+            'absolute top-0 left-0 z-20 transition-opacity duration-180',
+            cardVisible && cardCell ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
           )}
         >
           {cardCell && (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[11px] text-muted-foreground">{cardCell}</span>
-                {cardSelected && (
-                  <span className="rounded-full bg-select/15 px-1.5 py-px text-[10px] font-medium text-select">
-                    Selected
-                  </span>
-                )}
-              </div>
-              <div className="mt-1 flex items-baseline gap-1.5">
-                <span className="text-2xl font-semibold tracking-tight tabular-nums">{formatCount(cardCount)}</span>
-                <span className="text-xs text-muted-foreground">{countLabel}</span>
-              </div>
-              <div className="relative mt-2 h-1.5 rounded-full" style={{ background: densityGradientCss() }}>
-                <span
-                  className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-background"
-                  style={{ left: `${maxCount > 0 ? (cardCount / maxCount) * 100 : 0}%` }}
-                />
-              </div>
-              <p className="mt-2 text-[10px] text-muted-foreground">
-                {cardSelected
-                  ? addMode
-                    ? 'Click to remove'
-                    : 'Shift-click to remove'
-                  : addMode
-                    ? 'Click to add'
-                    : 'Click to select · Shift-click to add'}
-              </p>
-            </>
+            <HexHoverCard
+              h3={cardCell}
+              count={cardCount}
+              countLabel={countLabel}
+              maxCount={maxCount}
+              selected={cardSelected}
+              addMode={addMode}
+              dataStatus={cardStatus}
+              onAction={(action) => {
+                cardHeldRef.current = false
+                setCardVisible(false)
+                onHexAction?.(cardCell, action)
+              }}
+              onMouseEnter={holdCard}
+              onMouseLeave={releaseCard}
+            />
           )}
         </div>
       )}
@@ -637,6 +666,23 @@ function fitPadding(container: HTMLElement, inset: MapInsets) {
 
 function reducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+const ZOOM_STEP = 0.85
+
+function easeInOutCubic(progress: number): number {
+  return progress < 0.5 ? 4 * progress * progress * progress : 1 - (-2 * progress + 2) ** 3 / 2
+}
+
+function zoomBy(map: MapLibreMap, delta: number, inset: MapInsets) {
+  const next = Math.min(map.getMaxZoom(), Math.max(map.getMinZoom(), map.getZoom() + delta))
+  const camera = { zoom: next, offset: insetOffset(inset) }
+  if (reducedMotion()) {
+    map.jumpTo(camera)
+    return
+  }
+  map.stop()
+  map.easeTo({ ...camera, duration: 820, easing: easeInOutCubic, essential: true })
 }
 
 /** Globe in the app palette. Streets colors ease back to the basemap by zoom 7. */

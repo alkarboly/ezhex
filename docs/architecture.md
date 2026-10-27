@@ -5,6 +5,10 @@ This slice is a local explorer with a workflow-ingestion scaffold. The explorer 
 ```
 Browser
   → Explorer map requests viewport counts: POST /api/cell-counts
+  → Hex hover / Jobs page:
+       POST /api/hex-status
+       POST /api/workflow-ingestion/jobs
+       GET  /api/workflow-ingestion/jobs
   → Workflows page reads planning contracts:
        GET /api/query-schemas
        GET /api/workflow-ingestion/limits
@@ -14,20 +18,28 @@ Browser
        DataProvider, running in the server process
          mock: in-memory Austin records
          supabase: not connected; methods throw
-  → JSON back to the map and workflow planner UI
+       In-memory ingestion job store (not Supabase)
+  → JSON back to the map, hover actions, and Jobs UI
 ```
 
 The browser does not import the dataset or the Supabase client. It still uses `h3-js` to draw cell shapes. Filtering and counts run in Node, from the libraries in `node_modules`, so the server can take on packages that do not belong in a page bundle. There is no auth hop. Mock records are not user-scoped because they are not stored. The nav rail shows the mode the server reports. On phones it is in the menu.
 
-The Node API also exposes workflow-ingestion planning endpoints:
+The Node API also exposes workflow-ingestion planning and job endpoints:
 
 - `GET /api/workflow-ingestion/limits`
 - `POST /api/workflow-ingestion/plan`
+- `POST /api/workflow-ingestion/jobs`
+- `GET /api/workflow-ingestion/jobs`
+- `GET /api/workflow-ingestion/jobs/:id`
+- `POST /api/hex-status`
 - `GET /api/query-schemas`
+- `POST /api/query` (used when a ready hex opens the query editor)
 
-The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps so a Spark run cannot request unbounded data.
+The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps so a Spark run cannot request unbounded data. Creating a job runs that same planner, then stores the job in the Node process. Mock-covered Austin hexes resolve as `succeeded` immediately. Other hexes stay `queued` until an external Spark runner updates them. Jobs are not written to Supabase yet because the Node process has no user auth for those RLS tables.
 
-`/workflows` is a UI shell for this planner: it reads query schemas and limits from the server, builds a plan from selected hexes, and downloads plan JSON for the Spark runner.
+`POST /api/hex-status` returns `ready`, `missing`, or `processing` for each asked hex. Ready means mock coverage or a succeeded job. Processing means a queued or running job covers the hex.
+
+`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection. The explorer is hex-first: hover a cell to query it (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
 
 ## Map
 
@@ -37,13 +49,15 @@ The MapLibre container fills the map slot with absolute positioning. MapLibre's 
 
 The projection is a globe. On each style load the map sets that projection and a sky in the page background (`#05080c`) with a mint horizon. The atmosphere fades out by zoom 8, so the city view stays flat enough to read the cells. The globe uses the selected basemap. On the dark streets style, land and water are shifted into that same palette below zoom 7 so the continents stay readable, then those paints return to the basemap colors. The camera starts over Africa, turns across the Atlantic onto North America, then flies down to Austin. Viewport cells are not requested until that flight ends, or until the user presses the map, which skips the rest of the flight. `prefers-reduced-motion` skips it and opens on Austin. A basemap change during the flight is applied when the flight ends, and it does not replay.
 
+Zoom buttons ease 0.85 steps over 820ms with an ease-in-out curve, centered on the unobstructed map area. Wheel zoom is slowed so the globe does not jump. Fit and reset use the same curve. `prefers-reduced-motion` jumps instead.
+
 Cell fill color is the count of records in each visible cell. The scale runs to the busiest drawn cell. Outlines carry state: amber for selected and white under the pointer.
 
 ### Cell display
 
 **Map layers** picks one of three modes:
 
-- **Lens** (default). Cells near the pointer fade in with a smooth falloff, and the hovered cell shows its count in a card. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source. Before the pointer first reaches the map, the lens rests at the center of the unobstructed map area.
+- **Lens** (default). Cells near the pointer fade in with a smooth falloff, and the hovered cell shows a linger card with count, coverage status, and actions. The card stays up long enough to click Query, Process, or Workflow. Query opens only when that hex is `ready`. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`) on the affected cells, so pointer moves never rebuild the GeoJSON source. Before the pointer first reaches the map, the lens rests at the center of the unobstructed map area.
 - **Grid** colors every drawn cell.
 - **Hidden** hides the H3 layers.
 
@@ -53,11 +67,11 @@ Switching basemaps calls `setStyle(style, { diff: false })`. That reloads the st
 
 ### Layout
 
-Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a compact selection/workflows bar. At 767 px and below, the explorer switches to a top bar with menu and map controls.
+Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selection dock with Query, Process, Workflow, and Jobs. At 767 px and below, the explorer switches to a top bar with menu and map controls, and the same dock sits at the bottom.
 
-Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it.
+Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Hex actions run from the dock because there is no hover card.
 
-If `DATA_MODE=supabase` before query RPC wiring exists, the UI shows a non-blocking notice and points users to Workflows ingestion.
+If `DATA_MODE=supabase` before query RPC wiring exists, the UI shows a non-blocking notice. Process and workflow jobs still work. Query stays locked until a query RPC exists.
 
 ## Mock coverage
 

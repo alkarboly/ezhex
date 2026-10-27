@@ -4,7 +4,7 @@ This folder contains the first segmented-ingestion Spark job for workflow runs.
 
 ## Input contract
 
-The job expects a JSON plan from `POST /api/workflow-ingestion/plan`.
+The job expects a JSON plan from `POST /api/workflow-ingestion/plan`. The same plan is stored on jobs created by `POST /api/workflow-ingestion/jobs`. The Node process does not run this script.
 
 Hard caps in both API and Spark job:
 

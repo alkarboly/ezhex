@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { formatCount } from '../lib/format'
@@ -104,7 +105,11 @@ export function SavedQueriesPage() {
         <header>
           <h1 className="text-xl font-semibold">Workflows</h1>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Build a guarded ingestion plan from selected H3 cells. The Spark runner still executes the job.
+            Build a guarded ingestion plan from selected H3 cells. Queue the run from{' '}
+            <Link to="/jobs" className="text-primary hover:underline">
+              Jobs
+            </Link>
+            , or start it from a hex on the map. The Spark runner still executes the job.
           </p>
         </header>
 

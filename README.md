@@ -39,10 +39,15 @@ Copy `.env.example` to `.env` if you want to set them. The `VITE_` names of thos
 
 ## Workflow ingestion planning
 
-The server includes segmented-ingestion planning routes:
+The server includes segmented-ingestion planning and job routes:
 
+- `GET /api/query-schemas`
 - `GET /api/workflow-ingestion/limits`
 - `POST /api/workflow-ingestion/plan`
+- `POST /api/workflow-ingestion/jobs`
+- `GET /api/workflow-ingestion/jobs`
+- `GET /api/workflow-ingestion/jobs/:id`
+- `POST /api/hex-status`
 
 The plan route enforces:
 
@@ -53,6 +58,10 @@ The plan route enforces:
 - row caps per dataset and per run
 
 It returns a Spark plan JSON with release version, selected hexes, bbox, row caps, and storage prefixes. Spark scaffolding lives in `pipelines/spark/`.
+
+`/api/query-schemas` returns dataset/field/operator contracts from the same whitelist used by query validation, plus whether query execution is enabled in the current mode.
+
+`/api/workflow-ingestion/jobs` stores jobs in the Node process. Mock-covered Austin hexes resolve as ready. Other hexes stay queued for Spark. `/api/hex-status` tells the map whether a hex is ready, missing, or processing.
 
 Workflow ingestion envs in `.env.example`:
 
@@ -92,14 +101,17 @@ render deploys create SERVICE_ID --wait --confirm
 
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
 - H3 resolution 8 cells for the current view, from `h3-js` boundaries. By default they light up as a lens around the cursor. **Map layers** switches to a full grid or hides them.
-- Minimal explorer chrome: map controls, status, selection count, and a direct **Workflows** action
+- Hex-first explorer: hover a cell to query it (if ready), request processing, or start a workflow. The selection dock does the same for a set of hexes
+- Jobs page at `/jobs` creates and lists in-memory ingestion jobs from the current map selection
 - Workflow ingestion planning endpoints plus a Workflows page that builds/downloads plan JSON from selected hexes
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
 - Spark/Supabase workflow scaffolding with hard caps on hex count, bbox area, and row counts
 
+Hover a ready hex or use Query on the dock to open the filter editor. Missing hexes have to be processed first. Spark execution still runs outside the app.
+
 ## Not in this slice
 
-Sign-in UX, workflow-run orchestration from the UI, and the Supabase Overture query RPC for explorer reads. Spark execution still runs outside the app. See `docs/architecture.md`.
+Sign-in UX, persisting jobs to Supabase, and the Overture query RPC for explorer reads. Spark execution still runs outside the app. See `docs/architecture.md`.
 
 ## Docs
 

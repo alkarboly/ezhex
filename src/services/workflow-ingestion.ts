@@ -1,4 +1,6 @@
 import type {
+  HexCoverageResponse,
+  IngestionJob,
   WorkflowIngestionLimits,
   WorkflowIngestionPlan,
   WorkflowIngestionPlanRequest,
@@ -37,4 +39,16 @@ export function createWorkflowIngestionPlan(input: WorkflowIngestionPlanRequest)
 
 export function getQuerySchemas() {
   return request<QuerySchemasResponse>('/api/query-schemas')
+}
+
+export function createIngestionJob(input: WorkflowIngestionPlanRequest) {
+  return request<IngestionJob>('/api/workflow-ingestion/jobs', input)
+}
+
+export function listIngestionJobs() {
+  return request<IngestionJob[]>('/api/workflow-ingestion/jobs')
+}
+
+export function getHexStatus(h3Cells: readonly string[]) {
+  return request<HexCoverageResponse>('/api/hex-status', { h3_cells: [...h3Cells] })
 }

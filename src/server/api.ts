@@ -5,6 +5,14 @@ import type { SourceDescription } from '../services/data-provider'
 import type { CellCountRequest, QuerySpec } from '../types/queries'
 import { DATASET_IDS, DATASET_META, FIELD_CATALOG } from '../types/datasets'
 import {
+  asHexCoverageRequest,
+  asJobCreateRequest,
+  createIngestionJob,
+  getIngestionJob,
+  hexCoverageFor,
+  listIngestionJobs,
+} from './ingestion-jobs'
+import {
   asWorkflowIngestionPlanRequest,
   planWorkflowIngestion,
   workflowIngestionLimits,
@@ -77,6 +85,30 @@ export async function routeApi(method: string, pathname: string, body: unknown):
     const request = asWorkflowIngestionPlanRequest(body)
     if (!request) return invalid('Request body must include release_version and h3_cells.')
     return call(async () => planWorkflowIngestion(request))
+  }
+
+  if (method === 'GET' && pathname === '/api/workflow-ingestion/jobs') {
+    return { status: 200, body: listIngestionJobs() }
+  }
+
+  if (method === 'GET' && pathname.startsWith('/api/workflow-ingestion/jobs/')) {
+    const id = pathname.slice('/api/workflow-ingestion/jobs/'.length)
+    if (!id || id.includes('/')) return invalid('Job id is required.')
+    const job = getIngestionJob(id)
+    if (!job) return { status: 404, body: { error: 'No such ingestion job.' } }
+    return { status: 200, body: job }
+  }
+
+  if (method === 'POST' && pathname === '/api/workflow-ingestion/jobs') {
+    const request = asJobCreateRequest(body)
+    if (!request) return invalid('Request body must include release_version and h3_cells.')
+    return call(async () => createIngestionJob(request))
+  }
+
+  if (method === 'POST' && pathname === '/api/hex-status') {
+    const request = asHexCoverageRequest(body)
+    if (!request) return invalid('Request body must include h3_cells.')
+    return call(async () => hexCoverageFor(request.h3_cells))
   }
 
   return { status: 404, body: { error: 'No such API route.' } }

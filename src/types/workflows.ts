@@ -43,3 +43,42 @@ export type WorkflowIngestionPlan = {
   run_id: string
   created_at: string
 }
+
+export const INGESTION_JOB_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const
+export type IngestionJobStatus = (typeof INGESTION_JOB_STATUSES)[number]
+
+export const HEX_DATA_STATUSES = ['ready', 'missing', 'processing'] as const
+export type HexDataStatus = (typeof HEX_DATA_STATUSES)[number]
+
+export type HexAction = 'process' | 'query' | 'workflow'
+
+export type IngestionJob = {
+  id: string
+  run_id: string
+  status: IngestionJobStatus
+  release_version: string
+  h3_cells: string[]
+  hex_set_hash: string
+  datasets: WorkflowDataset[]
+  bbox: WorkflowBoundingBox
+  plan: WorkflowIngestionPlan
+  rows_total: number
+  note: string | null
+  error_message: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
+export type HexCoverage = {
+  h3: string
+  status: HexDataStatus
+  job_id: string | null
+}
+
+export type HexCoverageResponse = {
+  cells: HexCoverage[]
+  ready_count: number
+  missing_count: number
+  processing_count: number
+}
