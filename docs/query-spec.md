@@ -1,0 +1,65 @@
+# Query spec
+
+The explorer sends this JSON to the data provider. It is not SQL. `validateQuery` rejects unknown datasets, fields, and operators before any records are read.
+
+```json
+{
+  "dataset": "places",
+  "h3_cells": ["88489e3467fffff"],
+  "filters": [
+    { "field": "basic_category", "operator": "in", "value": ["restaurant", "cafe"] }
+  ],
+  "sort": { "field": "names.primary", "direction": "asc" },
+  "limit": 50,
+  "offset": 0
+}
+```
+
+`h3_cells` are `h3-js` indexes. `88489e3467fffff` is the resolution-8 cell for 30.2672, -97.7431. An empty list is valid and returns no rows. A query may include at most 300 cells. `limit` is an integer from 1 to 2000. Page size in the UI is 25, 50, 100, or 250. CSV export asks for up to 2000 rows.
+
+Filters are combined with AND. Missing numeric values do not pass `gte` or `lte`.
+
+The September 2026 Overture places schema removed `categories`. High-level category filters use `basic_category`. The more specific label is `taxonomy.primary`.
+
+## Places
+
+| Field | Source | Operators |
+| --- | --- | --- |
+| `names.primary` | `names.primary` | `contains` |
+| `basic_category` | `basic_category` | `eq`, `in` |
+| `taxonomy.primary` | `taxonomy.primary` | `eq`, `in` |
+| `confidence` | `confidence` | `gte`, `lte` |
+| `operating_status` | `operating_status` | display and sort only |
+
+The mock basic categories are `restaurant`, `cafe`, `bar`, `hotel`, `museum`, `park`, and `hospital`. Primary values also include `art_museum` and `playground`. Those lists are the sample in this mock, not the full Overture taxonomy.
+
+`operating_status` in the mock is `open` or `permanently_closed`. A permanently closed place has `confidence` 0. Some open places have no confidence.
+
+## Buildings
+
+| Field | Source | Operators |
+| --- | --- | --- |
+| `subtype` | `subtype` | `eq`, `in`, `is_null`, `is_not_null` |
+| `height` | `height`, meters | `gte`, `lte`, `is_null`, `is_not_null` |
+| `num_floors` | `num_floors` | `gte`, `lte`, `is_null`, `is_not_null` |
+
+`subtype` values are the Overture building enum: `agricultural`, `civic`, `commercial`, `education`, `entertainment`, `industrial`, `medical`, `military`, `outbuilding`, `religious`, `residential`, `service`, `transportation`. Null means the source value is absent.
+
+## Addresses
+
+Overture stores US locality in `address_levels`, not as top-level columns. For this mock the first level is the state and the second is the locality.
+
+| Field | Source | Operators |
+| --- | --- | --- |
+| `number` | `number` | display and sort only |
+| `street` | `street` | `contains` |
+| `locality` | `address_levels[1].value` | `contains` |
+| `region` | `address_levels[0].value` | `contains` |
+| `postcode` | `postcode` | `eq` |
+| `address` | derived from number, street, locality, region, and postcode | `contains` |
+
+`address` is a search string, not an Overture column. Postal codes in the mock are a coarse Austin assignment, not a geocoder.
+
+## Map counts
+
+`getCellCounts` uses the same filters and whitelist as `runQuery`. Its `h3_cells` are the cells on screen (up to 800), not the selection. The results table uses the selection.

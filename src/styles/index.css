@@ -1,0 +1,181 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-select: var(--select);
+}
+
+:root {
+  color-scheme: dark;
+  --radius: 0.5rem;
+  --background: #05080c;
+  --foreground: #e8eef5;
+  --card: #0b1118;
+  --card-foreground: #e8eef5;
+  --popover: #0d141c;
+  --popover-foreground: #e8eef5;
+  --primary: #3ddec0;
+  --primary-foreground: #03201a;
+  --secondary: #16202b;
+  --secondary-foreground: #e8eef5;
+  --muted: #121a24;
+  --muted-foreground: #8d9bae;
+  --accent: #17222e;
+  --accent-foreground: #e8eef5;
+  --destructive: #f07178;
+  --border: #1d2733;
+  --input: #253241;
+  --ring: #3ddec0;
+  --select: #f4c25b;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    scrollbar-width: thin;
+    scrollbar-color: #2a3747 transparent;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button,
+  input,
+  select {
+    font: inherit;
+  }
+
+  ::selection {
+    background: #145e52;
+    color: #f3fffb;
+  }
+}
+
+@utility glass {
+  background-color: rgb(8 12 18 / 0.8);
+  border: 1px solid rgb(255 255 255 / 0.07);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 18px 48px -18px rgb(0 0 0 / 0.85),
+    0 2px 10px rgb(0 0 0 / 0.3);
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+}
+
+.select-chevron {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238d9bae' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 0.6rem center;
+  background-repeat: no-repeat;
+  background-size: 14px;
+}
+
+.select-chevron option {
+  background: #0d141c;
+}
+
+@keyframes wp-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes wp-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wp-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* MapLibre's stylesheet sets .maplibregl-map { position: relative }, which
+   collapses this absolutely positioned host to 0 height and clips the canvas. */
+[data-testid='h3-map'] .maplibregl-map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Capped so a full-height phone sheet covers the attribution instead of pushing it into the top bar. */
+[data-testid='h3-map'] .maplibregl-ctrl-bottom-right,
+[data-testid='h3-map'] .maplibregl-ctrl-bottom-left {
+  bottom: min(var(--map-inset-bottom, 0px), 60%);
+  transition: bottom 220ms ease;
+}
+
+.maplibregl-ctrl-attrib {
+  background: rgb(5 8 12 / 0.72) !important;
+  border-radius: 6px !important;
+  font-size: 10px !important;
+  color: #8d9bae;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: #8d9bae !important;
+}
+
+.maplibregl-ctrl-attrib-button {
+  filter: invert(1) hue-rotate(180deg);
+}
