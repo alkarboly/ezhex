@@ -1,10 +1,9 @@
 /**
  * Hex grid motion.
  *
- * The globe opening is a north-to-south wave: delay by latitude so the
- * honeycomb reads as a curtain coming down the planet. City zoom stays
- * quiet. Zoom swaps keep the last grid on an outgoing source so
- * resolution changes dissolve instead of popping.
+ * Opening drop lives in hex-drop: hexes fall onto the sphere, north
+ * first. City zoom stays quiet. Zoom swaps keep the last grid on an
+ * outgoing source so resolution changes dissolve instead of popping.
  */
 
 import { getResolution } from 'h3-js'

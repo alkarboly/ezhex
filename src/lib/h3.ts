@@ -36,12 +36,12 @@ export const EARTH_ZOOM = 1.7
 export const EARTH_MAX_ZOOM = 2.55
 /** First hex camera when coming in from the globe. */
 export const HEX_ENTRY_ZOOM = 6.8
-/** Coarse mesh drawn on the globe. 842 cells at resolution 1. */
+/** Coarse mesh used for the opening hex drop. 842 cells at resolution 1. */
 export const EARTH_HEX_RESOLUTION = 1
 const MAX_HEX_VIEW_SPAN_DEG = 22
 let earthCellsCache: string[] | null = null
 
-/** Every resolution-1 cell. Used for the opening globe wave and earth-scroll mesh. */
+/** Every resolution-1 cell. Used for the opening hex drop onto the sphere. */
 export function earthHexCells(): string[] {
   if (earthCellsCache) return earthCellsCache
   earthCellsCache = getRes0Cells().flatMap((cell) => cellToChildren(cell, EARTH_HEX_RESOLUTION))
@@ -226,7 +226,6 @@ export type H3FeatureProps = {
   focused: number
   snapshot: HexSnapshot | 'none'
   color: string
-  earth: number
 }
 
 /** Fills follow snapshot freshness. Empty cells stay unfilled. */
@@ -248,7 +247,6 @@ export function buildH3Collection(input: {
         focused: input.focusedH3 === cell ? 1 : 0,
         snapshot: snapshot ?? 'none',
         color: snapshotColor(snapshot),
-        earth: getResolution(cell) === EARTH_HEX_RESOLUTION ? 1 : 0,
       },
       geometry: cellPolygon(cell),
     }

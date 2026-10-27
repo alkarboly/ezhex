@@ -23,16 +23,15 @@ import {
   boundsForCells,
   buildH3Collection,
   cellsInView,
-  earthHexCells,
   type ViewportStatus,
 } from '../../lib/h3'
+import { createHexDropLayer, HEX_DROP_LAYER_ID } from '../../lib/hex-drop'
 import {
   appearDelayMs,
   appearDurationMs,
   appearEase,
   appearIsQuiet,
   appearKind,
-  introDelayMs,
   outgoingDurationMs,
   shouldFadeOutgoing,
   type AppearKind,
@@ -141,7 +140,6 @@ export function H3Map({
   const bridgingRef = useRef(false)
   const cameraLockRef = useRef(false)
   const lastHexCenterRef = useRef(AUSTIN_CENTER)
-  const [earthMesh, setEarthMesh] = useState(() => !reducedMotion())
   const [styleReady, setStyleReady] = useState(0)
   const [cardCell, setCardCell] = useState<string | null>(null)
   const [cardVisible, setCardVisible] = useState(false)
@@ -172,11 +170,10 @@ export function H3Map({
   const countMap = useMemo(() => new Map(counts.map((entry) => [entry.h3, entry.count])), [counts])
   const selectedSet = useMemo(() => new Set(selected), [selected])
   const drawn = useMemo(() => {
-    const base = hexMode === 'off' ? cells : cells.length > 0 ? cells : earthMesh ? earthHexCells() : cells
-    const all = new Set(base)
+    const all = new Set(cells)
     for (const cell of selected) all.add(cell)
     return [...all]
-  }, [cells, selected, hexMode, earthMesh])
+  }, [cells, selected])
   const collection = useMemo(
     () =>
       buildH3Collection({
@@ -208,6 +205,7 @@ export function H3Map({
       maxPitch: 0,
       fadeDuration: 300,
       renderWorldCopies: false,
+      canvasContextAttributes: { antialias: true },
     })
     map.touchZoomRotate.disableRotation()
     map.scrollZoom.setWheelZoomRate(1 / 1100)
@@ -413,7 +411,7 @@ export function H3Map({
           schedule()
           return
         }
-        if (kind !== 'intro' && appearIsQuiet(ids)) {
+        if (appearIsQuiet(ids)) {
           appearAnims.clear()
           for (const id of ids) setCellState(id, { appear: 1 })
           schedule()
@@ -430,10 +428,7 @@ export function H3Map({
           const point = map.project([lng, lat])
           appearAnims.set(id, {
             start: now,
-            delay:
-              kind === 'intro'
-                ? introDelayMs(lat)
-                : appearDelayMs(Math.hypot(point.x - originPt.x, point.y - originPt.y), spacing, kind),
+            delay: appearDelayMs(Math.hypot(point.x - originPt.x, point.y - originPt.y), spacing, kind),
             duration,
           })
           setCellState(id, { appear: 0 })
@@ -444,17 +439,16 @@ export function H3Map({
 
     let arriving = !calm
     let arrivalArmed = false
+    const dropLayer = createHexDropLayer()
 
     const report = () => {
       if (arriving || bridgingRef.current) return
       const zoom = map.getZoom()
       if (viewModeRef.current === 'earth' || zoom < MIN_VIEWPORT_ZOOM) {
         displayResRef.current = H3_RESOLUTION
-        setEarthMesh(true)
         viewportRef.current([], 'zoom-in', H3_RESOLUTION)
         return
       }
-      setEarthMesh(false)
       const bounds = map.getBounds()
       const next = cellsInView(
         { west: bounds.getWest(), south: bounds.getSouth(), east: bounds.getEast(), north: bounds.getNorth() },
@@ -539,6 +533,9 @@ export function H3Map({
       if (!arriving) return
       arriving = false
       arrivingRef.current = false
+      dropLayer.finish()
+      if (map.getLayer(HEX_DROP_LAYER_ID)) map.removeLayer(HEX_DROP_LAYER_ID)
+      showOpeningAssets(map, modeRef.current)
       settleViewMode()
       if (appliedBasemap.current === openingBasemap) {
         report()
@@ -559,6 +556,9 @@ export function H3Map({
         report()
         return
       }
+      hideOpeningAssets(map)
+      if (!map.getLayer(HEX_DROP_LAYER_ID)) map.addLayer(dropLayer)
+      dropLayer.start(map)
       const narrow = container.clientWidth < 768
       const spinMs = narrow ? 2600 : 3800
       const diveMs = narrow ? 3200 : 4600
@@ -578,6 +578,8 @@ export function H3Map({
         if (phase === 'spin') {
           phase = 'dive'
           mark.t = performance.now()
+          dropLayer.fadeOut(520)
+          showOpeningAssets(map, modeRef.current)
           map.flyTo({
             center: [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat],
             zoom: AUSTIN_ZOOM,
@@ -1014,6 +1016,38 @@ function runLockedCamera(
   map.once('moveend', release)
 }
 
+function hideOpeningAssets(map: MapLibreMap) {
+  const style = map.getStyle()
+  if (!style?.layers) return
+  for (const layer of style.layers) {
+    if (layer.id === 'background') {
+      map.setPaintProperty('background', 'background-color', '#05080c')
+      continue
+    }
+    if (layer.id === HEX_DROP_LAYER_ID || layer.id.startsWith('h3')) continue
+    map.setLayoutProperty(layer.id, 'visibility', 'none')
+  }
+  map.setSky({
+    'sky-color': '#05080c',
+    'horizon-color': '#123238',
+    'fog-color': '#05080c',
+    'sky-horizon-blend': 0.62,
+    'horizon-fog-blend': 0.88,
+    'atmosphere-blend': 0.2,
+  })
+}
+
+function showOpeningAssets(map: MapLibreMap, mode: HexMode) {
+  const style = map.getStyle()
+  if (!style?.layers) return
+  for (const layer of style.layers) {
+    if (layer.id === HEX_DROP_LAYER_ID) continue
+    map.setLayoutProperty(layer.id, 'visibility', 'visible')
+  }
+  showGlobe(map)
+  applyHexMode(map, mode)
+}
+
 /** Globe in the app palette. Streets colors ease back to the basemap by zoom 7. */
 function showGlobe(map: MapLibreMap) {
   map.setProjection({ type: 'globe' })
@@ -1062,7 +1096,6 @@ const APPEAR: Expression = ['number', ['feature-state', 'appear'], 0]
 const SELECTED: Expression = ['==', ['get', 'selected'], 1]
 const FOCUSED: Expression = ['==', ['get', 'focused'], 1]
 const EMPTY: Expression = ['==', ['get', 'snapshot'], 'none']
-const EARTH: Expression = ['==', ['get', 'earth'], 1]
 
 function withAppear(opacity: Expression): Expression {
   return ['*', APPEAR, opacity]
@@ -1070,25 +1103,12 @@ function withAppear(opacity: Expression): Expression {
 
 function fillOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return withAppear(['case', EARTH, 0.08, EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5])
+  return withAppear(['case', EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5])
 }
 
 function lineOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return withAppear([
-    'case',
-    EARTH,
-    0.55,
-    HOVER,
-    1,
-    FOCUSED,
-    1,
-    SELECTED,
-    1,
-    EMPTY,
-    mode === 'grid' ? 0.22 : ['*', LENS, 0.4],
-    0.55,
-  ])
+  return withAppear(['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, mode === 'grid' ? 0.22 : ['*', LENS, 0.4], 0.55])
 }
 
 function glowOpacity(): Expression {
@@ -1132,7 +1152,7 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         source: 'h3-out',
         layout: { visibility },
         paint: {
-          'fill-color': ['case', EARTH, '#7ef0dc', ['get', 'color']],
+          'fill-color': ['get', 'color'],
           'fill-opacity': 0,
           'fill-opacity-transition': instant,
         },
@@ -1148,7 +1168,7 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         source: 'h3',
         layout: { visibility },
         paint: {
-          'fill-color': ['case', EARTH, '#7ef0dc', ['get', 'color']],
+          'fill-color': ['get', 'color'],
           'fill-opacity': fillOpacity(mode),
           'fill-opacity-transition': instant,
         },
@@ -1198,15 +1218,13 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
             '#7ef0dc',
             SELECTED,
             '#ffffff',
-            EARTH,
-            '#7ef0dc',
             ['==', ['get', 'snapshot'], 'current'],
             '#2ee6a6',
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
             '#6d7d8f',
           ],
-          'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.8, EARTH, 0.85, EMPTY, 0.55, 1.15],
+          'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.8, EMPTY, 0.55, 1.15],
           'line-opacity': lineOpacity(mode),
           'line-opacity-transition': { duration: 0, delay: 0 },
         },
@@ -1224,15 +1242,13 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         paint: {
           'line-color': [
             'case',
-            EARTH,
-            '#7ef0dc',
             ['==', ['get', 'snapshot'], 'current'],
             '#2ee6a6',
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
             '#6d7d8f',
           ],
-          'line-width': ['case', EARTH, 0.85, ['==', ['get', 'snapshot'], 'none'], 0.55, 1.15],
+          'line-width': ['case', ['==', ['get', 'snapshot'], 'none'], 0.55, 1.15],
           'line-opacity': 0,
           'line-opacity-transition': { duration: 0, delay: 0 },
         },
@@ -1311,10 +1327,10 @@ function applyHexMode(map: MapLibreMap, mode: HexMode) {
 
 function paintOutgoing(map: MapLibreMap, fade: number) {
   if (map.getLayer('h3-out-fill')) {
-    map.setPaintProperty('h3-out-fill', 'fill-opacity', ['*', ['case', EARTH, 0.08, EMPTY, 0, 0.5], fade])
+    map.setPaintProperty('h3-out-fill', 'fill-opacity', ['*', ['case', EMPTY, 0, 0.5], fade])
   }
   if (map.getLayer('h3-out-line')) {
-    map.setPaintProperty('h3-out-line', 'line-opacity', ['*', ['case', EARTH, 0.45, EMPTY, 0.18, 0.45], fade])
+    map.setPaintProperty('h3-out-line', 'line-opacity', ['*', ['case', EMPTY, 0.18, 0.45], fade])
   }
 }
 

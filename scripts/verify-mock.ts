@@ -8,6 +8,13 @@ import {
   snapshotForDisplayCell,
 } from '../src/lib/h3.ts'
 import { associateFeatures } from '../src/lib/associate.ts'
+import {
+  HEX_DROP_DURATION_MS,
+  HEX_DROP_HEIGHT_M,
+  HEX_DROP_WAVE_MS,
+  buildHexDropMesh,
+  hexDropElevation,
+} from '../src/lib/hex-drop.ts'
 import { appearDelayMs, appearIsQuiet, appearKind, introDelayMs, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
 import { mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
@@ -305,8 +312,11 @@ assert(earthHexCells().length === 842, 'earth mesh should be every resolution-1 
 assert(introDelayMs(90) === 0, 'north pole should start the globe wave')
 assert(introDelayMs(-90) === 1800, 'south pole should land last on the globe wave')
 assert(appearIsQuiet([capitol]), 'city hexes should stay still')
-assert(appearKind(new Set(), earthHexCells()) === 'intro', 'first earth mesh should wave in')
-assert(shouldFadeOutgoing('intro', 1), 'leaving the globe should fade the earth mesh')
+assert(hexDropElevation(0, 90) === HEX_DROP_HEIGHT_M, 'north hexes should start above the sphere')
+assert(hexDropElevation(HEX_DROP_DURATION_MS, 90) === 0, 'north hexes should land after their drop')
+assert(hexDropElevation(HEX_DROP_WAVE_MS, -90) === HEX_DROP_HEIGHT_M, 'south hexes should still be up when the north wave ends')
+assert(hexDropElevation(HEX_DROP_WAVE_MS + HEX_DROP_DURATION_MS, -90) === 0, 'south hexes should land last')
+assert(buildHexDropMesh().fillCount > 0, 'drop mesh should triangulate the earth hexes')
 
 const view = cellsInView({ west: -97.76, south: 30.25, east: -97.72, north: 30.29 }, 13)
 assert(view.status === 'ready' && view.ids.length > 0, 'viewport cell lookup failed')
