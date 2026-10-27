@@ -92,24 +92,51 @@ export function buildMockDatabase(): MockDatabase {
   const addresses = new Map<string, AddressRecord[]>()
   const totals: Record<DatasetId, number> = { places: 0, buildings: 0, addresses: 0 }
 
-  for (const cell of cells) {
-    const center = cellCenter(cell)
-    if (latLngToCell(center.lat, center.lng, H3_RESOLUTION) !== cell) {
-      throw new Error(`Cell center fell outside ${cell}.`)
-    }
-    const boost = downtownBoost(center.lat, center.lng)
-    const placeRows = buildPlaces(cell, center, boost)
-    const buildingRows = buildBuildings(cell, center, boost)
-    const addressRows = buildAddresses(cell, center, boost)
-    places.set(cell, placeRows)
-    buildings.set(cell, buildingRows)
-    addresses.set(cell, addressRows)
-    totals.places += placeRows.length
-    totals.buildings += buildingRows.length
-    totals.addresses += addressRows.length
-  }
+  for (const cell of cells) addCell(places, buildings, addresses, totals, cell)
 
   return { cells, places, buildings, addresses, totals }
+}
+
+/** Generate mock rows for hexes that are not in the Austin seed coverage. */
+export function ingestMockCells(db: MockDatabase, cells: readonly string[]): { rows: number; added: string[] } {
+  const added: string[] = []
+  let rows = 0
+  for (const cell of cells) {
+    const already = db.places.has(cell) && db.buildings.has(cell) && db.addresses.has(cell)
+    if (!already) {
+      addCell(db.places, db.buildings, db.addresses, db.totals, cell)
+      if (!db.cells.includes(cell)) db.cells.push(cell)
+      added.push(cell)
+    }
+    rows +=
+      (db.places.get(cell)?.length ?? 0) +
+      (db.buildings.get(cell)?.length ?? 0) +
+      (db.addresses.get(cell)?.length ?? 0)
+  }
+  return { rows, added }
+}
+
+function addCell(
+  places: Map<string, PlaceRecord[]>,
+  buildings: Map<string, BuildingRecord[]>,
+  addresses: Map<string, AddressRecord[]>,
+  totals: Record<DatasetId, number>,
+  cell: string,
+) {
+  const center = cellCenter(cell)
+  if (latLngToCell(center.lat, center.lng, H3_RESOLUTION) !== cell) {
+    throw new Error(`Cell center fell outside ${cell}.`)
+  }
+  const boost = downtownBoost(center.lat, center.lng)
+  const placeRows = buildPlaces(cell, center, boost)
+  const buildingRows = buildBuildings(cell, center, boost)
+  const addressRows = buildAddresses(cell, center, boost)
+  places.set(cell, placeRows)
+  buildings.set(cell, buildingRows)
+  addresses.set(cell, addressRows)
+  totals.places += placeRows.length
+  totals.buildings += buildingRows.length
+  totals.addresses += addressRows.length
 }
 
 function buildPlaces(

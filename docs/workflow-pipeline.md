@@ -28,9 +28,12 @@ UI / API caller
      returns plan JSON with release, bbox, caps, and storage prefixes
   -> POST /api/workflow-ingestion/jobs
      same validation, then an in-memory job
-     mock-covered hexes resolve as succeeded
-     other hexes stay queued for Spark
-  -> Spark job consumes that plan
+     DATA_MODE=mock: Node runs a local ingest
+     Austin seed hexes resolve immediately
+     other hexes get synthetic rows, then succeed
+  -> POST /api/workflow-ingestion/jobs/:id/run
+     reruns a queued or failed job on Node (mock) or fails (supabase)
+  -> Spark job consumes that plan when silver parquet exists
      bbox prefilter (if lat/lng columns exist)
      exact filter by h3_res8 in selected cells
      cap checks
@@ -61,7 +64,7 @@ Returns server-side query schemas (dataset + fields + operators) from the same w
 
 `POST /api/workflow-ingestion/jobs`
 
-Same body as the plan route. Returns an `IngestionJob`. Creating the same release + hex set + datasets again returns the existing queued, running, or succeeded job.
+Same body as the plan route. Returns an `IngestionJob`. In mock mode the server processes the hexes immediately and writes queryable rows. Creating the same release + hex set + datasets again returns the existing queued, running, or succeeded job.
 
 `GET /api/workflow-ingestion/jobs`
 
@@ -75,9 +78,9 @@ Lists jobs in the Node process, newest first. The store keeps at most 200 jobs a
 
 Returns per-hex `ready`, `missing`, or `processing`, plus counts.
 
-The explorer hover card and `/jobs` create jobs from selected hexes. `/workflows` still builds and downloads plan JSON. Query opens from a ready hex and uses the same schema whitelist.
+The explorer hover card and `/jobs` create jobs from selected hexes. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Query opens from a ready hex and uses the same schema whitelist.
 
-Execution remains external to the app: queued jobs wait for the Spark runner. Mock Austin coverage is treated as already processed.
+`POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
 
 ## Storage layout
 

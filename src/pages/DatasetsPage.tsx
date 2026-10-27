@@ -12,7 +12,7 @@ export function DatasetsPage() {
         <header>
           <h1 className="text-xl font-semibold">Datasets</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Filters and columns follow Overture source fields. The Austin mock only fills values this catalog lists.
+            Filters and columns follow Overture source fields. Process a hex to load those rows from the public release.
           </p>
         </header>
         <section className="rounded-lg border border-border bg-card p-4">

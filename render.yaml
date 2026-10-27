@@ -16,6 +16,8 @@ services:
       - key: NODE_VERSION
         value: "22.16.0"
       - key: DATA_MODE
-        value: mock
+        value: supabase
+      - key: OVERTURE_RELEASE
+        value: "2026-10-21.0"
     previews:
       generation: automatic

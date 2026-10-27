@@ -1,5 +1,6 @@
 import { getResolution, isValidCell, latLngToCell } from 'h3-js'
 import { AUSTIN_CENTER, cellPolygon, cellsInView } from '../src/lib/h3.ts'
+import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION } from '../src/lib/limits.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
 import { buildMockDatabase } from '../src/services/mock/database.ts'
@@ -26,6 +27,8 @@ const capitol = latLngToCell(AUSTIN_CENTER.lat, AUSTIN_CENTER.lng, H3_RESOLUTION
 assert(isValidCell(capitol), 'capitol cell is invalid')
 assert(getResolution(capitol) === H3_RESOLUTION, 'capitol cell is not resolution 8')
 assert(first.cells.includes(capitol), 'Austin center is outside the mock coverage')
+assert(cellForPoint(AUSTIN_CENTER.lat, AUSTIN_CENTER.lng) === capitol, 'Overture point-to-hex drifted')
+assert(addressLevels([{ value: 'TX' }, { value: 'Austin' }]).locality === 'Austin', 'address_levels mapping drifted')
 
 const ring = cellPolygon(capitol).coordinates[0]
 assert(ring.length >= 4, 'cell ring is too short')
@@ -249,6 +252,7 @@ assert(typeof schemas.body.query_enabled === 'boolean', 'query schema capabiliti
 const ingestLimits = await routeApi('GET', '/api/workflow-ingestion/limits', undefined)
 assert(ingestLimits.status === 200 && isRecord(ingestLimits.body), 'workflow ingestion limits failed')
 assert(ingestLimits.body.max_hexes === 20, 'workflow max hex cap drifted')
+assert(typeof ingestLimits.body.default_release_version === 'string', 'default Overture release is missing')
 const ingestPlan = await routeApi('POST', '/api/workflow-ingestion/plan', {
   release_version: '2026-09-24.0',
   h3_cells: [sampleCells[0]],
@@ -278,6 +282,30 @@ assert(listedJobs.body.some((job) => isRecord(job) && job.id === createdJob.body
 const hexStatus = await routeApi('POST', '/api/hex-status', { h3_cells: [sampleCells[0]] })
 assert(hexStatus.status === 200 && isRecord(hexStatus.body), 'hex status failed')
 assert(hexStatus.body.ready_count === 1, 'capitol hex should be ready in mock mode')
+const outside = latLngToCell(31.2, -97.74, H3_RESOLUTION)
+assert(!first.cells.includes(outside), 'outside cell leaked into Austin coverage')
+const outsideJob = await routeApi('POST', '/api/workflow-ingestion/jobs', {
+  release_version: '2026-09-24.0',
+  h3_cells: [outside],
+})
+assert(outsideJob.status === 200 && isRecord(outsideJob.body), 'outside hex job failed')
+assert(outsideJob.body.status === 'succeeded', 'local mock ingest should run without Spark')
+assert(typeof outsideJob.body.rows_total === 'number' && outsideJob.body.rows_total > 0, 'local ingest wrote no rows')
+const ranAgain = await routeApi('POST', `/api/workflow-ingestion/jobs/${outsideJob.body.id}/run`, {})
+assert(ranAgain.status === 200 && isRecord(ranAgain.body) && ranAgain.body.status === 'succeeded', 'job rerun failed')
+const outsideStatus = await routeApi('POST', '/api/hex-status', { h3_cells: [outside] })
+assert(outsideStatus.status === 200 && isRecord(outsideStatus.body), 'outside hex status failed')
+assert(outsideStatus.body.ready_count === 1, 'ingested hex should be ready')
+const outsideCounts = await routeApi('POST', '/api/cell-counts', {
+  dataset: 'places',
+  h3_cells: [outside],
+  filters: [],
+})
+assert(outsideCounts.status === 200 && Array.isArray(outsideCounts.body), 'ingested hex counts failed')
+assert(
+  isRecord(outsideCounts.body[0]) && typeof outsideCounts.body[0].count === 'number' && outsideCounts.body[0].count > 0,
+  'ingested hex has no mock places',
+)
 
 console.log(
   `verify ok · ${first.cells.length} cells · ${first.totals.places} places · ${first.totals.buildings} buildings · ${first.totals.addresses} addresses`,

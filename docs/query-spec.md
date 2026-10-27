@@ -2,7 +2,7 @@
 
 This is the server query contract. It is not SQL. `validateQuery` rejects unknown datasets, fields, and operators before any records are read.
 
-The explorer opens this contract from a hex. Hover a ready cell, or use Query on the selection dock, and the query editor plus results list appear. If the hex is missing data, the UI asks to process it first. `GET /api/query-schemas` still drives the field whitelist. `DATA_MODE=supabase` keeps `query_enabled` false until a query RPC exists.
+The explorer opens this contract from a hex. Hover a ready cell, or use Query on the selection dock, and the query editor plus results list appear. If the hex is missing data, Process downloads Overture for that selection into Supabase first. `GET /api/query-schemas` drives the field whitelist. `query_enabled` is true when Supabase is configured or when `DATA_MODE=mock`.
 
 ```json
 {

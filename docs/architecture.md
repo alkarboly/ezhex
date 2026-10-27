@@ -1,6 +1,6 @@
 # Architecture
 
-This slice is a local explorer with a workflow-ingestion scaffold. The explorer queries still run against mock data unless `DATA_MODE=supabase` is wired to real query RPCs.
+The explorer reads Overture rows from Supabase. Process downloads the public Overture Maps release for the selected hex bbox and writes those rows. Mock data is only used when `DATA_MODE=mock` (local verify).
 
 ```
 Browser
@@ -9,16 +9,11 @@ Browser
        POST /api/hex-status
        POST /api/workflow-ingestion/jobs
        GET  /api/workflow-ingestion/jobs
-  → Workflows page reads planning contracts:
-       GET /api/query-schemas
-       GET /api/workflow-ingestion/limits
-       POST /api/workflow-ingestion/plan
   → Node server
        validateQuery() whitelist
-       DataProvider, running in the server process
-         mock: in-memory Austin records
-         supabase: not connected; methods throw
-       In-memory ingestion job store (not Supabase)
+       DuckDB reads s3://overturemaps-us-west-2/release/<version>/theme=...
+       SECURITY DEFINER ingest RPCs write overture_* tables
+       supabase provider reads those tables
   → JSON back to the map, hover actions, and Jobs UI
 ```
 
@@ -31,13 +26,14 @@ The Node API also exposes workflow-ingestion planning and job endpoints:
 - `POST /api/workflow-ingestion/jobs`
 - `GET /api/workflow-ingestion/jobs`
 - `GET /api/workflow-ingestion/jobs/:id`
+- `POST /api/workflow-ingestion/jobs/:id/run`
 - `POST /api/hex-status`
 - `GET /api/query-schemas`
 - `POST /api/query` (used when a ready hex opens the query editor)
 
-The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps so a Spark run cannot request unbounded data. Creating a job runs that same planner, then stores the job in the Node process. Mock-covered Austin hexes resolve as `succeeded` immediately. Other hexes stay `queued` until an external Spark runner updates them. Jobs are not written to Supabase yet because the Node process has no user auth for those RLS tables.
+The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps. Creating a job runs that planner, then Node downloads Overture parquet for that bbox only, keeps rows whose H3 resolution-8 cell is in the selection, and upserts them into Supabase. `POST /api/workflow-ingestion/jobs/:id/run` starts the same download. The default release is `2026-10-21.0` (`OVERTURE_RELEASE`). Jobs themselves stay in the Node process. Feature rows persist in Supabase.
 
-`POST /api/hex-status` returns `ready`, `missing`, or `processing` for each asked hex. Ready means mock coverage or a succeeded job. Processing means a queued or running job covers the hex.
+`POST /api/hex-status` returns `ready`, `missing`, or `processing`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. Processing means a download is running.
 
 `/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection. The explorer is hex-first: hover a cell to query it (if ready), request processing (if missing), or start a workflow from that hex or the current selection.
 
@@ -71,20 +67,13 @@ Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selec
 
 Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. Hex actions run from the dock because there is no hover card.
 
-If `DATA_MODE=supabase` before query RPC wiring exists, the UI shows a non-blocking notice. Process and workflow jobs still work. Query stays locked until a query RPC exists.
+Hexes start as missing until Process finishes. Query unlocks when rows exist in Supabase.
 
-## Mock coverage
+## Overture ingest
 
-Synthetic records exist for H3 resolution 8 cells inside:
+Process uses DuckDB `httpfs` against the public Overture S3 bucket. It filters by the selection bbox, then by exact H3 resolution-8 indexes, then upserts through `ingest_overture_places`, `ingest_overture_buildings`, and `ingest_overture_addresses`. Anon can SELECT those tables. Direct INSERT is denied.
 
-- west `-97.9`
-- south `30.15`
-- east `-97.6`
-- north `30.45`
-
-Points sit on the cell center, so each record's `h3` matches `latLngToCell`. Counts are generated per cell and respond to filters. They are not a live Overture release.
-
-Sample place categories are limited to labels named in the Overture places guide. Building `subtype` uses the enum in the Overture building schema. Address `locality` and `region` are the two US `address_levels` values: state, then locality.
+The Austin mock generator remains behind `DATA_MODE=mock` for `npm run verify` only.
 
 ## Supabase and Spark workflow scaffold
 
@@ -103,7 +92,7 @@ Safety constraints are enforced in both API and schema:
 
 Spark job scaffold is under `pipelines/spark/workflow_ingest.py`. It reads a plan from `/api/workflow-ingestion/plan`, applies bbox prefilter + exact `h3_res8` filtering, enforces row caps again, and writes segmented outputs plus per-hex metrics.
 
-The query provider path (`DATA_MODE=supabase`) is still not wired to an Overture query RPC yet. Keep `DATA_MODE=mock` for the explorer until that RPC is added.
+Explorer queries read `overture_places`, `overture_buildings`, and `overture_addresses`. Run `supabase/migrations/20261027_overture.sql` after the workflow migration.
 
 The Node server may use the anon key only. The service-role key stays out of the environment and out of the repo. The browser never receives the key.
 
@@ -119,6 +108,6 @@ Browser
 
 `render.yaml` is a Node web service on `main`, built with Node 22.16.0. The build writes the browser assets to `dist/` and the server bundle to `dist-server/`. `node dist-server/index.js` listens on `0.0.0.0` and `PORT`. Render's health check is `GET /api/health`.
 
-`DATA_MODE=mock` is read when the process handles a request, not baked in by Vite. Changing it still needs a restart, which a Render env change does by redeploying. Paths with no file, such as `/settings`, receive `index.html`. A missing file that has an extension returns 404, so a broken script is not replaced with HTML. Hashed files under `/assets/` are cached for a year.
+`DATA_MODE=supabase` is the default. Changing it still needs a restart, which a Render env change does by redeploying. Paths with no file, such as `/settings`, receive `index.html`. A missing file that has an extension returns 404, so a broken script is not replaced with HTML. Hashed files under `/assets/` are cached for a year.
 
 The anon key is not in the blueprint. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the Render dashboard only, and never add the service-role key. The free instance sleeps after a stretch of no requests and wakes on the next one.

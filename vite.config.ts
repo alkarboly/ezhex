@@ -17,4 +17,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  ssr: {
+    external: ['@duckdb/node-api', '@duckdb/node-bindings'],
+  },
 })

@@ -1,6 +1,6 @@
 import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { mockProvider } from '../services/mock-provider'
-import { SUPABASE_NOT_CONNECTED, supabaseProvider } from '../services/supabase-provider'
+import { SUPABASE_NOT_CONFIGURED, supabaseProvider } from '../services/supabase-provider'
 import type { SourceDescription } from '../services/data-provider'
 import type { CellCountRequest, QuerySpec } from '../types/queries'
 import { DATASET_IDS, DATASET_META, FIELD_CATALOG } from '../types/datasets'
@@ -11,6 +11,7 @@ import {
   getIngestionJob,
   hexCoverageFor,
   listIngestionJobs,
+  runIngestionJob,
 } from './ingestion-jobs'
 import {
   asWorkflowIngestionPlanRequest,
@@ -54,12 +55,14 @@ export async function routeApi(method: string, pathname: string, body: unknown):
 
   if (method === 'GET' && pathname === '/api/query-schemas') {
     const mode = readDataMode().resolved
-    const queryEnabled = mode === 'mock'
+    const configured = supabasePublicConfig()
+    const queryEnabled =
+      mode === 'mock' || (configured.urlConfigured && configured.anonKeyConfigured)
     return {
       status: 200,
       body: {
         query_enabled: queryEnabled,
-        reason: queryEnabled ? null : SUPABASE_NOT_CONNECTED,
+        reason: queryEnabled ? null : SUPABASE_NOT_CONFIGURED,
         datasets: DATASET_IDS.map((id) => ({
           id,
           title: DATASET_META[id].title,
@@ -91,12 +94,19 @@ export async function routeApi(method: string, pathname: string, body: unknown):
     return { status: 200, body: listIngestionJobs() }
   }
 
-  if (method === 'GET' && pathname.startsWith('/api/workflow-ingestion/jobs/')) {
-    const id = pathname.slice('/api/workflow-ingestion/jobs/'.length)
-    if (!id || id.includes('/')) return invalid('Job id is required.')
-    const job = getIngestionJob(id)
-    if (!job) return { status: 404, body: { error: 'No such ingestion job.' } }
-    return { status: 200, body: job }
+  if (pathname.startsWith('/api/workflow-ingestion/jobs/')) {
+    const rest = pathname.slice('/api/workflow-ingestion/jobs/'.length)
+    const [id, action] = rest.split('/')
+    if (!id) return invalid('Job id is required.')
+    if (method === 'GET' && !action) {
+      const job = getIngestionJob(id)
+      if (!job) return { status: 404, body: { error: 'No such ingestion job.' } }
+      return { status: 200, body: job }
+    }
+    if (method === 'POST' && action === 'run') {
+      return call(async () => runIngestionJob(id))
+    }
+    if (action) return { status: 404, body: { error: 'No such API route.' } }
   }
 
   if (method === 'POST' && pathname === '/api/workflow-ingestion/jobs') {

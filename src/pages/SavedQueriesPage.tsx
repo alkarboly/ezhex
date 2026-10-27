@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { formatCount } from '../lib/format'
+import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
 import {
   createWorkflowIngestionPlan,
   getQuerySchemas,
@@ -15,7 +16,7 @@ import { WORKFLOW_DATASETS, type WorkflowDataset, type WorkflowIngestionPlan } f
 
 export function SavedQueriesPage() {
   const selectedCells = useExplorer((state) => state.selectedCells)
-  const [releaseVersion, setReleaseVersion] = useState(defaultReleaseVersion())
+  const [releaseVersion, setReleaseVersion] = useState(DEFAULT_OVERTURE_RELEASE)
   const [datasets, setDatasets] = useState<WorkflowDataset[]>([...WORKFLOW_DATASETS])
   const [useSelection, setUseSelection] = useState(true)
   const [manualCells, setManualCells] = useState('')
@@ -30,6 +31,10 @@ export function SavedQueriesPage() {
     queryKey: ['query-schemas'],
     queryFn: getQuerySchemas,
   })
+
+  useEffect(() => {
+    if (limits.data?.default_release_version) setReleaseVersion(limits.data.default_release_version)
+  }, [limits.data])
 
   useEffect(() => {
     const available = schemas.data?.datasets.map((dataset) => dataset.id)
@@ -109,7 +114,7 @@ export function SavedQueriesPage() {
             <Link to="/jobs" className="text-primary hover:underline">
               Jobs
             </Link>
-            , or start it from a hex on the map. The Spark runner still executes the job.
+            , or process the hexes from the map. Jobs run on this server.
           </p>
         </header>
 
@@ -265,10 +270,6 @@ export function SavedQueriesPage() {
       </div>
     </div>
   )
-}
-
-function defaultReleaseVersion(): string {
-  return `${new Date().toISOString().slice(0, 10)}.0`
 }
 
 function parseCells(value: string): string[] {

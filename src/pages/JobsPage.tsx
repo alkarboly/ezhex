@@ -1,10 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { type FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { formatCount } from '../lib/format'
-import { createIngestionJob, getWorkflowIngestionLimits, listIngestionJobs } from '../services/workflow-ingestion'
+import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
+import {
+  createIngestionJob,
+  getWorkflowIngestionLimits,
+  listIngestionJobs,
+  runIngestionJob,
+} from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
 import type { IngestionJob, IngestionJobStatus, WorkflowDataset } from '../types/workflows'
@@ -13,7 +19,7 @@ import { WORKFLOW_DATASETS } from '../types/workflows'
 export function JobsPage() {
   const selectedCells = useExplorer((state) => state.selectedCells)
   const client = useQueryClient()
-  const [releaseVersion, setReleaseVersion] = useState(defaultReleaseVersion())
+  const [releaseVersion, setReleaseVersion] = useState(DEFAULT_OVERTURE_RELEASE)
   const [datasets, setDatasets] = useState<WorkflowDataset[]>([...WORKFLOW_DATASETS])
   const [error, setError] = useState<string | null>(null)
 
@@ -46,7 +52,14 @@ export function JobsPage() {
     })
   }
 
+  useEffect(() => {
+    if (limits.data?.default_release_version) setReleaseVersion(limits.data.default_release_version)
+  }, [limits.data])
   const counts = useMemo(() => tally(jobs.data ?? []), [jobs.data])
+  const refreshJobs = async () => {
+    await client.invalidateQueries({ queryKey: ['ingestion-jobs'] })
+    await client.invalidateQueries({ queryKey: ['hex-status'] })
+  }
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -54,7 +67,7 @@ export function JobsPage() {
         <header>
           <h1 className="text-xl font-semibold">Jobs</h1>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Queue a hex-scoped ingestion job. Spark still runs outside this process. Mock-covered Austin hexes resolve as ready.
+            Process selected hexes from the public Overture Maps release into Supabase. Then query those cells.
           </p>
         </header>
 
@@ -103,7 +116,7 @@ export function JobsPage() {
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" disabled={create.isPending}>
-            {create.isPending ? 'Creating…' : 'Create ingestion job'}
+            {create.isPending ? 'Processing…' : 'Process hexes'}
           </Button>
         </form>
 
@@ -113,7 +126,7 @@ export function JobsPage() {
           {jobs.error && <p className="text-sm text-destructive">{jobs.error.message}</p>}
           {jobs.data?.length === 0 && <p className="text-sm text-muted-foreground">No jobs yet.</p>}
           {jobs.data?.map((job) => (
-            <JobRow key={job.id} job={job} />
+            <JobRow key={job.id} job={job} onRan={() => void refreshJobs()} />
           ))}
         </section>
       </div>
@@ -121,18 +134,30 @@ export function JobsPage() {
   )
 }
 
-function JobRow({ job }: { job: IngestionJob }) {
+function JobRow({ job, onRan }: { job: IngestionJob; onRan: () => void }) {
+  const run = useMutation({
+    mutationFn: () => runIngestionJob(job.id),
+    onSuccess: onRan,
+  })
+  const canRun = job.status === 'queued' || job.status === 'failed'
   return (
     <article className="rounded-lg border border-border bg-card px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
         <StatusDot status={job.status} />
         <span className="font-mono text-xs">{job.run_id}</span>
         <span className="text-xs text-muted-foreground">{job.release_version}</span>
+        {canRun && (
+          <Button type="button" size="sm" variant="outline" disabled={run.isPending} onClick={() => run.mutate()}>
+            {run.isPending ? 'Processing…' : 'Process now'}
+          </Button>
+        )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         {formatCount(job.h3_cells.length)} hexes · {job.datasets.join(', ')} · {formatCount(job.bbox.area_km2)} km2
       </p>
       {job.note && <p className="mt-1 text-xs text-muted-foreground">{job.note}</p>}
+      {job.error_message && <p className="mt-1 text-xs text-destructive">{job.error_message}</p>}
+      {run.error && <p className="mt-1 text-xs text-destructive">{run.error.message}</p>}
     </article>
   )
 }
@@ -150,6 +175,3 @@ function tally(jobs: readonly IngestionJob[]) {
   }
 }
 
-function defaultReleaseVersion(): string {
-  return `${new Date().toISOString().slice(0, 10)}.0`
-}

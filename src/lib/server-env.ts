@@ -14,9 +14,9 @@ export function serverEnv(name: string): string {
 
 export function readDataMode(): ResolvedDataMode {
   const raw = serverEnv('DATA_MODE') || serverEnv('VITE_DATA_MODE')
-  if (raw === 'supabase') return { raw, resolved: 'supabase', unrecognized: false }
-  if (raw === '' || raw === 'mock') return { raw: raw || 'mock', resolved: 'mock', unrecognized: false }
-  return { raw, resolved: 'mock', unrecognized: true }
+  if (raw === 'mock') return { raw, resolved: 'mock', unrecognized: false }
+  if (raw === '' || raw === 'supabase') return { raw: raw || 'supabase', resolved: 'supabase', unrecognized: false }
+  return { raw, resolved: 'supabase', unrecognized: true }
 }
 
 export function supabasePublicConfig(): { urlConfigured: boolean; anonKeyConfigured: boolean } {

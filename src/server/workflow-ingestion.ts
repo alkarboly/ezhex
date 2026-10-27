@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { areNeighborCells, cellToBoundary, getResolution, isValidCell } from 'h3-js'
 import { H3_RESOLUTION } from '../lib/limits'
+import { defaultOvertureRelease } from '../lib/overture'
 import { serverEnv } from '../lib/server-env'
 import {
   WORKFLOW_DATASETS,
@@ -34,6 +35,7 @@ export function workflowIngestionLimits(): WorkflowIngestionLimits {
     ),
     max_total_rows: clampInt('WORKFLOW_MAX_TOTAL_ROWS', 900_000, HARD_MAX_TOTAL_ROWS),
     h3_resolution: H3_RESOLUTION,
+    default_release_version: defaultOvertureRelease(),
   }
 }
 

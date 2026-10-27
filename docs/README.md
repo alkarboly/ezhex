@@ -1,6 +1,6 @@
 # WorldPulse docs
 
-- [Architecture](architecture.md) — hex-first Explorer, hover actions, Jobs, query contracts, Render Node service, and the Supabase/Spark workflow scaffold
+- [Architecture](architecture.md) — hex-first Explorer, Overture ingest into Supabase, Jobs, query contracts, and Render
 - [Query spec](query-spec.md) — server query JSON contract, operators, and Overture fields
 - [Workflow pipeline](workflow-pipeline.md) — segmented ingestion guardrails, in-memory jobs, Spark job contract, storage layout, and Supabase workflow tables
 

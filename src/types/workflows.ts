@@ -25,6 +25,7 @@ export type WorkflowIngestionLimits = {
   max_rows_per_dataset: number
   max_total_rows: number
   h3_resolution: number
+  default_release_version: string
 }
 
 export type WorkflowIngestionPlan = {

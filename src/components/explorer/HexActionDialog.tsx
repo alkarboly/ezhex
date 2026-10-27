@@ -1,9 +1,10 @@
 import * as Dialog from '@radix-ui/react-dialog'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useCompiledQuery, useQueryResults } from '../../hooks/useCompiledQuery'
 import { formatCount } from '../../lib/format'
+import { DEFAULT_OVERTURE_RELEASE } from '../../lib/overture-release'
 import {
   createIngestionJob,
   getQuerySchemas,
@@ -107,10 +108,13 @@ function JobPane({
   ready: boolean
   onCreated: (job: IngestionJob) => void
 }) {
-  const [releaseVersion, setReleaseVersion] = useState(defaultReleaseVersion())
+  const [releaseVersion, setReleaseVersion] = useState(DEFAULT_OVERTURE_RELEASE)
   const [datasets, setDatasets] = useState<WorkflowDataset[]>([...WORKFLOW_DATASETS])
   const [error, setError] = useState<string | null>(null)
   const limits = useQuery({ queryKey: ['workflow-ingestion-limits'], queryFn: getWorkflowIngestionLimits })
+  useEffect(() => {
+    if (limits.data?.default_release_version) setReleaseVersion(limits.data.default_release_version)
+  }, [limits.data])
   const create = useMutation({
     mutationFn: createIngestionJob,
     onSuccess: (job) => {
@@ -143,10 +147,10 @@ function JobPane({
     >
       <p className="text-sm leading-6 text-muted-foreground">
         {mode === 'workflow'
-          ? 'A workflow starts from this hex set. If the data is missing, this queues an ingestion job first.'
+          ? 'A workflow starts from this hex set. If the data is missing, this runs a local ingest first.'
           : ready
             ? 'These hexes already have data. Creating a job records a reprocess request.'
-            : 'This queues a capped ingestion job for the selected hexes only.'}
+            : 'This processes the selected hexes on this server and writes queryable rows.'}
       </p>
       {limits.data && (
         <p className="text-xs text-muted-foreground">
@@ -187,12 +191,9 @@ function JobPane({
       </ul>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Button type="submit" disabled={create.isPending || cells.length === 0}>
-        {create.isPending ? 'Creating…' : mode === 'workflow' ? 'Create workflow job' : 'Create ingestion job'}
+        {create.isPending ? 'Processing…' : mode === 'workflow' ? 'Create workflow' : 'Process hexes'}
       </Button>
     </form>
   )
 }
 
-function defaultReleaseVersion(): string {
-  return `${new Date().toISOString().slice(0, 10)}.0`
-}

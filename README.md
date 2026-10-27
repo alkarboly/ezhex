@@ -1,6 +1,6 @@
 # WorldPulse
 
-WorldPulse is an H3 map for exploring Overture-shaped building, address, and place records. This slice runs locally on synthetic Austin data. Supabase storage and sign-in are the next slice.
+WorldPulse is an H3 map for exploring Overture building, address, and place records. Process a hex to download that cell from the public Overture release into Supabase.
 
 ## Run locally
 
@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. The default dataset is Places. No API keys are required.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`. The default dataset is Places.
 
 ```bash
 npm run build
@@ -29,13 +29,14 @@ npm run build
 
 | Variable | Purpose |
 | --- | --- |
-| `DATA_MODE` | `mock` (default) or `supabase`. The server reads this. |
+| `DATA_MODE` | `supabase` (default) or `mock` for local verify. |
 | `SUPABASE_URL` | Project URL, used only when mode is `supabase` |
 | `SUPABASE_ANON_KEY` | Publishable anon key, read only by the server |
+| `OVERTURE_RELEASE` | Public Overture release id. Default `2026-10-21.0`. |
 
 Copy `.env.example` to `.env` if you want to set them. The `VITE_` names of those three variables still work as aliases. Do not put the Supabase service-role key in this app or on Render.
 
-`supabase` mode does not query Overture tables yet. Leave the mode on `mock` until that routing exists. The active mode is shown in the sidebar, or in the menu on phones. It comes from `GET /api/source`.
+`supabase` mode reads Overture rows from Supabase. Process downloads the public `2026-10-21.0` release for the selected hexes. The active mode is shown in the sidebar, or in the menu on phones. It comes from `GET /api/source`.
 
 ## Workflow ingestion planning
 
@@ -47,6 +48,7 @@ The server includes segmented-ingestion planning and job routes:
 - `POST /api/workflow-ingestion/jobs`
 - `GET /api/workflow-ingestion/jobs`
 - `GET /api/workflow-ingestion/jobs/:id`
+- `POST /api/workflow-ingestion/jobs/:id/run`
 - `POST /api/hex-status`
 
 The plan route enforces:
@@ -61,7 +63,7 @@ It returns a Spark plan JSON with release version, selected hexes, bbox, row cap
 
 `/api/query-schemas` returns dataset/field/operator contracts from the same whitelist used by query validation, plus whether query execution is enabled in the current mode.
 
-`/api/workflow-ingestion/jobs` stores jobs in the Node process. Mock-covered Austin hexes resolve as ready. Other hexes stay queued for Spark. `/api/hex-status` tells the map whether a hex is ready, missing, or processing.
+`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. `/api/hex-status` is ready when those tables have rows for the hex.
 
 Workflow ingestion envs in `.env.example`:
 
@@ -102,16 +104,15 @@ render deploys create SERVICE_ID --wait --confirm
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
 - H3 resolution 8 cells for the current view, from `h3-js` boundaries. By default they light up as a lens around the cursor. **Map layers** switches to a full grid or hides them.
 - Hex-first explorer: hover a cell to query it (if ready), request processing, or start a workflow. The selection dock does the same for a set of hexes
-- Jobs page at `/jobs` creates and lists in-memory ingestion jobs from the current map selection
-- Workflow ingestion planning endpoints plus a Workflows page that builds/downloads plan JSON from selected hexes
+- Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
-- Spark/Supabase workflow scaffolding with hard caps on hex count, bbox area, and row counts
+- Hard caps on hex count, bbox area, and row counts
 
-Hover a ready hex or use Query on the dock to open the filter editor. Missing hexes have to be processed first. Spark execution still runs outside the app.
+Hover a ready hex or use Query on the dock to open the filter editor. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 
-Sign-in UX, persisting jobs to Supabase, and the Overture query RPC for explorer reads. Spark execution still runs outside the app. See `docs/architecture.md`.
+Sign-in UX and persisting job records to Supabase. See `docs/architecture.md`.
 
 ## Docs
 

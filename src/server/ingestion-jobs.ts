@@ -2,6 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { mockCoverageCells } from '../lib/h3'
 import { MAX_VIEWPORT_CELLS } from '../lib/limits'
 import { readDataMode } from '../lib/server-env'
+import { ingestMockCellsNow } from '../services/mock-provider'
+import { supabaseReadyHexes } from '../services/supabase-provider'
+import { ingestOverturePlan } from './overture-ingest'
 import type {
   HexCoverage,
   HexCoverageResponse,
@@ -20,6 +23,9 @@ function mockReadyCells(): ReadonlySet<string> {
 }
 
 export function listIngestionJobs(): IngestionJob[] {
+  for (const job of [...jobs.values()]) {
+    if (job.status === 'queued') runIngestionJob(job.id)
+  }
   return [...jobs.values()].sort((left, right) => right.created_at.localeCompare(left.created_at))
 }
 
@@ -54,23 +60,52 @@ export function createIngestionJob(body: unknown): IngestionJob {
     plan,
     rows_total: 0,
     note: ready
-      ? 'These hexes already have mock coverage. The job is marked ready without a Spark run.'
-      : 'Queued for the Spark runner. The Node process does not execute Spark.',
+      ? 'These hexes already have processed rows.'
+      : 'Processing selected hexes on this server.',
     error_message: null,
     created_at: now,
     started_at: ready ? now : null,
     finished_at: ready ? now : null,
   }
   remember(job)
+  if (ready) return job
+  if (mock) return runIngestionJob(job.id)
+  return startOvertureJob(job.id)
+}
+
+export function runIngestionJob(id: string): IngestionJob {
+  const job = jobs.get(id)
+  if (!job) throw new Error('No such ingestion job.')
+  if (job.status === 'succeeded' || job.status === 'running') return job
+  if (job.status === 'cancelled') throw new Error('This job was cancelled.')
+
+  const now = new Date().toISOString()
+  if (readDataMode().resolved === 'supabase') return startOvertureJob(id)
+
+  job.status = 'running'
+  job.started_at = now
+  job.note = 'Processing selected hexes.'
+  const result = ingestMockCellsNow(job.h3_cells)
+  const finished = new Date().toISOString()
+  job.status = 'succeeded'
+  job.finished_at = finished
+  job.rows_total = result.rows
+  job.error_message = null
+  job.note =
+    result.added.length > 0
+      ? `Processed ${result.added.length} hexes · ${result.rows} rows. Ready to query.`
+      : `These hexes already had rows · ${result.rows} total. Ready to query.`
   return job
 }
 
-export function hexCoverageFor(cells: readonly string[]): HexCoverageResponse {
+export async function hexCoverageFor(cells: readonly string[]): Promise<HexCoverageResponse> {
   if (cells.length > MAX_VIEWPORT_CELLS) {
     throw new Error(`Ask for at most ${MAX_VIEWPORT_CELLS} hexes.`)
   }
   const unique = [...new Set(cells)]
-  const listed = unique.map((h3) => coverageForCell(h3))
+  const loaded =
+    readDataMode().resolved === 'supabase' ? await supabaseReadyHexes(unique) : mockReadyCells()
+  const listed = unique.map((h3) => coverageForCell(h3, loaded))
   return {
     cells: listed,
     ready_count: listed.filter((cell) => cell.status === 'ready').length,
@@ -95,19 +130,50 @@ export function asJobCreateRequest(body: unknown): WorkflowIngestionPlanRequest 
   return body as WorkflowIngestionPlanRequest
 }
 
-function coverageForCell(h3: string): HexCoverage {
+function coverageForCell(h3: string, loaded: ReadonlySet<string>): HexCoverage {
   const processing = [...jobs.values()].find(
     (job) => job.h3_cells.includes(h3) && (job.status === 'queued' || job.status === 'running'),
   )
   if (processing) return { h3, status: 'processing', job_id: processing.id }
 
   const succeeded = [...jobs.values()].find((job) => job.h3_cells.includes(h3) && job.status === 'succeeded')
-  if (succeeded) return { h3, status: 'ready', job_id: succeeded.id }
-
-  if (readDataMode().resolved === 'mock' && mockReadyCells().has(h3)) {
-    return { h3, status: 'ready', job_id: null }
+  if (succeeded || loaded.has(h3)) {
+    return { h3, status: 'ready', job_id: succeeded?.id ?? null }
   }
   return { h3, status: 'missing', job_id: null }
+}
+
+function startOvertureJob(id: string): IngestionJob {
+  const job = jobs.get(id)
+  if (!job) throw new Error('No such ingestion job.')
+  if (job.status === 'succeeded' || job.status === 'running') return job
+  if (job.status === 'cancelled') throw new Error('This job was cancelled.')
+  const now = new Date().toISOString()
+  job.status = 'running'
+  job.started_at = now
+  job.finished_at = null
+  job.error_message = null
+  job.note = 'Downloading Overture for these hexes.'
+  void finishOvertureJob(id)
+  return job
+}
+
+async function finishOvertureJob(id: string) {
+  const job = jobs.get(id)
+  if (!job) return
+  try {
+    const result = await ingestOverturePlan(job.plan)
+    job.status = 'succeeded'
+    job.finished_at = new Date().toISOString()
+    job.rows_total = result.rows
+    job.error_message = null
+    job.note = `Processed ${result.rows} Overture rows. Ready to query.`
+  } catch (error) {
+    job.status = 'failed'
+    job.finished_at = new Date().toISOString()
+    job.error_message = error instanceof Error ? error.message : 'Overture ingest failed.'
+    job.note = job.error_message
+  }
 }
 
 function sameDatasets(left: readonly string[], right: readonly string[]): boolean {

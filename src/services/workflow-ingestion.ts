@@ -52,3 +52,7 @@ export function listIngestionJobs() {
 export function getHexStatus(h3Cells: readonly string[]) {
   return request<HexCoverageResponse>('/api/hex-status', { h3_cells: [...h3Cells] })
 }
+
+export function runIngestionJob(id: string) {
+  return request<IngestionJob>(`/api/workflow-ingestion/jobs/${id}/run`, {})
+}

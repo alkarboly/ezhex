@@ -5,7 +5,7 @@ import { validateCellList, validateFilters, validateQuery } from '../lib/validat
 import type { DatasetId } from '../types/datasets'
 import type { CellCount, QueryResult, QuerySpec, ResultRow } from '../types/queries'
 import type { DataProvider } from './data-provider'
-import { buildMockDatabase, type MockDatabase } from './mock/database'
+import { buildMockDatabase, ingestMockCells, type MockDatabase } from './mock/database'
 import {
   compareField,
   matchesFilters,
@@ -193,4 +193,9 @@ export function resetMockDatabaseForTests() {
   database = null
   pending = null
   buildError = null
+}
+
+export function ingestMockCellsNow(cells: readonly string[]) {
+  if (!database) database = buildMockDatabase()
+  return ingestMockCells(database, cells)
 }

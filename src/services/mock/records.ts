@@ -34,7 +34,7 @@ export type AddressRecord = {
   h3: string
   lat: number
   lng: number
-  country: 'US'
+  country: string
   number: string
   street: string
   postcode: string

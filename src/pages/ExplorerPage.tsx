@@ -41,8 +41,9 @@ export function ExplorerPage() {
   const notice = useExplorer((state) => state.notice)
   const dismissNotice = useExplorer((state) => state.dismissNotice)
   const setNotice = useExplorer((state) => state.setNotice)
-  const queryUnavailable = source.data?.mode === 'supabase'
-  const canQueryCells = source.data?.mode === 'mock'
+  const configured = Boolean(source.data?.supabase?.urlConfigured && source.data?.supabase?.anonKeyConfigured)
+  const queryUnavailable = source.data?.mode === 'supabase' && !configured
+  const canQueryCells = source.data?.mode === 'mock' || (source.data?.mode === 'supabase' && configured)
   const [action, setAction] = useState<{ mode: HexAction; cells: string[] } | null>(null)
 
   const stats = useCellStats(canQueryCells ? (cells.length > 0 ? cells : selected) : [], compiled)
@@ -101,7 +102,7 @@ export function ExplorerPage() {
     setNotice(
       job.status === 'succeeded'
         ? 'These hexes are ready. You can query or start a workflow.'
-        : 'Ingestion job queued. Spark still runs outside this process.',
+        : 'Still processing these hexes.',
     )
     await client.invalidateQueries({ queryKey: ['hex-status'] })
     await client.invalidateQueries({ queryKey: ['ingestion-jobs'] })
@@ -174,7 +175,7 @@ export function ExplorerPage() {
               className="glass pointer-events-none absolute inset-x-3 z-20 mx-auto max-w-md rounded-full px-3.5 py-2 text-center text-xs text-muted-foreground"
               style={{ top: `calc(max(0.75rem, env(safe-area-inset-top)) + 6.6rem)` }}
             >
-              Supabase query mode is not connected yet. Process hexes, then query them once data is ready.
+              Set SUPABASE_URL and SUPABASE_ANON_KEY on the server, then process hexes to pull Overture.
             </div>
           )}
           <div className="pointer-events-none absolute inset-x-3 z-20 flex justify-center" style={{ bottom: 16 }}>
@@ -194,7 +195,7 @@ export function ExplorerPage() {
               role="status"
               className="glass pointer-events-none absolute top-14 left-1/2 z-20 -translate-x-1/2 rounded-full px-3.5 py-2 text-xs text-muted-foreground"
             >
-              Supabase query mode is not connected yet. Process hexes, then query them once data is ready.
+              Set SUPABASE_URL and SUPABASE_ANON_KEY on the server, then process hexes to pull Overture.
             </div>
           )}
           <div className="absolute top-3 right-3 z-20">
