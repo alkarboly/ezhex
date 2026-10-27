@@ -360,7 +360,7 @@ function StatusPill({
   let text: string | null = null
   if (status === 'zoom-in') text = 'Globe view · zoom in for hexes'
   else if (status === 'too-many') text = 'Too many cells in view. Zoom in to load the grid.'
-  else if (status === 'ready' && allZero) text = hasFilters ? `No matching ${noun} in this view` : 'Outside the Austin mock coverage'
+  else if (status === 'ready' && allZero && hasFilters) text = `No matching ${noun} in this view`
   if (!text) return null
   return (
     <div role="status" className="glass rounded-full px-3.5 py-1.5 text-center text-xs text-muted-foreground">
