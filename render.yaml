@@ -8,16 +8,22 @@ services:
     plan: free
     branch: main
     buildCommand: npm ci --include=dev && npm run build
-    startCommand: node dist-server/index.js
+    startCommand: NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
       # Quoted so YAML does not read the version as the number 22.16.
       - key: NODE_VERSION
         value: "22.16.0"
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=256"
       - key: DATA_MODE
         value: supabase
       - key: OVERTURE_RELEASE
         value: "2026-10-21.0"
+      - key: WORKFLOW_MAX_ROWS_PER_DATASET
+        value: "8000"
+      - key: WORKFLOW_MAX_TOTAL_ROWS
+        value: "20000"
     previews:
       generation: automatic

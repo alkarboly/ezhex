@@ -83,7 +83,11 @@ export const supabaseProvider: DataProvider = {
       ...validateFilters(request.dataset, request.filters),
     ]
     if (errors.length > 0) throw new Error(errors.join(' '))
-    const grouped = await loadRecords(request.dataset, request.h3_cells)
+    if (request.filters.length === 0) {
+      const counts = await countByHex(request.dataset, request.h3_cells)
+      return request.h3_cells.map((h3) => ({ h3, count: counts.get(h3) ?? 0 }))
+    }
+    const grouped = await loadRecords(request.dataset, request.h3_cells, false)
     return request.h3_cells.map((h3) => ({
       h3,
       count: (grouped.get(h3) ?? []).filter((record) =>
@@ -104,7 +108,7 @@ export const supabaseProvider: DataProvider = {
         source: 'supabase',
       }
     }
-    const grouped = await loadRecords(spec.dataset, spec.h3_cells)
+    const grouped = await loadRecords(spec.dataset, spec.h3_cells, true)
     const matches: AnyRecord[] = []
     const byCell: CellCount[] = spec.h3_cells.map((h3) => {
       const bucket = (grouped.get(h3) ?? []).filter((record) => matchesFilters(spec.dataset, record, spec.filters))
@@ -162,14 +166,33 @@ async function countTable(client: NonNullable<ReturnType<typeof getSupabaseClien
   return count ?? 0
 }
 
-async function loadRecords(dataset: DatasetId, cells: readonly string[]): Promise<Map<string, AnyRecord[]>> {
+async function countByHex(dataset: DatasetId, cells: readonly string[]): Promise<Map<string, number>> {
+  const client = requireClient()
+  const counts = new Map<string, number>()
+  for (const cell of cells) counts.set(cell, 0)
+  for (const part of chunk(cells, 80)) {
+    const { data, error } = await client.from(TABLES[dataset]).select('h3_res8').in('h3_res8', part)
+    if (error) throw new Error(error.message)
+    for (const row of data ?? []) {
+      if (!row || typeof row.h3_res8 !== 'string') continue
+      counts.set(row.h3_res8, (counts.get(row.h3_res8) ?? 0) + 1)
+    }
+  }
+  return counts
+}
+
+async function loadRecords(
+  dataset: DatasetId,
+  cells: readonly string[],
+  withGeometry: boolean,
+): Promise<Map<string, AnyRecord[]>> {
   const client = requireClient()
   const grouped = new Map<string, AnyRecord[]>()
   for (const cell of cells) grouped.set(cell, [])
   for (const part of chunk(cells, 80)) {
-    const { data, error } = await client.from(TABLES[dataset]).select('*').in('h3_res8', part)
+    const { data, error } = await client.from(TABLES[dataset]).select(columnsFor(dataset, withGeometry) as '*').in('h3_res8', part)
     if (error) throw new Error(error.message)
-    for (const row of data ?? []) {
+    for (const row of (data ?? []) as Record<string, unknown>[]) {
       const record = asRecord(dataset, row)
       if (!record) continue
       const bucket = grouped.get(record.h3)
@@ -263,6 +286,22 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
     building_id: typeof row.building_id === 'string' ? row.building_id : null,
   }
   return address
+}
+
+function columnsFor(dataset: DatasetId, withGeometry: boolean): string {
+  if (dataset === 'places') {
+    return withGeometry
+      ? 'id,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,taxonomy_hierarchy,confidence,operating_status,phones,websites,socials,emails,brand_name,brand_wikidata,place_addresses,building_id,address_id,geometry'
+      : 'id,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,confidence,operating_status,phones,websites,brand_name,building_id,address_id'
+  }
+  if (dataset === 'buildings') {
+    return withGeometry
+      ? 'id,h3_res8,lat,lng,subtype,class,names_primary,height,num_floors,has_parts,is_underground,num_floors_underground,min_height,min_floor,level,facade_color,facade_material,roof_material,roof_shape,roof_direction,roof_color,address_id,geometry'
+      : 'id,h3_res8,lat,lng,subtype,class,names_primary,height,num_floors,address_id'
+  }
+  return withGeometry
+    ? 'id,h3_res8,lat,lng,country,number,street,postcode,region,locality,unit,postal_city,building_id,geometry'
+    : 'id,h3_res8,lat,lng,country,number,street,postcode,region,locality,unit,postal_city,building_id'
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {

@@ -1,6 +1,6 @@
 import { DuckDBConnection } from '@duckdb/node-api'
 import { asPlaceAddresses, associateFeatures } from '../lib/associate'
-import { asGeometry } from '../lib/geojson'
+import { asGeometry, pointGeometry, simplifyGeometry } from '../lib/geojson'
 import { getSupabaseClient } from '../lib/supabase'
 import {
   addressLevels,
@@ -16,10 +16,11 @@ import { WORKFLOW_DATASETS } from '../types/workflows'
 export type JobLogger = (level: JobLogLevel, message: string) => void
 
 const BATCH: Record<WorkflowDataset, number> = {
-  places: 400,
-  addresses: 400,
-  buildings: 100,
+  places: 200,
+  addresses: 200,
+  buildings: 50,
 }
+const READ_PAGE = 200
 let connection: Promise<DuckDBConnection> | null = null
 
 export type OvertureIngestResult = {
@@ -42,79 +43,93 @@ export async function ingestOverturePlan(
 
   const wanted = new Set(plan.h3_cells)
   const loaded: Record<WorkflowDataset, IngestRow[]> = { places: [], addresses: [], buildings: [] }
-  for (const dataset of WORKFLOW_DATASETS) {
-    log('info', `Opening ${dataset} parquet ${overtureParquetGlob(plan.release_version, dataset)}`)
-    const mapped = await readTheme(dataset, plan, log)
-    loaded[dataset] = mapped.filter((row) => wanted.has(row.h3_res8))
+  try {
+    for (const dataset of WORKFLOW_DATASETS) {
+      log('info', `Opening ${dataset} parquet ${overtureParquetGlob(plan.release_version, dataset)}`)
+      loaded[dataset] = await readTheme(dataset, plan, wanted, log)
+    }
+
+    const links = associateFeatures({
+      places: loaded.places.map(asAssociatePlace),
+      buildings: loaded.buildings.map(asAssociateBuilding),
+      addresses: loaded.addresses.map(asAssociateAddress),
+    })
+    for (const row of loaded.places) {
+      const link = links.places.get(row.id)
+      row.building_id = link?.building_id ?? null
+      row.address_id = link?.address_id ?? null
+    }
+    for (const row of loaded.buildings) {
+      row.address_id = links.buildings.get(row.id)?.address_id ?? null
+    }
+    for (const row of loaded.addresses) {
+      row.building_id = links.addresses.get(row.id)?.building_id ?? null
+    }
     log(
-      loaded[dataset].length === 0 ? 'warn' : 'info',
-      `${dataset}: ${mapped.length} bbox rows, ${loaded[dataset].length} in selected hexes`,
+      'info',
+      `Associated ${links.place_building_matches} places→buildings, ${links.place_address_matches} places→addresses, ${links.building_address_matches} buildings→addresses`,
     )
-  }
 
-  const links = associateFeatures({
-    places: loaded.places.map(asAssociatePlace),
-    buildings: loaded.buildings.map(asAssociateBuilding),
-    addresses: loaded.addresses.map(asAssociateAddress),
-  })
-  for (const row of loaded.places) {
-    const link = links.places.get(row.id)
-    row.building_id = link?.building_id ?? null
-    row.address_id = link?.address_id ?? null
-  }
-  for (const row of loaded.buildings) {
-    row.address_id = links.buildings.get(row.id)?.address_id ?? null
-  }
-  for (const row of loaded.addresses) {
-    row.building_id = links.addresses.get(row.id)?.building_id ?? null
-  }
-  log(
-    'info',
-    `Associated ${links.place_building_matches} places→buildings, ${links.place_address_matches} places→addresses, ${links.building_address_matches} buildings→addresses`,
-  )
+    const byDataset: Partial<Record<WorkflowDataset, number>> = {}
+    let rows = 0
+    for (const dataset of WORKFLOW_DATASETS) {
+      const written = await writeTheme(dataset, plan.release_version, loaded[dataset], log)
+      byDataset[dataset] = written
+      rows += written
+      loaded[dataset] = []
+    }
 
-  const byDataset: Partial<Record<WorkflowDataset, number>> = {}
-  let rows = 0
-  for (const dataset of WORKFLOW_DATASETS) {
-    const written = await writeTheme(dataset, plan.release_version, loaded[dataset], log)
-    byDataset[dataset] = written
-    rows += written
+    log('info', `Ingest finished. ${rows} rows written.`)
+    return { rows, by_dataset: byDataset }
+  } finally {
+    await releaseDuck()
   }
-
-  log('info', `Ingest finished. ${rows} rows written.`)
-  return { rows, by_dataset: byDataset }
 }
 
 async function readTheme(
   dataset: WorkflowDataset,
   plan: WorkflowIngestionPlan,
+  wanted: ReadonlySet<string>,
   log: JobLogger,
 ): Promise<IngestRow[]> {
   log('info', `${dataset}: connecting DuckDB and reading public Overture S3`)
   const started = Date.now()
   const db = await duck()
   const path = overtureParquetGlob(plan.release_version, dataset)
-  const limit = plan.max_rows_by_dataset[dataset] ?? plan.limits.max_rows_per_dataset
+  const cap = plan.max_rows_by_dataset[dataset] ?? plan.limits.max_rows_per_dataset
   const bbox = plan.bbox
   const sql = themeSql(dataset, path)
-  const reader = await db.runAndReadAll(sql, {
-    west: bbox.west,
-    south: bbox.south,
-    east: bbox.east,
-    north: bbox.north,
-    limit,
-  })
-  const raw = reader.getRowObjectsJson()
-  reader.closeSync()
-  const mapped = raw.map((row) => mapRow(dataset, row)).filter((row): row is IngestRow => row != null)
-  log(
-    'info',
-    `${dataset}: DuckDB returned ${raw.length} rows, mapped ${mapped.length} in ${Date.now() - started}ms (limit ${limit})`,
-  )
-  if (raw.length >= limit) {
-    log('warn', `${dataset}: hit the per-dataset row cap (${limit}). Extra rows in this bbox were not read.`)
+  const kept: IngestRow[] = []
+  let rawTotal = 0
+  let offset = 0
+  while (offset < cap) {
+    const page = Math.min(READ_PAGE, cap - offset)
+    const reader = await db.runAndReadAll(sql, {
+      west: bbox.west,
+      south: bbox.south,
+      east: bbox.east,
+      north: bbox.north,
+      limit: page,
+      offset,
+    })
+    const raw = reader.getRowObjectsJson()
+    reader.closeSync()
+    rawTotal += raw.length
+    for (const row of raw) {
+      const mapped = mapRow(dataset, row)
+      if (mapped && wanted.has(mapped.h3_res8)) kept.push(mapped)
+    }
+    if (raw.length < page) break
+    offset += raw.length
   }
-  return mapped
+  log(
+    kept.length === 0 ? 'warn' : 'info',
+    `${dataset}: DuckDB scanned ${rawTotal} bbox rows, kept ${kept.length} in selected hexes in ${Date.now() - started}ms (cap ${cap})`,
+  )
+  if (rawTotal >= cap) {
+    log('warn', `${dataset}: hit the per-dataset row cap (${cap}). Extra rows in this bbox were not read.`)
+  }
+  return kept
 }
 
 async function writeTheme(
@@ -167,7 +182,6 @@ function themeSql(dataset: WorkflowDataset, path: string): string {
       id,
       ST_Y(geometry::GEOMETRY) as lat,
       ST_X(geometry::GEOMETRY) as lng,
-      ST_AsGeoJSON(geometry::GEOMETRY) as geometry,
       names.primary as names_primary,
       basic_category,
       taxonomy.primary as taxonomy_primary,
@@ -183,14 +197,15 @@ function themeSql(dataset: WorkflowDataset, path: string): string {
       addresses as place_addresses
     from ${source}
     where ${bbox}
-    limit $limit`
+    limit $limit
+    offset $offset`
   }
   if (dataset === 'buildings') {
     return `select
       id,
       ST_Y(ST_Centroid(geometry::GEOMETRY)) as lat,
       ST_X(ST_Centroid(geometry::GEOMETRY)) as lng,
-      ST_AsGeoJSON(geometry::GEOMETRY) as geometry,
+      ST_AsGeoJSON(ST_SimplifyPreserveTopology(geometry::GEOMETRY, 0.0001)) as geometry,
       subtype,
       class,
       names.primary as names_primary,
@@ -210,13 +225,13 @@ function themeSql(dataset: WorkflowDataset, path: string): string {
       roof_color
     from ${source}
     where ${bbox}
-    limit $limit`
+    limit $limit
+    offset $offset`
   }
   return `select
     id,
     ST_Y(geometry::GEOMETRY) as lat,
     ST_X(geometry::GEOMETRY) as lng,
-    ST_AsGeoJSON(geometry::GEOMETRY) as geometry,
     country,
     number,
     street,
@@ -226,7 +241,8 @@ function themeSql(dataset: WorkflowDataset, path: string): string {
     address_levels
   from ${source}
   where ${bbox}
-  limit $limit`
+  limit $limit
+  offset $offset`
 }
 
 function mapRow(dataset: WorkflowDataset, row: Record<string, unknown>): IngestRow | null {
@@ -235,7 +251,8 @@ function mapRow(dataset: WorkflowDataset, row: Record<string, unknown>): IngestR
   const lng = asNumber(row.lng)
   const h3 = lat != null && lng != null ? cellForPoint(lat, lng) : null
   if (!id || !h3 || lat == null || lng == null) return null
-  const geometry = asGeometry(row.geometry)
+  const geometry =
+    dataset === 'buildings' ? simplifyGeometry(asGeometry(row.geometry), 24) : pointGeometry(lng, lat)
 
   if (dataset === 'places') {
     return {
@@ -345,6 +362,8 @@ async function duck(): Promise<DuckDBConnection> {
   if (!connection) {
     connection = (async () => {
       const db = await DuckDBConnection.create()
+      await db.run("set memory_limit='160MB'")
+      await db.run('set threads=1')
       await db.run('install httpfs')
       await db.run('load httpfs')
       await db.run('install spatial')
@@ -354,4 +373,18 @@ async function duck(): Promise<DuckDBConnection> {
     })()
   }
   return connection
+}
+
+async function releaseDuck() {
+  const pending = connection
+  connection = null
+  if (!pending) return
+  try {
+    const db = await pending
+    const closer = db as unknown as { closeSync?: () => void; disconnectSync?: () => void }
+    if (typeof closer.closeSync === 'function') closer.closeSync()
+    else if (typeof closer.disconnectSync === 'function') closer.disconnectSync()
+  } catch {
+    // Native buffers still drop when the connection is unreferenced.
+  }
 }

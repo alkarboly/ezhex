@@ -10,8 +10,8 @@ Every run is scoped to one selected H3 resolution-8 group:
 - hexes must be one connected component
 - bbox is derived from selected hexes
 - bbox area must be <= 220 km2
-- per-dataset row cap (default 400,000, hard cap 1,000,000)
-- total-row cap (default 900,000, hard cap 2,000,000)
+- per-dataset row cap (default 8,000, hard cap 1,000,000)
+- total-row cap (default 20,000, hard cap 2,000,000)
 
 The server enforces these limits when building a plan. The Spark job enforces them again.
 
@@ -128,3 +128,4 @@ All tables are protected with owner-based RLS using `auth.uid() = owner_user_id`
 - Connectivity is enforced by API/job logic, not SQL.
 - Keep `release_version` immutable per run.
 - Keep caps strict. Lower limits through env vars; code will not allow values above the hard caps.
+- The Render free web service is 512MB. Process pages DuckDB at 200 rows, caps DuckDB at 160MB / 1 thread, closes the connection after the job, and defaults ingest to 8,000 rows per theme / 20,000 total. If the dashboard still has a higher `WORKFLOW_MAX_ROWS_PER_DATASET`, lower it or the instance will OOM again.

@@ -76,7 +76,7 @@ Workflow ingestion envs in `.env.example`:
 
 ## Deploy
 
-Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0, starts `node dist-server/index.js`, and sets `DATA_MODE=supabase`. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
+Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0, starts `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`, and sets `DATA_MODE=supabase`. It also sets the 8,000 / 20,000 ingest caps so the free 512MB instance does not run out of memory. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
 
 Create the service from the blueprint, then sign in with GitHub and deploy it:
 

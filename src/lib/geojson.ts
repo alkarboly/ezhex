@@ -31,6 +31,31 @@ export function pointGeometry(lng: number, lat: number): GeoJsonGeometry {
   return { type: 'Point', coordinates: [lng, lat] }
 }
 
+/** Drop vertices so stored footprints stay small enough for the web process. */
+export function simplifyGeometry(geometry: GeoJsonGeometry | null, maxRing = 24): GeoJsonGeometry | null {
+  if (!geometry) return null
+  if (geometry.type === 'Point') return geometry
+  if (geometry.type === 'Polygon') {
+    return { type: 'Polygon', coordinates: geometry.coordinates.map((ring) => decimate(ring, maxRing)) }
+  }
+  return {
+    type: 'MultiPolygon',
+    coordinates: geometry.coordinates.map((polygon) => polygon.map((ring) => decimate(ring, maxRing))),
+  }
+}
+
+function decimate(ring: GeoJsonPosition[], maxRing: number): GeoJsonPosition[] {
+  if (ring.length <= maxRing) return ring
+  const last = ring[ring.length - 1]
+  const body = ring[0][0] === last[0] && ring[0][1] === last[1] ? ring.slice(0, -1) : ring
+  if (body.length <= maxRing - 1) return [...body, body[0]]
+  const step = body.length / (maxRing - 1)
+  const next: GeoJsonPosition[] = []
+  for (let index = 0; index < maxRing - 1; index += 1) next.push(body[Math.floor(index * step)])
+  next.push(next[0])
+  return next
+}
+
 export function squarePolygon(lng: number, lat: number, half = 0.00012): GeoJsonGeometry {
   const ring: GeoJsonPosition[] = [
     [lng - half, lat - half],

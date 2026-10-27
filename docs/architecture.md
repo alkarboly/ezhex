@@ -73,7 +73,7 @@ Hexes start as missing until Process finishes. Query unlocks when rows exist in 
 
 ## Overture ingest
 
-Process uses DuckDB `httpfs` and `spatial` against the public Overture S3 bucket. It always reads places, buildings, and addresses. Each theme uses an explicit column list plus `ST_AsGeoJSON(geometry)`. H3 comes from the geometry point or footprint centroid, not the bbox center. Node then associates place→building (point-in-polygon, else nearest within 40 m), place→address (nested `addresses[]` match, else nearest), and building→address (nearest). Those GERS ids are written with the rows. Anon can SELECT those tables. Direct INSERT is denied. Run `supabase/migrations/20261027_overture_features.sql` after the base Overture migration, then reprocess existing hexes.
+Process uses DuckDB `httpfs` and `spatial` against the public Overture S3 bucket. It always reads places, buildings, and addresses. DuckDB is capped at 160MB and one thread, reads 200-row pages, and is closed when the job ends. Places and addresses store a Point from `ST_X`/`ST_Y`. Building footprints are simplified (`ST_SimplifyPreserveTopology`, then at most 24 ring vertices). H3 comes from the geometry point or footprint centroid. Only rows in the selected hexes stay in memory. Node then associates place→building (point-in-polygon, else nearest within 40 m), place→address (nested `addresses[]` match, else nearest), and building→address (nearest). Map count queries load only `h3_res8` when there are no filters, and never load geometry. Anon can SELECT those tables. Direct INSERT is denied. Run `supabase/migrations/20261027_overture_features.sql` after the base Overture migration, then reprocess existing hexes.
 
 The Austin mock generator remains behind `DATA_MODE=mock` for `npm run verify` only.
 
@@ -108,8 +108,8 @@ Browser
   → MapLibre loads tiles from OpenFreeMap and Esri
 ```
 
-`render.yaml` is a Node web service on `main`, built with Node 22.16.0. The build writes the browser assets to `dist/` and the server bundle to `dist-server/`. `node dist-server/index.js` listens on `0.0.0.0` and `PORT`. Render's health check is `GET /api/health`.
+`render.yaml` is a Node web service on `main`, built with Node 22.16.0. The build writes the browser assets to `dist/` and the server bundle to `dist-server/`. `node dist-server/index.js` listens on `0.0.0.0` and `PORT`. Render's health check is `GET /api/health`. The free instance is 512MB, so the blueprint sets `NODE_OPTIONS=--max-old-space-size=256` and ingest caps of 8,000 rows per theme / 20,000 total.
 
 `DATA_MODE=supabase` is the default. Changing it still needs a restart, which a Render env change does by redeploying. Paths with no file, such as `/settings`, receive `index.html`. A missing file that has an extension returns 404, so a broken script is not replaced with HTML. Hashed files under `/assets/` are cached for a year.
 
-The anon key is not in the blueprint. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the Render dashboard only, and never add the service-role key. The free instance sleeps after a stretch of no requests and wakes on the next one.
+The anon key is not in the blueprint. Add `SUPABASE_URL` and `SUPABASE_ANON_KEY` in the Render dashboard only, and never add the service-role key. The free instance sleeps after a stretch of no requests and wakes on the next one. If `WORKFLOW_MAX_ROWS_PER_DATASET` was set higher in the Render dashboard, lower it to 8000 or remove it so the blueprint value applies.

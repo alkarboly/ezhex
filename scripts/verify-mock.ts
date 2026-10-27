@@ -2,7 +2,7 @@ import { getResolution, isValidCell, latLngToCell } from 'h3-js'
 import { AUSTIN_CENTER, cellPolygon, cellsInView } from '../src/lib/h3.ts'
 import { associateFeatures } from '../src/lib/associate.ts'
 import { mergeFeatureRows } from '../src/lib/feature-rows.ts'
-import { pointGeometry, squarePolygon } from '../src/lib/geojson.ts'
+import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION } from '../src/lib/limits.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
@@ -87,6 +87,9 @@ const linked = associateFeatures({
 assert(linked.places.get('p1')?.building_id === 'b1', 'point-in-polygon building link failed')
 assert(linked.places.get('p1')?.address_id === 'a1', 'nested address match failed')
 assert(pointGeometry(-97.74, 30.26).type === 'Point', 'point helper drifted')
+const fat = squarePolygon(-97.74, 30.26, 0.01)
+const slim = simplifyGeometry(fat, 8)
+assert(slim?.type === 'Polygon' && slim.coordinates[0].length <= 8, 'geometry simplify did not shrink a ring')
 
 assert(nullHeight > 0 && tall > 0, 'height filters have nothing to distinguish')
 assert(nullSubtype > 0, 'subtype presence filter has nothing to distinguish')
@@ -289,6 +292,8 @@ assert(typeof schemas.body.query_enabled === 'boolean', 'query schema capabiliti
 const ingestLimits = await routeApi('GET', '/api/workflow-ingestion/limits', undefined)
 assert(ingestLimits.status === 200 && isRecord(ingestLimits.body), 'workflow ingestion limits failed')
 assert(ingestLimits.body.max_hexes === 20, 'workflow max hex cap drifted')
+assert(ingestLimits.body.max_rows_per_dataset === 8000, 'ingest row cap should stay small for the web process')
+assert(ingestLimits.body.max_total_rows === 20000, 'ingest total cap should stay small for the web process')
 assert(typeof ingestLimits.body.default_release_version === 'string', 'default Overture release is missing')
 const ingestPlan = await routeApi('POST', '/api/workflow-ingestion/plan', {
   release_version: '2026-09-24.0',

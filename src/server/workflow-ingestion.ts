@@ -30,10 +30,10 @@ export function workflowIngestionLimits(): WorkflowIngestionLimits {
     max_bbox_area_km2: clampNumber('WORKFLOW_MAX_BBOX_AREA_KM2', 180, HARD_MAX_BBOX_AREA_KM2),
     max_rows_per_dataset: clampInt(
       'WORKFLOW_MAX_ROWS_PER_DATASET',
-      400_000,
+      8_000,
       HARD_MAX_ROWS_PER_DATASET,
     ),
-    max_total_rows: clampInt('WORKFLOW_MAX_TOTAL_ROWS', 900_000, HARD_MAX_TOTAL_ROWS),
+    max_total_rows: clampInt('WORKFLOW_MAX_TOTAL_ROWS', 20_000, HARD_MAX_TOTAL_ROWS),
     h3_resolution: H3_RESOLUTION,
     default_release_version: defaultOvertureRelease(),
   }
