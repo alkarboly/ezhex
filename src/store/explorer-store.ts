@@ -65,6 +65,8 @@ type ExplorerState = {
   fit: FitRequest
   notice: string | null
   inspectOpen: boolean
+  /** Query setting: frame every included hex so the map shows coverage. */
+  queryHexPreview: boolean
   inspectPosition: { x: number; y: number }
   inspectReplay: InspectReplay | null
   draftEnrichments: WorkflowEnrichment[]
@@ -103,6 +105,9 @@ type ExplorerState = {
   dismissNotice: () => void
   setNotice: (notice: string | null) => void
   setInspectOpen: (inspectOpen: boolean) => void
+  setQueryHexPreview: (queryHexPreview: boolean) => void
+  previewQueryHexes: () => void
+  exitQuery: () => void
   setInspectPosition: (inspectPosition: { x: number; y: number }) => void
   previewWorkflow: (input: {
     id: string
@@ -159,6 +164,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   fit: { nonce: 0, zoomIn: true },
   notice: null,
   inspectOpen: false,
+  queryHexPreview: false,
   inspectPosition: { x: 420, y: 72 },
   inspectReplay: null,
   draftEnrichments: [],
@@ -373,7 +379,29 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   },
   dismissNotice: () => set({ notice: null }),
   setNotice: (notice) => set({ notice }),
-  setInspectOpen: (inspectOpen) => set({ inspectOpen }),
+  setInspectOpen: (inspectOpen) =>
+    set(inspectOpen ? { inspectOpen } : { inspectOpen, queryHexPreview: false }),
+  setQueryHexPreview: (queryHexPreview) => set({ queryHexPreview }),
+  previewQueryHexes: () => {
+    const cells = get().selectedCells
+    if (cells.length === 0) {
+      set({ notice: 'This query has no hexes.' })
+      return
+    }
+    set((state) => ({
+      queryHexPreview: true,
+      inspectOpen: true,
+      fit: { nonce: state.fit.nonce + 1, zoomIn: true },
+      notice: cells.length === 1 ? 'Preview · 1 hex in this query' : `Preview · ${cells.length} hexes in this query`,
+    }))
+  },
+  exitQuery: () =>
+    set({
+      inspectOpen: false,
+      queryHexPreview: false,
+      inspectReplay: null,
+      inspectRelease: null,
+    }),
   setInspectPosition: (inspectPosition) => set({ inspectPosition }),
   previewWorkflow: (input) => {
     const cells = [...new Set(input.h3_cells)].slice(0, MAX_SELECTED_CELLS)
@@ -404,6 +432,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
     set({
       inspectReplay: null,
       inspectOpen: false,
+      queryHexPreview: false,
       inspectRelease: null,
     }),
   setInspectRelease: (inspectRelease) => set({ inspectRelease, page: 0 }),

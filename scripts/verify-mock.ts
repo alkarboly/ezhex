@@ -197,6 +197,7 @@ assert(
     buildingClasses: [],
     confidenceMin: null,
     confidenceMax: null,
+    confidencePresence: 'any',
     underground: 'any',
     hasPhone: 'any',
     hasEmail: 'any',
@@ -216,6 +217,7 @@ assert(
     buildingClasses: [],
     confidenceMin: null,
     confidenceMax: null,
+    confidencePresence: 'any',
     underground: 'any',
     hasPhone: 'any',
     hasEmail: 'any',
@@ -223,6 +225,10 @@ assert(
     hasOfficialId: 'any',
   }).length === 0,
   'inspect category filter leaked a non-matching row',
+)
+assert(
+  filterFeatureRows(splitTaxonomy, { ...defaultInspectFilters, categories: ['null'] }).every((row) => row.category == null),
+  'inspect null category filter kept a labeled row',
 )
 const unmatchedPlace = {
   id: 'p-orphan',
@@ -263,7 +269,7 @@ const placeWithBuilding = mergeFeatureRows(
 )
 assert(placeWithBuilding.length === 1 && placeWithBuilding[0]?.building === 'Lone Building', 'place did not keep the linked building name')
 assert(placeWithBuilding[0]?.height === 12.5 && placeWithBuilding[0]?.floors === 3, 'linked building height or floors were dropped')
-assert(observedValues(joined, 'category').join(',') === 'cafe,commercial', 'observed categories invented a value')
+assert(observedValues(joined, 'category').join(',') === 'null,cafe,commercial', 'observed categories invented a value')
 assert(!observedValues(joined, 'category').includes('restaurant'), 'observed categories leaked a preset')
 assert(
   cafes.byCell.reduce((sum, cell) => sum + cell.count, 0) === cafes.total,

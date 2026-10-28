@@ -119,6 +119,7 @@ export function HexQueryTable() {
   const [buildingClasses, setBuildingClasses] = useState<string[]>([])
   const [confidenceMin, setConfidenceMin] = useState<number | null>(null)
   const [confidenceMax, setConfidenceMax] = useState<number | null>(null)
+  const [confidencePresence, setConfidencePresence] = useState<PresenceFilter>('any')
   const [underground, setUnderground] = useState<PresenceFilter>('any')
   const [hasPhone, setHasPhone] = useState<PresenceFilter>('any')
   const [hasEmail, setHasEmail] = useState<PresenceFilter>('any')
@@ -170,6 +171,7 @@ export function HexQueryTable() {
         buildingClasses,
         confidenceMin,
         confidenceMax,
+        confidencePresence,
         underground,
         hasPhone,
         hasEmail,
@@ -187,6 +189,7 @@ export function HexQueryTable() {
       buildingClasses,
       confidenceMin,
       confidenceMax,
+      confidencePresence,
       underground,
       hasPhone,
       hasEmail,
@@ -218,6 +221,7 @@ export function HexQueryTable() {
       buildingClasses,
       confidenceMin,
       confidenceMax,
+      confidencePresence,
       underground,
       hasPhone,
       hasEmail,
@@ -234,6 +238,7 @@ export function HexQueryTable() {
       buildingClasses,
       confidenceMin,
       confidenceMax,
+      confidencePresence,
       underground,
       hasPhone,
       hasEmail,
@@ -260,6 +265,7 @@ export function HexQueryTable() {
       setBuildingClasses,
       setConfidenceMin,
       setConfidenceMax,
+      setConfidencePresence,
       setUnderground,
       setHasPhone,
       setHasEmail,
@@ -356,6 +362,7 @@ export function HexQueryTable() {
               setPage(0)
             }}
           />
+          <PresencePick label="Confidence" value={confidencePresence} onChange={setConfidencePresence} resetPage={() => setPage(0)} />
           <PresencePick label="Underground" value={underground} onChange={setUnderground} resetPage={() => setPage(0)} />
           <PresencePick label="Phone" value={hasPhone} onChange={setHasPhone} resetPage={() => setPage(0)} />
           <PresencePick label="Email" value={hasEmail} onChange={setHasEmail} resetPage={() => setPage(0)} />
@@ -535,33 +542,59 @@ function SqlWorkbench({
   const auth = useAuth()
   const user = auth.session.data?.user ?? null
   const configured = auth.session.data?.configured ?? false
+  const [sqlOpen, setSqlOpen] = useState(false)
   const { data: saved } = useQuery({
     queryKey: ['query-workflows'],
     queryFn: listQueryWorkflows,
     enabled: createOpen,
   })
 
+  useEffect(() => {
+    if (sqlError) setSqlOpen(true)
+  }, [sqlError])
+
   return (
     <section className="shrink-0 overflow-hidden rounded-xl border border-primary/20 bg-[linear-gradient(180deg,rgba(46,230,166,0.08),rgba(8,12,18,0.55))]">
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-white/[0.06] px-2.5 py-1.5">
-        <span className="font-mono text-[10px] tracking-[0.18em] text-primary uppercase">SQL</span>
-        <span className="rounded-full bg-black/30 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
-          {custom ? 'custom' : 'generated'}
-        </span>
-        {custom && (
-          <button type="button" onClick={onReset} className="text-[10px] text-primary hover:underline">
-            Reset
-          </button>
-        )}
-        <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">{formatCount(rowCount)} rows</span>
-      </div>
-      <textarea
-        data-testid="inspect-sql"
-        spellCheck={false}
-        value={sql}
-        onChange={(event) => onSqlChange(event.target.value)}
-        className="min-h-28 w-full resize-y bg-[#05080c] px-3 py-2 font-mono text-[11px] leading-5 text-[#d7fff2] placeholder:text-muted-foreground/50 focus-visible:outline-none"
-      />
+      <details
+        data-testid="inspect-sql-panel"
+        className="group"
+        open={sqlOpen}
+        onToggle={(event) => setSqlOpen(event.currentTarget.open)}
+      >
+        <summary
+          data-testid="inspect-sql-toggle"
+          className="flex cursor-pointer list-none flex-wrap items-center gap-1.5 px-2.5 py-1.5"
+        >
+          <span className="font-mono text-[10px] tracking-[0.18em] text-primary uppercase">SQL</span>
+          <span className="rounded-full bg-black/30 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
+            {custom ? 'custom' : 'generated'}
+          </span>
+          {custom && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.preventDefault()
+                onReset()
+              }}
+              className="text-[10px] text-primary hover:underline"
+            >
+              Reset
+            </button>
+          )}
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            <span className="tabular-nums">{formatCount(rowCount)} rows</span>
+            <span className="ml-1.5 group-open:hidden">Show</span>
+            <span className="ml-1.5 hidden group-open:inline">Hide</span>
+          </span>
+        </summary>
+        <textarea
+          data-testid="inspect-sql"
+          spellCheck={false}
+          value={sql}
+          onChange={(event) => onSqlChange(event.target.value)}
+          className="min-h-28 w-full resize-y bg-[#05080c] px-3 py-2 font-mono text-[11px] leading-5 text-[#d7fff2] placeholder:text-muted-foreground/50 focus-visible:outline-none"
+        />
+      </details>
       {sqlError && <p className="px-2.5 pb-1 text-[10px] text-destructive">{sqlError}</p>}
       <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
         <SqlAction onClick={onCopy}>
@@ -658,6 +691,7 @@ function applyInspectFilters(
     setBuildingClasses: (next: string[]) => void
     setConfidenceMin: (next: number | null) => void
     setConfidenceMax: (next: number | null) => void
+    setConfidencePresence: (next: PresenceFilter) => void
     setUnderground: (next: PresenceFilter) => void
     setHasPhone: (next: PresenceFilter) => void
     setHasEmail: (next: PresenceFilter) => void
@@ -674,6 +708,7 @@ function applyInspectFilters(
   setters.setBuildingClasses([...filters.buildingClasses])
   setters.setConfidenceMin(filters.confidenceMin)
   setters.setConfidenceMax(filters.confidenceMax)
+  setters.setConfidencePresence(filters.confidencePresence ?? 'any')
   setters.setUnderground(filters.underground)
   setters.setHasPhone(filters.hasPhone)
   setters.setHasEmail(filters.hasEmail)
@@ -714,7 +749,7 @@ function MultiPick({
                   resetPage()
                 }}
               />
-              <span className="truncate">{option.replaceAll('_', ' ')}</span>
+              <span className="truncate">{option === 'null' ? 'null' : option.replaceAll('_', ' ')}</span>
             </label>
           )
         })}
@@ -747,6 +782,7 @@ function PresencePick({
       <option value="any">Any {label.toLowerCase()}</option>
       <option value="yes">Has {label.toLowerCase()}</option>
       <option value="no">No {label.toLowerCase()}</option>
+      <option value="null">Null {label.toLowerCase()}</option>
     </select>
   )
 }

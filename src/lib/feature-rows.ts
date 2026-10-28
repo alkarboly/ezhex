@@ -203,7 +203,10 @@ export function mergeFeatureRows(
   return rows
 }
 
-export type PresenceFilter = 'any' | 'yes' | 'no'
+export type PresenceFilter = 'any' | 'yes' | 'no' | 'null'
+
+/** Multi-select token that matches a missing field. */
+export const INSPECT_NULL = 'null'
 
 export type InspectFilters = {
   kind: DatasetId | 'all'
@@ -215,6 +218,7 @@ export type InspectFilters = {
   buildingClasses: readonly string[]
   confidenceMin: number | null
   confidenceMax: number | null
+  confidencePresence: PresenceFilter
   underground: PresenceFilter
   hasPhone: PresenceFilter
   hasEmail: PresenceFilter
@@ -232,6 +236,7 @@ export const defaultInspectFilters: InspectFilters = {
   buildingClasses: [],
   confidenceMin: null,
   confidenceMax: null,
+  confidencePresence: 'any',
   underground: 'any',
   hasPhone: 'any',
   hasEmail: 'any',
@@ -243,29 +248,28 @@ export function filterFeatureRows(rows: readonly FeatureRow[], filters: InspectF
   const query = filters.search.trim().toLowerCase()
   return rows.filter((row) => {
     if (filters.kind !== 'all' && row.kind !== filters.kind) return false
-    if (filters.categories.length > 0 && !includes(filters.categories, row.category)) return false
-    if (filters.mainCategories.length > 0 && !includes(filters.mainCategories, row.main_category)) return false
-    if (filters.snapshotDates.length > 0 && !includes(filters.snapshotDates, row.snapshot_date)) return false
-    if (filters.statuses.length > 0 && !includes(filters.statuses, row.operating_status)) return false
-    if (filters.buildingClasses.length > 0 && !includes(filters.buildingClasses, row.building_class)) return false
-    if (filters.confidenceMin != null && (row.confidence == null || row.confidence < filters.confidenceMin)) return false
-    if (filters.confidenceMax != null && (row.confidence == null || row.confidence > filters.confidenceMax)) return false
-    if (!matchesPresence(filters.underground, row.is_underground === 'true')) return false
-    if (!matchesPresence(filters.hasPhone, Boolean(row.phones))) return false
-    if (!matchesPresence(filters.hasEmail, Boolean(row.emails))) return false
-    if (!matchesPresence(filters.hasSocials, Boolean(row.socials))) return false
-    if (!matchesPresence(filters.hasOfficialId, Boolean(row.official_id))) return false
+    if (!matchesChoice(filters.categories, row.category)) return false
+    if (!matchesChoice(filters.mainCategories, row.main_category)) return false
+    if (!matchesChoice(filters.snapshotDates, row.snapshot_date)) return false
+    if (!matchesChoice(filters.statuses, row.operating_status)) return false
+    if (!matchesChoice(filters.buildingClasses, row.building_class)) return false
+    if (!matchesConfidence(row.confidence, filters)) return false
+    if (!matchesUnderground(filters.underground, row.is_underground)) return false
+    if (!matchesPresence(filters.hasPhone, row.phones)) return false
+    if (!matchesPresence(filters.hasEmail, row.emails)) return false
+    if (!matchesPresence(filters.hasSocials, row.socials)) return false
+    if (!matchesPresence(filters.hasOfficialId, row.official_id)) return false
     if (!query) return true
     return searchText(row).includes(query)
   })
 }
 
-/** Distinct non-empty values seen in the loaded rows. Not a preset list. */
+/** Distinct values seen in the loaded rows, plus `null` so empty rows can be kept. */
 export function observedValues(
   rows: readonly FeatureRow[],
   field: 'category' | 'main_category' | 'building' | 'building_class' | 'operating_status' | 'snapshot_date',
 ): string[] {
-  return sortUnique(rows.map((row) => row[field]))
+  return [INSPECT_NULL, ...sortUnique(rows.map((row) => row[field]))]
 }
 
 /** Distinct non-empty field values from raw theme rows. Not a preset list. */
@@ -395,13 +399,34 @@ function placeCategories(row: ResultRow): { category: string | null; main_catego
   }
 }
 
-function includes(values: readonly string[], value: string | null): boolean {
-  return value != null && values.includes(value)
+function matchesChoice(values: readonly string[], value: string | null): boolean {
+  if (values.length === 0) return true
+  if (value == null) return values.includes(INSPECT_NULL)
+  return values.includes(value)
 }
 
-function matchesPresence(filter: PresenceFilter, present: boolean): boolean {
+function matchesConfidence(value: number | null, filters: InspectFilters): boolean {
+  const presence = filters.confidencePresence ?? 'any'
+  if (presence === 'null') return value == null
+  if (presence === 'no') return value == null
+  if (presence === 'yes' && value == null) return false
+  if (value == null) return presence === 'any'
+  if (filters.confidenceMin != null && value < filters.confidenceMin) return false
+  if (filters.confidenceMax != null && value > filters.confidenceMax) return false
+  return true
+}
+
+function matchesUnderground(filter: PresenceFilter, value: string | null): boolean {
   if (filter === 'any') return true
-  return filter === 'yes' ? present : !present
+  if (filter === 'null') return value == null
+  if (filter === 'yes') return value === 'true'
+  return value === 'false'
+}
+
+function matchesPresence(filter: PresenceFilter, value: string | null): boolean {
+  if (filter === 'any') return true
+  if (filter === 'yes') return value != null
+  return value == null
 }
 
 function buildingName(row: ResultRow): string | null {

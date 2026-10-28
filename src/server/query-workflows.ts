@@ -92,7 +92,7 @@ export async function getQueryWorkflow(id: string, cookies: Record<string, strin
   const client = userClient(session.accessToken)
   if (!client) return { error: 'Set SUPABASE_URL and SUPABASE_ANON_KEY on the server to save workflows.', status: 503 }
   const { data, error } = await client.from('query_workflows').select('*').eq('id', id).maybeSingle()
-  if (error) return supabaseError(error.message)
+  if (error) return supabaseError(error)
   if (!data) return { error: 'No such workflow.', status: 404 }
   const mapped = mapRow(data)
   if (!mapped) return { error: 'That workflow is missing fields. Re-save it from Inspect.', status: 400 }
@@ -112,7 +112,7 @@ export async function deleteQueryWorkflow(id: string, cookies: Record<string, st
   const client = userClient(session.accessToken)
   if (!client) return { error: 'Set SUPABASE_URL and SUPABASE_ANON_KEY on the server to save workflows.', status: 503 }
   const { data, error } = await client.from('query_workflows').delete().eq('id', id).select('id')
-  if (error) return supabaseError(error.message)
+  if (error) return supabaseError(error)
   if (!data || data.length === 0) return { error: 'No such workflow.', status: 404 }
   return { ok: true }
 }
@@ -219,7 +219,7 @@ async function supabaseList(session: Extract<SessionOwner, { mode: 'supabase' }>
     .from('query_workflows')
     .select('*')
     .order('updated_at', { ascending: false })
-  if (error) return supabaseError(error.message)
+  if (error) return supabaseError(error)
   const rows: QueryWorkflow[] = []
   for (const entry of data ?? []) {
     const mapped = mapRow(entry)
@@ -237,30 +237,37 @@ async function supabaseCreate(
   const { count, error: countError } = await client
     .from('query_workflows')
     .select('id', { count: 'exact', head: true })
-  if (countError) return supabaseError(countError.message)
+  if (countError) return supabaseError(countError)
   if ((count ?? 0) >= MAX_QUERY_WORKFLOWS) return { error: 'Workflow limit is 5.', status: 400 }
-  const { data, error } = await client
-    .from('query_workflows')
-    .insert({
-      owner_user_id: session.ownerId,
-      name: parsed.name,
-      sql: parsed.sql,
-      custom_sql: parsed.custom_sql,
-      h3_cells: parsed.h3_cells,
-      filters: parsed.filters,
-      enrichments: parsed.enrichments,
-      release_version: parsed.release_version,
-    })
-    .select('*')
-    .single()
+  const base = {
+    owner_user_id: session.ownerId,
+    name: parsed.name,
+    sql: parsed.sql,
+    custom_sql: parsed.custom_sql,
+    h3_cells: parsed.h3_cells,
+    filters: parsed.filters,
+  }
+  const full = {
+    ...base,
+    enrichments: parsed.enrichments,
+    ...(parsed.release_version ? { release_version: parsed.release_version } : {}),
+  }
+  let { data, error } = await client.from('query_workflows').insert(full).select('*').single()
+  if (error && missingWorkflowColumn(error)) {
+    ;({ data, error } = await client.from('query_workflows').insert(base).select('*').single())
+  }
   if (error) {
-    if (/limit is 5/i.test(error.message)) return { error: 'Workflow limit is 5.', status: 400 }
-    if (/duplicate|unique/i.test(error.message)) return { error: 'A workflow with that name already exists.', status: 400 }
-    return supabaseError(error.message)
+    if (/limit is 5/i.test(errorText(error))) return { error: 'Workflow limit is 5.', status: 400 }
+    if (/duplicate|unique/i.test(errorText(error))) return { error: 'A workflow with that name already exists.', status: 400 }
+    return supabaseError(error)
   }
   const mapped = mapRow(data)
   if (!mapped) return { error: 'The workflow was saved but could not be read back.', status: 500 }
-  return mapped
+  return {
+    ...mapped,
+    enrichments: parsed.enrichments,
+    release_version: parsed.release_version,
+  }
 }
 
 function mapRow(value: unknown): QueryWorkflow | null {
@@ -327,7 +334,7 @@ export async function patchQueryWorkflow(
     .eq('id', id)
     .select('*')
     .single()
-  if (error) return supabaseError(error.message)
+  if (error) return supabaseError(error)
   const mapped = mapRow(data)
   if (!mapped) return { error: 'The workflow was saved but could not be read back.', status: 500 }
   return mapped
@@ -337,15 +344,28 @@ function userClient(accessToken: string) {
   return createUserClient(accessToken)
 }
 
-function supabaseError(message: string): ApiError {
-  if (/does not exist|relation|schema cache/i.test(message)) {
+type SupabaseErrorLike = { message?: string; details?: string; hint?: string; code?: string }
+
+function errorText(error: SupabaseErrorLike): string {
+  return [error.message, error.details, error.hint, error.code].filter((part) => typeof part === 'string' && part.length > 0).join(' ')
+}
+
+function missingWorkflowColumn(error: SupabaseErrorLike): boolean {
+  const text = errorText(error)
+  return /schema cache|does not exist|PGRST204/i.test(text) && /enrichments|release_version|column/i.test(text)
+}
+
+function supabaseError(error: SupabaseErrorLike | string): ApiError {
+  const message = typeof error === 'string' ? error : errorText(error)
+  if (/does not exist|relation|schema cache|PGRST204/i.test(message)) {
     return {
       error:
-        'Run supabase/migrations/20261027_query_workflows.sql, supabase/migrations/20261027_workflow_enrichments.sql, and supabase/migrations/20261027_hex_snapshot_history.sql in the Supabase SQL editor.',
+        'Run supabase/migrations/20261027_workflow_enrichments.sql and supabase/migrations/20261027_hex_snapshot_history.sql in the Supabase SQL editor, then retry.',
       status: 400,
     }
   }
-  return { error: message.length > 0 && message.length < 180 ? message : 'The workflow request failed.', status: 400 }
+  const short = message.trim()
+  return { error: short.length > 0 && short.length < 180 ? short : 'The workflow request failed.', status: 400 }
 }
 
 function respond(result: unknown): RouteResult {

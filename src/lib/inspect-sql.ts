@@ -1,5 +1,5 @@
 import { MAX_INSPECT_SQL_LENGTH, MAX_QUERY_LIMIT } from './limits'
-import { defaultInspectFilters, type InspectFilters, type PresenceFilter } from './feature-rows'
+import { defaultInspectFilters, INSPECT_NULL, type InspectFilters, type PresenceFilter } from './feature-rows'
 import { DATASET_IDS, type DatasetId } from '../types/datasets'
 
 const ALLOWED_TABLES = new Set(['overture_places', 'overture_buildings', 'overture_addresses'])
@@ -104,6 +104,7 @@ export function asInspectFilters(value: unknown): InspectFilters | null {
     buildingClasses: value.buildingClasses,
     confidenceMin: value.confidenceMin,
     confidenceMax: value.confidenceMax,
+    confidencePresence: isPresence(value.confidencePresence) ? value.confidencePresence : 'any',
     underground: value.underground,
     hasPhone: value.hasPhone,
     hasEmail: value.hasEmail,
@@ -127,27 +128,18 @@ function compileWhere(cells: readonly string[], filters: InspectFilters, release
     if (filters.kind === 'buildings') clauses.push('buildings.id IS NOT NULL')
     if (filters.kind === 'addresses') clauses.push('addresses.id IS NOT NULL')
   }
-  if (filters.categories.length > 0) {
-    clauses.push(`places.basic_category IN (${filters.categories.map(sqlString).join(', ')})`)
-  }
-  if (filters.mainCategories.length > 0) {
-    clauses.push(
-      `split_part(places.taxonomy_primary, '<', 1) IN (${filters.mainCategories.map(sqlString).join(', ')})`,
-    )
-  }
-  if (filters.snapshotDates.length > 0) {
-    clauses.push(
-      `split_part(places.release_version, '.', 1) IN (${filters.snapshotDates.map(sqlString).join(', ')})`,
-    )
-  }
-  if (filters.statuses.length > 0) {
-    clauses.push(`places.operating_status IN (${filters.statuses.map(sqlString).join(', ')})`)
-  }
-  if (filters.buildingClasses.length > 0) {
-    clauses.push(`buildings.class IN (${filters.buildingClasses.map(sqlString).join(', ')})`)
-  }
-  if (filters.confidenceMin != null) clauses.push(`places.confidence >= ${filters.confidenceMin}`)
-  if (filters.confidenceMax != null) clauses.push(`places.confidence <= ${filters.confidenceMax}`)
+  const category = inOrNull('places.basic_category', filters.categories)
+  if (category) clauses.push(category)
+  const main = inOrNull("split_part(places.taxonomy_primary, '<', 1)", filters.mainCategories)
+  if (main) clauses.push(main)
+  const snapshot = inOrNull("split_part(places.release_version, '.', 1)", filters.snapshotDates)
+  if (snapshot) clauses.push(snapshot)
+  const status = inOrNull('places.operating_status', filters.statuses)
+  if (status) clauses.push(status)
+  const buildingClass = inOrNull('buildings.class', filters.buildingClasses)
+  if (buildingClass) clauses.push(buildingClass)
+  const confidence = confidenceSql(filters)
+  if (confidence) clauses.push(confidence)
   const underground = presenceSql('buildings.is_underground', filters.underground)
   if (underground) clauses.push(underground)
   const phone = presenceSql('places.phones', filters.hasPhone)
@@ -168,12 +160,39 @@ function compileWhere(cells: readonly string[], filters: InspectFilters, release
   return clauses
 }
 
+function inOrNull(column: string, values: readonly string[]): string | null {
+  if (values.length === 0) return null
+  const listed = values.filter((value) => value !== INSPECT_NULL)
+  const allowNull = values.includes(INSPECT_NULL)
+  const parts: string[] = []
+  if (listed.length > 0) parts.push(`${column} IN (${listed.map(sqlString).join(', ')})`)
+  if (allowNull) parts.push(`${column} IS NULL`)
+  return parts.length === 1 ? parts[0] : `(${parts.join(' OR ')})`
+}
+
+function confidenceSql(filters: InspectFilters): string | null {
+  const presence = filters.confidencePresence ?? 'any'
+  if (presence === 'null' || presence === 'no') return 'places.confidence IS NULL'
+  const parts: string[] = []
+  if (filters.confidenceMin != null) parts.push(`places.confidence >= ${filters.confidenceMin}`)
+  if (filters.confidenceMax != null) parts.push(`places.confidence <= ${filters.confidenceMax}`)
+  if (presence === 'yes') {
+    parts.unshift('places.confidence IS NOT NULL')
+    return parts.join(' AND ')
+  }
+  if (parts.length === 0) return null
+  return `((${parts.join(' AND ')}) OR places.confidence IS NULL)`
+}
+
 function presenceSql(column: string, value: PresenceFilter): string | null {
   if (value === 'any') return null
   if (column.includes('is_underground')) {
-    return value === 'yes' ? `${column} IS TRUE` : `${column} IS NOT TRUE`
+    if (value === 'yes') return `${column} IS TRUE`
+    if (value === 'null') return `${column} IS NULL`
+    return `${column} IS FALSE`
   }
-  return value === 'yes' ? `${column} IS NOT NULL AND ${column} <> ''` : `(${column} IS NULL OR ${column} = '')`
+  if (value === 'yes') return `${column} IS NOT NULL AND ${column} <> ''`
+  return `(${column} IS NULL OR ${column} = '')`
 }
 
 function sqlString(value: string): string {
@@ -193,5 +212,5 @@ function isNullableNumber(value: unknown): value is number | null {
 }
 
 function isPresence(value: unknown): value is PresenceFilter {
-  return value === 'any' || value === 'yes' || value === 'no'
+  return value === 'any' || value === 'yes' || value === 'no' || value === 'null'
 }
