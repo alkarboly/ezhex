@@ -163,7 +163,12 @@
   transition: opacity 380ms ease;
 }
 
-[data-testid='h3-map'][data-arrival='handoff'] .maplibregl-canvas {
+[data-arrival='playing'] .maplibregl-canvas {
+  cursor: default;
+  pointer-events: none;
+}
+
+[data-arrival='handoff'] .maplibregl-canvas {
   opacity: 0;
 }
 

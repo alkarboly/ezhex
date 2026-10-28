@@ -225,6 +225,10 @@ export function H3Map({
     map.touchZoomRotate.disableRotation()
     map.scrollZoom.setWheelZoomRate(1 / 1100)
     map.scrollZoom.setZoomRate(1 / 320)
+    if (!calm) {
+      lockIntroControls(map)
+      container.dataset.arrival = 'playing'
+    }
     mapRef.current = map
 
     let active = true
@@ -516,6 +520,8 @@ export function H3Map({
       if (map.getLayer(HEX_DROP_LAYER_ID)) map.removeLayer(HEX_DROP_LAYER_ID)
       showOpeningAssets(map, modeRef.current)
       if (!map.getLayer(HEX_LIFT_LAYER_ID)) map.addLayer(liftLayer)
+      unlockIntroControls(map)
+      container.dataset.arrival = ''
       settleViewMode()
       if (appliedBasemap.current === openingBasemap) {
         report()
@@ -578,15 +584,6 @@ export function H3Map({
         finishArrival()
       }
       map.on('moveend', onEnd)
-      const interrupt = () => {
-        if (!arriving) return
-        cancelled = true
-        map.off('moveend', onEnd)
-        map.stop()
-        finishArrival()
-      }
-      map.on('mousedown', interrupt)
-      map.on('touchstart', interrupt)
     }
 
     map.on('style.load', () => {
@@ -652,6 +649,7 @@ export function H3Map({
       if (!inspectOpenRef.current) fadeTo(0, 320)
     })
     map.on('click', (event) => {
+      if (arriving) return
       if (drawModeRef.current === 'geofence') {
         addGeofenceVertexRef.current(event.lngLat.lng, event.lngLat.lat)
         return
@@ -776,7 +774,7 @@ export function H3Map({
   }, [insets])
 
   useEffect(() => {
-    if (fit.nonce === 0) return
+    if (fit.nonce === 0 || arrivingRef.current) return
     const map = mapRef.current
     const container = containerRef.current
     const bounds = boundsForCells([...selectedRef.current])
@@ -793,7 +791,7 @@ export function H3Map({
   }, [fit])
 
   useEffect(() => {
-    if (focusNonce === 0 || !focusRef.current) return
+    if (focusNonce === 0 || !focusRef.current || arrivingRef.current) return
     const map = mapRef.current
     if (!map) return
     const [lat, lng] = cellToLatLng(focusRef.current)
@@ -815,7 +813,7 @@ export function H3Map({
     () => ({
       zoomIn: () => {
         const map = mapRef.current
-        if (!map) return
+        if (!map || arrivingRef.current) return
         if (viewModeRef.current === 'earth') {
           runLockedCamera(map, cameraLockRef, viewModeRef, () => {
             viewModeRef.current = 'hex'
@@ -832,7 +830,7 @@ export function H3Map({
       },
       zoomOut: () => {
         const map = mapRef.current
-        if (!map) return
+        if (!map || arrivingRef.current) return
         if (viewModeRef.current === 'hex' && map.getZoom() - ZOOM_STEP < MIN_VIEWPORT_ZOOM) {
           runLockedCamera(map, cameraLockRef, viewModeRef, () => {
             viewModeRef.current = 'earth'
@@ -845,7 +843,7 @@ export function H3Map({
       },
       resetView: () => {
         const map = mapRef.current
-        if (!map) return
+        if (!map || arrivingRef.current) return
         runLockedCamera(map, cameraLockRef, viewModeRef, () => {
           viewModeRef.current = 'hex'
           map.easeTo({
@@ -934,6 +932,27 @@ function fitPadding(container: HTMLElement, inset: MapInsets) {
 
 function reducedMotion(): boolean {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+function lockIntroControls(map: MapLibreMap) {
+  map.dragPan.disable()
+  map.scrollZoom.disable()
+  map.keyboard.disable()
+  map.doubleClickZoom.disable()
+  map.touchZoomRotate.disable()
+  map.touchPitch.disable()
+}
+
+function unlockIntroControls(map: MapLibreMap) {
+  map.dragPan.enable()
+  map.scrollZoom.enable()
+  map.keyboard.enable()
+  map.doubleClickZoom.enable()
+  map.touchZoomRotate.enable()
+  map.touchZoomRotate.disableRotation()
+  map.touchPitch.disable()
+  map.scrollZoom.setWheelZoomRate(1 / 1100)
+  map.scrollZoom.setZoomRate(1 / 320)
 }
 
 const ZOOM_STEP = 0.55
