@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, `supabase/migrations/20261027_auth.sql`, `supabase/migrations/20261027_query_workflows.sql`, `supabase/migrations/20261027_workflow_enrichments.sql`, `supabase/migrations/20261027_hex_snapshot_history.sql`, and `supabase/migrations/20261027_query_workflow_grants.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table as SQL; you do not pick a theme. Settings creates and deletes accounts. Saving a workflow needs a sign-in when Supabase is configured. Create a workflow refreshes that session, then writes with the current JWT. The map does not require a login.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, `supabase/migrations/20261027_auth.sql`, `supabase/migrations/20261027_query_workflows.sql`, `supabase/migrations/20261027_workflow_enrichments.sql`, `supabase/migrations/20261027_hex_snapshot_history.sql`, `supabase/migrations/20261027_query_workflow_grants.sql`, and `supabase/migrations/20261028_agentic_ledger.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table as SQL; you do not pick a theme. Settings creates and deletes accounts. Saving a workflow needs a sign-in when Supabase is configured. Create a workflow refreshes that session, then writes with the current JWT. The map does not require a login.
 
 ```bash
 npm run build
@@ -54,8 +54,12 @@ The server includes segmented-ingestion planning and job routes:
 - `GET /api/query-workflows/:id`
 - `PATCH /api/query-workflows/:id`
 - `DELETE /api/query-workflows/:id`
+- `POST /api/query-workflows/:id/quote`
 - `POST /api/query-workflows/:id/run`
 - `GET /api/query-workflows/:id/runs`
+- `GET /api/ledger`
+- `POST /api/agent-assist/draft`
+- `POST /api/agent-assist/quote`
 - `POST /api/enrichments/hail`
 - `GET /api/workflow-ingestion/limits`
 - `POST /api/workflow-ingestion/plan`
@@ -126,14 +130,16 @@ render deploys create SERVICE_ID --wait --confirm
 - Optional Supabase accounts in Settings: create, sign in, sign out, delete account. The public map does not require a login
 - Inspect is SQL: generated from hexes and filters, collapsed until opened, editable custom SELECT, copy SQL, download CSV. The hex chip lists included cells. Preview hexes frames all of them; Exit query closes inspect. The map follows those inspect filters while the query is open
 - Query workflows (5 per account) save that inspect SQL, hex set, and private enrichments. Selecting one previews every hex on the map, including nationwide selections
-- Enrich adds a geofence (keep inside or outside a drawn polygon) and hail history from NOAA MRMS MESH 12Z files. Only hex-day mm is retained
+- Enrich adds a geofence (keep inside or outside a drawn polygon), hail history from NOAA MRMS MESH 12Z files, and one typed `ai_column` per row. Only hex-day mm and run result rows are retained
+- Workflows run through an agent quote path (orchestrator + specialist lines), auto-process missing hexes in batches under 10, debit a simulated ledger, and credit demo tips from agents
+- Ledger page at `/ledger` shows seeded credits, spend, tips, and per-agent entries for the signed-in user (or mock guest)
 - Hard caps on hex count, bbox area, and row counts for ingest. Query workflows allow up to 300 disconnected hexes
 
 Click a ready hex to pin a fitted table. Click another ready hex to add it to the same query. The hex chip lists every included H3. Preview hexes frames those cells equally; Exit query leaves inspect. SQL starts collapsed. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. Taxonomy `primary < category` splits into main category and category. Snapshot stays the release id; snapshot date is the date prefix. Filters cover category, main category, snapshot date, status, building class, confidence (Any / Has a score / Missing / ≥ 0.5 / ≥ 0.7 / ≥ 0.9), underground, phone, email, socials, and official id. Category lists and presence controls can select `null` for empty values. A confidence floor drops rows with no score. While inspect is open, the map draws only matching inspect rows and unfills query hexes that have none. The table also includes sources, attribution, contact fields, building extras, and address extras. Building name, subtype, height, and floors show when Overture has them — names and heights are often empty. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 
-Persisting ingest job records to Supabase. The older `workflows*` tables stay the connected ingest scaffold. Query workflows live in `query_workflows`. See `docs/architecture.md`.
+Persisting ingest job records to Supabase. The older `workflows*` tables stay the connected ingest scaffold. Query workflows live in `query_workflows`. Real Rho card debits are not wired yet: the marketplace path uses a simulated in-app ledger and optional OpenAI model calls. See `docs/marketplace.md` and `docs/architecture.md`.
 
 ## Docs
 
@@ -141,3 +147,4 @@ Persisting ingest job records to Supabase. The older `workflows*` tables stay th
 - [docs/architecture.md](docs/architecture.md)
 - [docs/query-spec.md](docs/query-spec.md)
 - [docs/workflow-pipeline.md](docs/workflow-pipeline.md)
+- [docs/marketplace.md](docs/marketplace.md)

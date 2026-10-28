@@ -12,3 +12,11 @@ python pipelines/hail/extract_mesh.py --job job.json --out out.json
 ```
 
 The Node workflow runner writes a temp job JSON (hex bboxes + days), runs this script, keeps only `h3` / `day` / `mesh_mm_max`, and deletes the GRIB. Full grids are not stored in Supabase.
+
+Install dependencies before running locally:
+
+```bash
+pip install -r pipelines/hail/requirements.txt
+```
+
+If those dependencies are missing in a demo deploy, Node falls back to deterministic synthetic hail values so workflow runs do not hard-fail.

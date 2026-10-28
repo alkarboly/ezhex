@@ -2,6 +2,7 @@ import { asGeometry, pointInGeometry, type GeoJsonPosition } from './geojson'
 import type { FeatureRow } from './feature-rows'
 import { HAIL_MESH_START, MAX_ENRICHMENTS, MAX_GEOFENCE_VERTICES, MAX_HAIL_DAYS } from './limits'
 import type {
+  AiColumnEnrichment,
   GeofenceEnrichment,
   GeofenceKeep,
   HailHexSummary,
@@ -15,11 +16,14 @@ export function asEnrichments(value: unknown): WorkflowEnrichment[] | null {
   if (value.length > MAX_ENRICHMENTS) return null
   const next: WorkflowEnrichment[] = []
   let hailCount = 0
+  let aiCount = 0
   for (const entry of value) {
     const parsed = asEnrichment(entry)
     if (!parsed) return null
     if (parsed.kind === 'hail_history') hailCount += 1
+    if (parsed.kind === 'ai_column') aiCount += 1
     if (hailCount > 1) return null
+    if (aiCount > 1) return null
     next.push(parsed)
   }
   return next
@@ -29,6 +33,7 @@ export function asEnrichment(value: unknown): WorkflowEnrichment | null {
   if (!isRecord(value) || typeof value.id !== 'string' || typeof value.kind !== 'string') return null
   if (value.kind === 'geofence') return asGeofence(value)
   if (value.kind === 'hail_history') return asHail(value)
+  if (value.kind === 'ai_column') return asAiColumn(value)
   return null
 }
 
@@ -41,6 +46,7 @@ export function applyEnrichments(
   for (const step of enrichments) {
     if (step.kind === 'geofence') next = applyGeofence(next, step)
     if (step.kind === 'hail_history') next = attachHail(next, hailByHex)
+    // ai_column is attached later by the workflow runner after optional model inference.
   }
   return next
 }
@@ -96,6 +102,37 @@ function asHail(value: Record<string, unknown>): HailHistoryEnrichment | null {
     kind: 'hail_history',
     start_date: range.start_date,
     end_date: range.end_date,
+  }
+}
+
+function asAiColumn(value: Record<string, unknown>): AiColumnEnrichment | null {
+  if (typeof value.column !== 'string' || typeof value.value_type !== 'string' || typeof value.prompt !== 'string') {
+    return null
+  }
+  const column = value.column.trim()
+  if (!/^[a-z][a-z0-9_]{1,63}$/.test(column)) return null
+  if (column.startsWith('overture_')) return null
+  const valueType = value.value_type
+  if (valueType !== 'bool' && valueType !== 'enum' && valueType !== 'number' && valueType !== 'text') return null
+  const prompt = value.prompt.trim()
+  if (prompt.length < 6 || prompt.length > 600) return null
+  if (!Array.isArray(value.source_fields)) return null
+  const sourceFields = [...new Set(value.source_fields.filter((field): field is string => typeof field === 'string').map((field) => field.trim()).filter(Boolean))]
+  if (sourceFields.length === 0 || sourceFields.length > 20) return null
+  let enumValues: string[] | undefined
+  if (valueType === 'enum') {
+    if (!Array.isArray(value.enum_values)) return null
+    enumValues = [...new Set(value.enum_values.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean))]
+    if (enumValues.length < 2 || enumValues.length > 32) return null
+  }
+  return {
+    id: String(value.id),
+    kind: 'ai_column',
+    column,
+    value_type: valueType,
+    prompt,
+    source_fields: sourceFields,
+    ...(enumValues ? { enum_values: enumValues } : {}),
   }
 }
 

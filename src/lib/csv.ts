@@ -57,14 +57,23 @@ export const FEATURE_CSV_COLUMNS = [
 ] as const satisfies readonly { field: keyof FeatureRow; label: string }[]
 
 export function featureRowsToCsv(rows: readonly FeatureRow[]): string {
-  const header = FEATURE_CSV_COLUMNS.map((column) => csvEscape(column.label)).join(',')
+  const aiColumns = [...new Set(rows.flatMap((row) => Object.keys(row.ai_columns)))].sort((left, right) =>
+    left.localeCompare(right),
+  )
+  const header = [...FEATURE_CSV_COLUMNS.map((column) => csvEscape(column.label)), ...aiColumns.map(csvEscape)].join(',')
   const lines = rows.map((row) =>
-    FEATURE_CSV_COLUMNS.map((column) => {
-      const value = row[column.field]
-      if (value == null) return ''
-      if (column.field === 'lat' || column.field === 'lng') return csvEscape((value as number).toFixed(5))
-      return csvEscape(String(value))
-    }).join(','),
+    [
+      ...FEATURE_CSV_COLUMNS.map((column) => {
+        const value = row[column.field]
+        if (value == null) return ''
+        if (column.field === 'lat' || column.field === 'lng') return csvEscape((value as number).toFixed(5))
+        return csvEscape(String(value))
+      }),
+      ...aiColumns.map((field) => {
+        const value = row.ai_columns[field]
+        return value == null ? '' : csvEscape(String(value))
+      }),
+    ].join(','),
   )
   return `\uFEFF${[header, ...lines].join('\r\n')}`
 }

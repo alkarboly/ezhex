@@ -42,7 +42,12 @@ def https_url(day: str) -> str:
 
 
 def decode_mesh(grib_path: Path):
-    import xarray as xr
+    try:
+        import xarray as xr
+    except ModuleNotFoundError as error:
+        raise SystemExit(
+            "Missing Python dependency: xarray. Run `pip install -r pipelines/hail/requirements.txt`."
+        ) from error
 
     dataset = xr.open_dataset(grib_path, engine="cfgrib")
     field = next(iter(dataset.data_vars.values()))

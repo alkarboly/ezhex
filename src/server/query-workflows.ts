@@ -38,9 +38,13 @@ export async function routeQueryWorkflows(
   const rest = pathname.slice('/api/query-workflows/'.length)
   const [id, action] = rest.split('/')
   if (!id) return { status: 400, body: { error: 'Workflow id is required.' } }
+  if (method === 'POST' && action === 'quote') {
+    const { quoteQueryWorkflow } = await import('./workflow-runs')
+    return respond(await quoteQueryWorkflow(id, cookies))
+  }
   if (method === 'POST' && action === 'run') {
     const { runQueryWorkflow } = await import('./workflow-runs')
-    return respond(await runQueryWorkflow(id, cookies))
+    return respond(await runQueryWorkflow(id, cookies, body))
   }
   if (method === 'GET' && action === 'runs') {
     const { listQueryWorkflowRuns } = await import('./workflow-runs')
@@ -159,7 +163,7 @@ function parseCreate(body: unknown): Omit<QueryWorkflow, 'id' | 'owner_user_id' 
   if ('error' in cells) return cells
   const filters = asInspectFilters(body.filters) ?? defaultInspectFilters
   const enrichments = asEnrichments(body.enrichments ?? [])
-  if (!enrichments) return { error: 'Enrichments must be a geofence or hail_history list.', status: 400 }
+  if (!enrichments) return { error: 'Enrichments must be a geofence, hail_history, or ai_column list.', status: 400 }
   const release = parseReleasePin(body.release_version)
   if (release && typeof release === 'object') return release
   return {
@@ -323,7 +327,7 @@ export async function patchQueryWorkflow(
   if ('error' in existing) return existing
   if (!isRecord(body)) return { error: 'Request body must include enrichments or release_version.', status: 400 }
   const enrichments = body.enrichments === undefined ? existing.enrichments : asEnrichments(body.enrichments)
-  if (!enrichments) return { error: 'Enrichments must be a geofence or hail_history list.', status: 400 }
+  if (!enrichments) return { error: 'Enrichments must be a geofence, hail_history, or ai_column list.', status: 400 }
   const release = body.release_version === undefined ? existing.release_version : parseReleasePin(body.release_version)
   if (release && typeof release === 'object' && 'error' in release) return release
   const session = await requireWorkflowOwner(cookies)

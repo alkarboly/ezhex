@@ -1,8 +1,9 @@
 import type { GeoJsonPosition } from '../lib/geojson'
 import type { FeatureRow } from '../lib/feature-rows'
 import type { QuerySnapshotStatus } from './releases'
+import type { JobLog } from './workflows'
 
-export const ENRICHMENT_KINDS = ['geofence', 'hail_history'] as const
+export const ENRICHMENT_KINDS = ['geofence', 'hail_history', 'ai_column'] as const
 export type EnrichmentKind = (typeof ENRICHMENT_KINDS)[number]
 
 export type GeofenceKeep = 'inside' | 'outside'
@@ -27,7 +28,19 @@ export type HailHistoryEnrichment = {
   end_date: string
 }
 
-export type WorkflowEnrichment = GeofenceEnrichment | HailHistoryEnrichment
+export type AiColumnValueType = 'bool' | 'enum' | 'number' | 'text'
+
+export type AiColumnEnrichment = {
+  id: string
+  kind: 'ai_column'
+  column: string
+  value_type: AiColumnValueType
+  prompt: string
+  source_fields: string[]
+  enum_values?: string[]
+}
+
+export type WorkflowEnrichment = GeofenceEnrichment | HailHistoryEnrichment | AiColumnEnrichment
 
 export type HailHexStat = {
   h3: string
@@ -55,6 +68,10 @@ export type QueryWorkflowRun = {
   release_version: string | null
   snapshot_status: QuerySnapshotStatus | null
   historized_hexes: string[]
+  logs: JobLog[]
+  quote_total_usd_cents: number
+  tips_usd_cents: number
+  ledger_debit_id: string | null
   created_at: string
   finished_at: string | null
 }
@@ -69,6 +86,6 @@ export type HailEnrichResponse = {
   cells: HailHexSummary[]
   start_date: string
   end_date: string
-  source: 'NOAA MRMS MESH_Max_1440min'
+  source: 'NOAA MRMS MESH_Max_1440min' | 'NOAA MRMS MESH_Max_1440min (fallback demo)'
   days: number
 }

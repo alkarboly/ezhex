@@ -23,7 +23,7 @@ import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
 import { nativeSelectClass } from '../ui/input'
 import { PageButton } from '../results/ResultsPanel'
 
-const COLUMNS = [
+const STATIC_COLUMNS = [
   { field: 'kind', label: 'Theme', numeric: false },
   { field: 'snapshot', label: 'Snapshot', numeric: false },
   { field: 'snapshot_date', label: 'Snapshot date', numeric: false },
@@ -77,7 +77,12 @@ const COLUMNS = [
   { field: 'lng', label: 'Lng', numeric: true },
 ] as const
 
-type ColumnField = (typeof COLUMNS)[number]['field']
+type StaticColumnField = (typeof STATIC_COLUMNS)[number]['field']
+type TableColumn = {
+  field: string
+  label: string
+  numeric: boolean
+}
 
 const compactSelectClass = 'h-6 rounded border border-white/[0.08] bg-black/30 px-1.5 pr-6 text-[10px] font-normal'
 
@@ -127,7 +132,7 @@ export function HexQueryTable() {
   const hasEmail = inspectFilters.hasEmail
   const hasSocials = inspectFilters.hasSocials
   const hasOfficialId = inspectFilters.hasOfficialId
-  const [sortField, setSortField] = useState<ColumnField>('name')
+  const [sortField, setSortField] = useState<string>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [customSql, setCustomSql] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -167,6 +172,20 @@ export function HexQueryTable() {
     next.sort((left, right) => compareFeature(left, right, sortField, sortDirection))
     return next
   }, [filtered, sortField, sortDirection])
+  const dynamicColumns = useMemo(() => {
+    const keys = new Set<string>()
+    for (const row of sorted) {
+      for (const key of Object.keys(row.ai_columns)) keys.add(key)
+    }
+    return [...keys].sort((left, right) => left.localeCompare(right))
+  }, [sorted])
+  const columns = useMemo<TableColumn[]>(
+    () => [
+      ...STATIC_COLUMNS.map((column) => ({ field: column.field, label: column.label, numeric: column.numeric })),
+      ...dynamicColumns.map((field) => ({ field: `ai:${field}`, label: field, numeric: false })),
+    ],
+    [dynamicColumns],
+  )
   const pages = Math.max(1, Math.ceil(sorted.length / limit))
   const pageIndex = Math.min(page, pages - 1)
   const visible = sorted.slice(pageIndex * limit, pageIndex * limit + limit)
@@ -359,7 +378,7 @@ export function HexQueryTable() {
         <table className="w-full border-collapse text-left text-[11px]">
           <thead className="sticky top-0 z-10 bg-[#0a1017]">
             <tr>
-              {COLUMNS.map((column) => {
+              {columns.map((column) => {
                 const sortedCol = sortField === column.field
                 return (
                   <th
@@ -391,7 +410,7 @@ export function HexQueryTable() {
           <tbody>
             {visible.length === 0 && (
               <tr>
-                <td colSpan={COLUMNS.length} className="px-2 py-6 text-center text-muted-foreground">
+                <td colSpan={columns.length} className="px-2 py-6 text-center text-muted-foreground">
                   No features in these hexes.
                 </td>
               </tr>
@@ -405,7 +424,7 @@ export function HexQueryTable() {
                   focusH3 === row.h3 ? 'bg-primary/[0.08]' : 'hover:bg-white/[0.03]',
                 )}
               >
-                {COLUMNS.map((column) => (
+                {columns.map((column) => (
                   <td
                     key={column.field}
                     className={cn(
@@ -753,16 +772,17 @@ function ConfidencePick({
   )
 }
 
-function formatCell(row: FeatureRow, field: ColumnField): string {
-  const value = row[field]
+function formatCell(row: FeatureRow, field: string): string {
+  const value = field.startsWith('ai:') ? row.ai_columns[field.slice(3)] : row[field as StaticColumnField]
   if (value == null || value === '') return '—'
   if (field === 'lat' || field === 'lng') return (value as number).toFixed(5)
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
   return String(value)
 }
 
-function compareFeature(left: FeatureRow, right: FeatureRow, field: ColumnField, direction: 'asc' | 'desc') {
-  const a = left[field]
-  const b = right[field]
+function compareFeature(left: FeatureRow, right: FeatureRow, field: string, direction: 'asc' | 'desc') {
+  const a = field.startsWith('ai:') ? left.ai_columns[field.slice(3)] : left[field as StaticColumnField]
+  const b = field.startsWith('ai:') ? right.ai_columns[field.slice(3)] : right[field as StaticColumnField]
   if (a == null && b == null) return 0
   if (a == null) return 1
   if (b == null) return -1

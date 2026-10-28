@@ -4,6 +4,8 @@ import { parseTaxonomyLabel } from './taxonomy'
 import type { DatasetId } from '../types/datasets'
 import type { ResultRow } from '../types/queries'
 
+export type AiColumnValue = string | number | boolean | null
+
 export type FeatureRow = {
   key: string
   kind: DatasetId
@@ -56,6 +58,7 @@ export type FeatureRow = {
   hail_mm_max: number | null
   hail_days: number | null
   hail_last_date: string | null
+  ai_columns: Record<string, AiColumnValue>
   lat: number
   lng: number
   geometry: GeoJsonGeometry | null
@@ -311,6 +314,7 @@ function withLinks(
     | 'hail_mm_max'
     | 'hail_days'
     | 'hail_last_date'
+    | 'ai_columns'
   >,
   address: ResultRow | undefined,
   building: ResultRow | undefined,
@@ -321,6 +325,7 @@ function withLinks(
     hail_mm_max: null,
     hail_days: null,
     hail_last_date: null,
+    ai_columns: {},
     address: address ? formatLinkedAddress(address) : fallbackAddress,
     unit: address ? nonempty(text(address.values.unit)) : null,
     postal_city: address ? nonempty(text(address.values.postal_city)) : null,
@@ -375,6 +380,7 @@ function searchText(row: FeatureRow): string {
     row.country,
     row.building_class,
     row.id,
+    ...Object.entries(row.ai_columns).map(([key, value]) => `${key}:${value == null ? '' : String(value)}`),
   ]
     .filter(Boolean)
     .join(' ')

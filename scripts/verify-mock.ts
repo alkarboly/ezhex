@@ -739,13 +739,53 @@ const patched = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, 
   enrichments: [
     { id: 'geofence', kind: 'geofence', keep: 'inside', polygon: fence },
     { id: 'hail_history', kind: 'hail_history', start_date: '2024-05-01', end_date: '2024-05-03' },
+    {
+      id: 'ai_column',
+      kind: 'ai_column',
+      column: 'broker_flag',
+      value_type: 'bool',
+      prompt: 'Is this row likely useful for lead brokering?',
+      source_fields: ['name', 'category', 'address'],
+    },
   ],
 })
-assert(patched.status === 200 && isRecord(patched.body) && Array.isArray(patched.body.enrichments) && patched.body.enrichments.length === 2, 'workflow enrichments did not save')
+assert(patched.status === 200 && isRecord(patched.body) && Array.isArray(patched.body.enrichments) && patched.body.enrichments.length === 3, 'workflow enrichments did not save')
+const quoted = await routeApi('POST', `/api/query-workflows/${remaining.id}/quote`, {})
+assert(quoted.status === 200 && isRecord(quoted.body), 'workflow quote failed')
+assert(Array.isArray(quoted.body.lines) && quoted.body.lines.length >= 2, 'workflow quote returned no lines')
+const assistDraft = await routeApi('POST', '/api/agent-assist/draft', {
+  h3_cells: [capitol, sampleCells[1] ?? capitol],
+  enrichments: [],
+})
+assert(assistDraft.status === 200 && isRecord(assistDraft.body), 'agent assist draft failed')
+assert(Array.isArray(assistDraft.body.enrichments) && assistDraft.body.enrichments.length >= 2, 'agent assist did not populate enrichments')
+const assistQuote = await routeApi('POST', '/api/agent-assist/quote', {
+  h3_cells: [capitol],
+  enrichments: assistDraft.body.enrichments,
+})
+assert(assistQuote.status === 200 && isRecord(assistQuote.body), 'agent assist quote failed')
+assert(Array.isArray(assistQuote.body.lines) && assistQuote.body.lines.length > 0, 'agent assist quote has no lines')
 const ran = await routeApi('POST', `/api/query-workflows/${remaining.id}/run`, {})
 assert(ran.status === 200 && isRecord(ran.body) && ran.body.status === 'succeeded', 'workflow run failed')
 assert(typeof ran.body.row_count === 'number', 'workflow run dropped the row count')
 assert(ran.body.snapshot_status === 'current', 'capitol workflow should already have the latest snapshot')
+assert(
+  Array.isArray(ran.body.logs) &&
+    ran.body.logs.some((line) => isRecord(line) && String(line.message).includes('agent quote')),
+  'workflow run did not include agent quote logs',
+)
+assert(Array.isArray(ran.body.rows), 'workflow run rows payload is missing')
+if (ran.body.rows.length > 0) {
+  assert(
+    isRecord(ran.body.rows[0]) &&
+      isRecord(ran.body.rows[0].ai_columns) &&
+      'broker_flag' in ran.body.rows[0].ai_columns,
+    'workflow run did not include ai_column values',
+  )
+}
+const ledger = await routeApi('GET', '/api/ledger', undefined)
+assert(ledger.status === 200 && isRecord(ledger.body), 'ledger route failed')
+assert(Array.isArray(ledger.body.entries) && ledger.body.entries.length > 0, 'ledger has no entries after workflow run')
 
 const capitolCheck = await routeApi('POST', '/api/hex-snapshots/check', { h3_cells: [capitol] })
 assert(capitolCheck.status === 200 && isRecord(capitolCheck.body), 'hex snapshot check failed')
@@ -807,8 +847,15 @@ const unprocessedWorkflow = await routeApi('POST', '/api/query-workflows', {
 })
 assert(unprocessedWorkflow.status === 200 && isRecord(unprocessedWorkflow.body), 'unprocessed hex workflow failed to save')
 const unprocessedRun = await routeApi('POST', `/api/query-workflows/${unprocessedWorkflow.body.id}/run`, {})
-assert(unprocessedRun.status === 400 && isRecord(unprocessedRun.body), 'unprocessed hex workflow run should fail')
-assert(String(unprocessedRun.body.error).includes('Process'), 'unprocessed hex error did not ask to process first')
+assert(
+  unprocessedRun.status === 200 && isRecord(unprocessedRun.body) && unprocessedRun.body.status === 'succeeded',
+  'unprocessed hex workflow run should auto-process and succeed',
+)
+assert(
+  Array.isArray(unprocessedRun.body.logs) &&
+    unprocessedRun.body.logs.some((line) => isRecord(line) && String(line.message).includes('agent run process')),
+  'workflow run logs did not include process-agent lines',
+)
 
 console.log(
   `verify ok · ${first.cells.length} cells · ${first.totals.places} places · ${first.totals.buildings} buildings · ${first.totals.addresses} addresses`,

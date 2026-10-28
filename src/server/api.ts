@@ -18,9 +18,11 @@ import {
   planWorkflowIngestion,
   workflowIngestionLimits,
 } from './workflow-ingestion'
+import { draftAgentAssist, quoteAgentAssist } from './agent-assist'
 import { routeAuth } from './auth'
 import { enrichHail } from './hail-mesh'
 import { checkHexSnapshotsRequest } from './hex-snapshots'
+import { getLedger } from './ledger'
 import { routeQueryWorkflows } from './query-workflows'
 
 export type ApiContext = {
@@ -45,6 +47,24 @@ export async function routeApi(
 
   if (method === 'POST' && pathname === '/api/enrichments/hail') {
     const result = await enrichHail(body, context.cookies)
+    if ('error' in result) return { status: result.status, body: { error: result.error } }
+    return { status: 200, body: result }
+  }
+
+  if (method === 'POST' && pathname === '/api/agent-assist/quote') {
+    const result = await quoteAgentAssist(body, context.cookies)
+    if ('error' in result) return { status: result.status, body: { error: result.error } }
+    return { status: 200, body: result }
+  }
+
+  if (method === 'POST' && pathname === '/api/agent-assist/draft') {
+    const result = await draftAgentAssist(body, context.cookies)
+    if ('error' in result) return { status: result.status, body: { error: result.error } }
+    return { status: 200, body: result }
+  }
+
+  if (method === 'GET' && pathname === '/api/ledger') {
+    const result = await getLedger(context.cookies)
     if ('error' in result) return { status: result.status, body: { error: result.error } }
     return { status: 200, body: result }
   }

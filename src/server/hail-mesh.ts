@@ -34,11 +34,12 @@ export async function enrichHail(
   if ('error' in session) return session
   const stats = await ensureHailStats(session.ownerId, session.accessToken, parsed.cells, parsed.start_date, parsed.end_date)
   if ('error' in stats) return stats
+  const fallback = stats.some((row) => (row.source_key ?? '').startsWith('fallback:'))
   return {
     cells: summarizeHail(stats).sort((left, right) => left.h3.localeCompare(right.h3)),
     start_date: parsed.start_date,
     end_date: parsed.end_date,
-    source: 'NOAA MRMS MESH_Max_1440min',
+    source: fallback ? 'NOAA MRMS MESH_Max_1440min (fallback demo)' : 'NOAA MRMS MESH_Max_1440min',
     days: eachDay(parsed.start_date, parsed.end_date).length,
   }
 }
@@ -82,6 +83,10 @@ async function extractHail(cells: readonly string[], days: readonly string[]): P
     return await runPythonExtract(cells, days)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Hail extract failed.'
+    if (missingPythonDependency(message)) {
+      const fallback = mockHailStats(cells, days[0] ?? '', days[days.length - 1] ?? days[0] ?? '')
+      return fallback.map((row) => ({ ...row, source_key: `fallback:${row.source_key}` }))
+    }
     return { error: message, status: 400 }
   }
 }
@@ -128,7 +133,13 @@ function spawnPython(args: string[]): Promise<void> {
     })
     child.on('close', (code) => {
       if (code === 0) resolve()
-      else reject(new Error(stderr.trim() || 'Hail extract failed.'))
+      else if (missingPythonDependency(stderr)) {
+        reject(
+          new Error(
+            'Missing hail Python dependencies (xarray/cfgrib/eccodes). Install pipelines/hail/requirements.txt or keep demo fallback enabled.',
+          ),
+        )
+      } else reject(new Error(stderr.trim() || 'Hail extract failed.'))
     })
   })
 }
@@ -240,4 +251,10 @@ async function clampHailToProcess(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function missingPythonDependency(message: string): boolean {
+  return /No module named 'xarray'|No module named 'cfgrib'|No module named 'eccodes'|Missing hail Python dependencies/i.test(
+    message,
+  )
 }

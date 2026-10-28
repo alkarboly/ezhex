@@ -1,11 +1,12 @@
-import { useMutation } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
 import { HAIL_MESH_START } from '../../lib/limits'
 import { addDay } from '../../lib/enrichments'
 import { formatCount } from '../../lib/format'
+import { draftAgentAssist, quoteAgentAssist } from '../../services/agent-assist'
 import { enrichHail } from '../../services/query-workflows'
 import { useExplorer } from '../../store/explorer-store'
-import type { GeofenceKeep } from '../../types/enrichments'
+import type { GeofenceKeep, WorkflowEnrichment } from '../../types/enrichments'
 
 export function EnrichPanel() {
   const open = useExplorer((state) => state.enrichOpen)
@@ -21,10 +22,18 @@ export function EnrichPanel() {
   const clearGeofenceDraft = useExplorer((state) => state.clearGeofenceDraft)
   const upsert = useExplorer((state) => state.upsertDraftEnrichment)
   const draft = useExplorer((state) => state.draftEnrichments)
+  const setDraft = useExplorer((state) => state.setDraftEnrichments)
+  const setNotice = useExplorer((state) => state.setNotice)
   const defaults = useMemo(() => defaultHailRange(), [])
   const [start, setStart] = useState(defaults.start)
   const [end, setEnd] = useState(defaults.end)
   const [keep, setKeep] = useState<GeofenceKeep>('inside')
+  const [aiColumn, setAiColumn] = useState('broker_signal')
+  const [aiType, setAiType] = useState<'bool' | 'enum' | 'number' | 'text'>('bool')
+  const [aiPrompt, setAiPrompt] = useState('Is this record likely relevant to a data broker lead list?')
+  const [aiFields, setAiFields] = useState('name, category, main_category, address, operating_status')
+  const [aiEnumValues, setAiEnumValues] = useState('low, medium, high')
+  const [aiError, setAiError] = useState<string | null>(null)
 
   const hail = useMutation({
     mutationFn: () => enrichHail({ h3_cells: selected, start_date: start, end_date: end }),
@@ -33,6 +42,71 @@ export function EnrichPanel() {
       upsert({ id: 'hail_history', kind: 'hail_history', start_date: result.start_date, end_date: result.end_date })
     },
   })
+  const assistPopulate = useMutation({
+    mutationFn: () => draftAgentAssist({ h3_cells: selected, enrichments: draft, estimated_rows: selected.length * 22 }),
+    onSuccess: (result) => {
+      setDraft(result.enrichments)
+      if (result.notes.length > 0) setNotice(result.notes.join(' '))
+    },
+  })
+  const draftSignature = useMemo(() => JSON.stringify(draft), [draft])
+  const assistQuote = useQuery({
+    queryKey: ['agent-assist-quote', selected.join(','), draftSignature],
+    enabled: open && selected.length > 0,
+    queryFn: () => quoteAgentAssist({ h3_cells: selected, enrichments: draft, estimated_rows: selected.length * 22 }),
+    refetchInterval: 1_500,
+  })
+
+  useEffect(() => {
+    const geofence = draft.find((step): step is Extract<WorkflowEnrichment, { kind: 'geofence' }> => step.kind === 'geofence')
+    if (geofence) setKeep(geofence.keep)
+    const hailDraft = draft.find((step): step is Extract<WorkflowEnrichment, { kind: 'hail_history' }> => step.kind === 'hail_history')
+    if (hailDraft) {
+      setStart(hailDraft.start_date)
+      setEnd(hailDraft.end_date)
+    }
+    const aiDraft = draft.find((step): step is Extract<WorkflowEnrichment, { kind: 'ai_column' }> => step.kind === 'ai_column')
+    if (aiDraft) {
+      setAiColumn(aiDraft.column)
+      setAiType(aiDraft.value_type)
+      setAiPrompt(aiDraft.prompt)
+      setAiFields(aiDraft.source_fields.join(', '))
+      setAiEnumValues((aiDraft.enum_values ?? []).join(', '))
+    }
+  }, [draft])
+
+  const saveAi = () => {
+    setAiError(null)
+    const column = aiColumn.trim().toLowerCase()
+    if (!/^[a-z][a-z0-9_]{1,63}$/.test(column)) {
+      setAiError('Column must be snake_case, start with a letter, and stay under 64 chars.')
+      return
+    }
+    const prompt = aiPrompt.trim()
+    if (prompt.length < 6) {
+      setAiError('Prompt must be at least 6 characters.')
+      return
+    }
+    const sourceFields = [...new Set(aiFields.split(/[\s,]+/g).map((field) => field.trim()).filter(Boolean))]
+    if (sourceFields.length === 0) {
+      setAiError('Add at least one source field.')
+      return
+    }
+    const enumValues = [...new Set(aiEnumValues.split(/[\n,]+/g).map((value) => value.trim()).filter(Boolean))]
+    if (aiType === 'enum' && enumValues.length < 2) {
+      setAiError('Enum type needs at least two values.')
+      return
+    }
+    upsert({
+      id: 'ai_column',
+      kind: 'ai_column',
+      column,
+      value_type: aiType,
+      prompt,
+      source_fields: sourceFields,
+      ...(aiType === 'enum' ? { enum_values: enumValues } : {}),
+    })
+  }
 
   if (!open) return null
 
@@ -55,6 +129,46 @@ export function EnrichPanel() {
         </button>
       </header>
       <div className="grid gap-3 px-3.5 pb-3.5">
+        <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
+          <p className="text-[11px] font-medium">Agent assist</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Uses your current query + enhancement controls, populates suggestions, and updates quote lines live so you
+            can reconfigure before running.
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              disabled={selected.length === 0 || assistPopulate.isPending}
+              onClick={() => assistPopulate.mutate()}
+              className="h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+            >
+              {assistPopulate.isPending ? 'Populating…' : 'Populate controls'}
+            </button>
+            <span className="text-[10px] text-muted-foreground">
+              {assistQuote.isFetching ? 'Updating quote…' : 'Quote updates live'}
+            </span>
+          </div>
+          {assistPopulate.error && <p className="mt-1 text-[11px] text-destructive">{assistPopulate.error.message}</p>}
+          {assistQuote.error && <p className="mt-1 text-[11px] text-destructive">{assistQuote.error.message}</p>}
+          {assistQuote.data && (
+            <div className="mt-2 rounded-md border border-white/[0.08] bg-black/30 p-2">
+              <p className="text-[10px] text-muted-foreground">
+                Total {formatUsd(assistQuote.data.total_usd_cents)} · Balance {formatUsd(assistQuote.data.balance_usd_cents)}
+                {assistQuote.data.missing_hexes.length > 0
+                  ? ` · process ${assistQuote.data.missing_hexes.length} missing hexes in ${assistQuote.data.process_batches.length} batch(es)`
+                  : ' · no missing hexes'}
+              </p>
+              <ul className="mt-1 grid gap-0.5 text-[10px] text-foreground/85">
+                {assistQuote.data.lines.map((line) => (
+                  <li key={line.agent}>
+                    {line.agent} {formatUsd(line.clamped_usd_cents)} · {line.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+
         <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
           <p className="text-[11px] font-medium">Geofence</p>
           <p className="mt-1 text-[10px] text-muted-foreground">
@@ -134,6 +248,74 @@ export function EnrichPanel() {
           {hail.error && <p className="mt-1.5 text-[11px] text-destructive">{hail.error.message}</p>}
         </section>
 
+        <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
+          <p className="text-[11px] font-medium">AI row column</p>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Adds one typed run-only column per row. The orchestrator quotes per-row cost and caps this pass for demo
+            safety.
+          </p>
+          <div className="mt-2 grid gap-1.5">
+            <label className="grid gap-1 text-[10px] text-muted-foreground">
+              Column name (snake_case)
+              <input
+                value={aiColumn}
+                onChange={(event) => setAiColumn(event.target.value)}
+                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+              />
+            </label>
+            <label className="grid gap-1 text-[10px] text-muted-foreground">
+              Value type
+              <select
+                value={aiType}
+                onChange={(event) => setAiType(event.target.value as 'bool' | 'enum' | 'number' | 'text')}
+                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+              >
+                <option value="bool">bool</option>
+                <option value="enum">enum</option>
+                <option value="number">number</option>
+                <option value="text">text</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-[10px] text-muted-foreground">
+              Prompt
+              <textarea
+                value={aiPrompt}
+                onChange={(event) => setAiPrompt(event.target.value)}
+                className="min-h-16 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
+              />
+            </label>
+            <label className="grid gap-1 text-[10px] text-muted-foreground">
+              Source fields (comma or space separated)
+              <input
+                value={aiFields}
+                onChange={(event) => setAiFields(event.target.value)}
+                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+              />
+            </label>
+            {aiType === 'enum' && (
+              <label className="grid gap-1 text-[10px] text-muted-foreground">
+                Enum values
+                <input
+                  value={aiEnumValues}
+                  onChange={(event) => setAiEnumValues(event.target.value)}
+                  className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+                />
+              </label>
+            )}
+            <button
+              type="button"
+              onClick={saveAi}
+              className="mt-1 h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground"
+            >
+              Save AI column
+            </button>
+            {aiError && <p className="text-[11px] text-destructive">{aiError}</p>}
+            <p className="font-mono text-[10px] text-muted-foreground">
+              {draft.some((step) => step.kind === 'ai_column') ? 'ai_column on workflow' : 'no ai_column saved'}
+            </p>
+          </div>
+        </section>
+
         {summaries.length > 0 && (
           <div className="max-h-40 overflow-auto rounded-lg border border-white/[0.08]">
             <table className="w-full text-left text-[11px]">
@@ -167,4 +349,8 @@ function defaultHailRange() {
   const end = new Date().toISOString().slice(0, 10)
   const start = addDay(end, -29)
   return { start: start < HAIL_MESH_START ? HAIL_MESH_START : start, end }
+}
+
+function formatUsd(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`
 }

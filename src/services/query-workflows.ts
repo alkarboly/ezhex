@@ -1,4 +1,5 @@
 import type { HailEnrichRequest, HailEnrichResponse, QueryWorkflowRun } from '../types/enrichments'
+import type { WorkflowAgentQuote } from '../types/agents'
 import type { HexSnapshotCheck } from '../types/releases'
 import type { QueryWorkflow, QueryWorkflowCreate, QueryWorkflowList, QueryWorkflowPatch } from '../types/query-workflows'
 
@@ -44,6 +45,10 @@ export function patchQueryWorkflow(id: string, body: QueryWorkflowPatch) {
 
 export function runQueryWorkflow(id: string) {
   return request<QueryWorkflowRun>(`/api/query-workflows/${id}/run`, 'POST', {})
+}
+
+export function quoteQueryWorkflow(id: string) {
+  return request<WorkflowAgentQuote>(`/api/query-workflows/${id}/quote`, 'POST', {})
 }
 
 export function listQueryWorkflowRuns(id: string) {

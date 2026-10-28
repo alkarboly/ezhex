@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { MOBILE_QUERY, useMediaQuery } from '../../hooks/useMediaQuery'
 import { useExplorer } from '../../store/explorer-store'
 import { MobilePageHeader } from './MobileNav'
@@ -20,6 +20,14 @@ export function AppShell() {
       <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {mobile && pathname !== '/' && <MobilePageHeader />}
         <Outlet />
+        <div className="pointer-events-none absolute right-3 bottom-2 z-10 max-w-[min(90vw,26rem)]">
+          <p className="glass pointer-events-auto rounded-full px-3 py-1.5 text-[10px] text-muted-foreground">
+            Demo only · payments and ledger are simulated · no personal banking data is collected ·{' '}
+            <Link to="/licenses" className="text-primary hover:underline">
+              details
+            </Link>
+          </p>
+        </div>
       </main>
     </div>
   )

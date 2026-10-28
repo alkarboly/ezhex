@@ -47,7 +47,11 @@ UI / API caller
      GET/POST/PATCH/DELETE /api/query-workflows
      owner RLS, 5 per account, nationwide hexes
      enrichments stay on the workflow and are private
-     POST /api/query-workflows/:id/run checks overture_hex_snapshots, historizes latest if needed, then query then enrichments
+     POST /api/agent-assist/draft populates enhancement controls from current query context
+     POST /api/agent-assist/quote updates quote lines as query/enhancements change
+     POST /api/query-workflows/:id/quote returns agent quote lines + simulated ledger balance
+     POST /api/query-workflows/:id/run auto-processes missing hexes (<10 per batch), then checks snapshots, then query + enrichments
+     GET /api/ledger returns simulated ledger entries (debits, payouts, tips)
   -> Enrich
      POST /api/enrichments/hail
      geofence keep inside|outside a drawn polygon
@@ -104,15 +108,15 @@ Lists `overture_release_snapshots` (or the mock catalog). Each row is one proces
 
 The explorer selection dock and `/jobs` create jobs from selected hexes. There is no hover card and no Query button. Process always loads places, buildings, and addresses. `/jobs` keeps a live log pane per job, including association match rates, collapsed until Logs is pressed, and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` lists saved query workflows (inspect SQL + hexes, 5 per account). Selecting one previews every hex on the map, including nationwide disconnected sets. The same page still builds and downloads ingest plan JSON. Inspect opens a fitted panel from a ready hex click, fetches all three themes unfiltered, and shows one joined table with snapshot, snapshot date, sources, attribution, split taxonomy, and the stored theme fields. The inspect query is shown as SQL, collapsed until opened. The hex chip lists every included H3. Preview hexes frames the camera equally around those cells; Exit query closes inspect. Copy SQL and download CSV are available. Create a workflow stores that SQL and the selected hexes. Further hex clicks add cells to that query. Browser filters cover category, main category, snapshot date, status, building class, confidence (Any / Has a score / Missing / ≥ 0.5 / ≥ 0.7 / ≥ 0.9; a floor excludes empty scores), and presence flags. Each list and presence control includes `null` so empty values can be kept. Nulls stay when a link is missing. Building height and floors appear when the Overture row has them.
 
-`GET /api/query-workflows` lists the signed-in owner's query workflows (`limit` 5, `remaining`). `POST /api/query-workflows` saves `{ name, sql, custom_sql, h3_cells, filters, enrichments, release_version }`. `release_version` null or omitted means latest. The save uses the current access JWT; if that cookie is stale, Node refreshes it and Inspect refreshes the session before POST. A JWT or RLS miss returns “Sign in again to save a workflow.” A 400 that mentions those columns means `20261027_workflow_enrichments.sql` and `20261027_hex_snapshot_history.sql` have not been run in the live SQL editor. `PATCH /api/query-workflows/:id` updates enrichments or the pin. Custom SQL must be a single SELECT on `overture_places`, `overture_buildings`, and `overture_addresses`. `POST /api/query-workflows/:id/run` checks `overture_hex_snapshots`, historizes missing current snapshots for already-processed hexes, loads the inspect rows (or the pinned cut), then applies enrichments in order, and stores a private run. Unprocessed hexes fail. `GET` / `DELETE /api/query-workflows/:id` are owner-only. Ingest connectedness and the 20-hex / 220 km2 caps do not apply to query workflows. Mock mode keeps the same list in memory without an account.
+`GET /api/query-workflows` lists the signed-in owner's query workflows (`limit` 5, `remaining`). `POST /api/query-workflows` saves `{ name, sql, custom_sql, h3_cells, filters, enrichments, release_version }`. `release_version` null or omitted means latest. The save uses the current access JWT; if that cookie is stale, Node refreshes it and Inspect refreshes the session before POST. A JWT or RLS miss returns “Sign in again to save a workflow.” A 400 that mentions those columns means `20261027_workflow_enrichments.sql` and `20261027_hex_snapshot_history.sql` have not been run in the live SQL editor. `PATCH /api/query-workflows/:id` updates enrichments or the pin. Custom SQL must be a single SELECT on `overture_places`, `overture_buildings`, and `overture_addresses`. `POST /api/query-workflows/:id/quote` returns orchestrator + specialist quote lines and the current simulated ledger balance. `POST /api/query-workflows/:id/run` can auto-process missing hexes in batches smaller than 10, checks `overture_hex_snapshots`, historizes missing current snapshots for already-processed hexes, loads the inspect rows (or the pinned cut), then applies enrichments in order (`geofence`, `hail_history`, `ai_column`) and stores a private run. `GET` / `DELETE /api/query-workflows/:id` are owner-only. Ingest connectedness and the 20-hex / 220 km2 caps do not apply to query workflows. Mock mode keeps the same list in memory without an account.
 
 `POST /api/hex-snapshots/check` `{ h3_cells }` reads `overture_hex_snapshots` and returns per-hex `processed`, `first_release_version`, `latest_release_version`, `has_current`, and `releases`. Hex-status uses the same table.
 
-Workflows, enrichments, runs, and hail extracts are private (`auth.uid() = owner_user_id`). Anon cannot read them.
+Workflows, enrichments, runs, hail extracts, and ledger views are private (`auth.uid() = owner_user_id`). Anon cannot read them.
 
 ### Enrichments
 
-A workflow is a query plus an ordered enrichment list (max 4, at most one `hail_history`).
+A workflow is a query plus an ordered enrichment list (max 4, at most one `hail_history`, at most one `ai_column`).
 
 **geofence.** `{ id, kind: "geofence", keep: "inside" | "outside", polygon }`. After the query, rows whose `lng`/`lat` fail the keep test are dropped. Draw the polygon on the map (Enrich → Draw fence) or save it onto the workflow.
 
@@ -124,7 +128,9 @@ Use only the `120000` (12Z) file per day. Never sum overlapping files. Data from
 
 `POST /api/enrichments/hail` `{ h3_cells, start_date, end_date }` processes selected hexes and returns per-hex `{ hail_mm_max, hail_days, hail_last_date }`. The Explorer **Enrich** button opens that path.
 
-Live decode uses `pipelines/hail/extract_mesh.py` (xarray+cfgrib). Node writes a temp job JSON with hex bboxes, runs the script, keeps only hex-day mm, and deletes the GRIB. Supabase stores `hail_hex_stats` per owner. Full grids are not retained. Mock mode synthesizes deterministic MESH for verify.
+Live decode uses `pipelines/hail/extract_mesh.py` (xarray+cfgrib). Node writes a temp job JSON with hex bboxes, runs the script, keeps only hex-day mm, and deletes the GRIB. If Python hail dependencies are missing in demo deploys, Node falls back to deterministic synthetic values instead of hard-failing the run. Supabase stores `hail_hex_stats` per owner. Full grids are not retained. Mock mode synthesizes deterministic MESH for verify.
+
+**ai_column.** `{ id, kind: "ai_column", column, value_type, prompt, source_fields, enum_values? }`. Adds one typed run-only column per row (`bool` | `enum` | `number` | `text`). The pass is row-capped (default 200). OpenAI is optional and server-side only; deterministic fallback is used when the key/model is unavailable.
 
 `POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
 
@@ -176,6 +182,11 @@ Snapshot-history migration: `supabase/migrations/20261027_hex_snapshot_history.s
 - `query_workflows.release_version` (null = latest)
 - `query_workflow_runs.release_version`, `snapshot_status` (`current` | `stale` | `historical`), `historized_hexes`
 
+Agentic metadata migration: `supabase/migrations/20261028_agentic_ledger.sql`
+
+- `query_workflow_runs.logs` (per-run agent log lines)
+- `query_workflow_runs.quote_total_usd_cents`, `tips_usd_cents`, `ledger_debit_id`
+
 Grants migration: `supabase/migrations/20261027_query_workflow_grants.sql`
 
 - `GRANT SELECT, INSERT, UPDATE, DELETE` on `query_workflows`, `query_workflow_runs`, and `hail_hex_stats` to `authenticated`
@@ -189,3 +200,4 @@ All workflow tables are protected with owner-based RLS using `auth.uid() = owner
 - Keep `release_version` immutable per run.
 - Keep caps strict. Lower limits through env vars; code will not allow values above the hard caps.
 - The Render free web service is 512MB. Process pages DuckDB at 200 rows, caps DuckDB at 160MB / 1 thread, closes the connection after the job, and defaults ingest to 8,000 rows per theme / 20,000 total. If the dashboard still has a higher `WORKFLOW_MAX_ROWS_PER_DATASET`, lower it or the instance will OOM again.
+- OpenAI + Rho marketplace is demo/live for orchestrator quotes + `ai_column` + simulated ledger. Real Rho card debit is still target-only. Pickup contract: [marketplace.md](marketplace.md).

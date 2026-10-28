@@ -9,7 +9,13 @@ import { formatCount } from '../lib/format'
 import { MAX_QUERY_WORKFLOWS } from '../lib/limits'
 import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
 import { cn } from '../lib/utils'
-import { deleteQueryWorkflow, listQueryWorkflows, patchQueryWorkflow, runQueryWorkflow } from '../services/query-workflows'
+import {
+  deleteQueryWorkflow,
+  listQueryWorkflows,
+  patchQueryWorkflow,
+  quoteQueryWorkflow,
+  runQueryWorkflow,
+} from '../services/query-workflows'
 import {
   createWorkflowIngestionPlan,
   getQuerySchemas,
@@ -37,15 +43,43 @@ export function SavedQueriesPage() {
     onSuccess: () => client.invalidateQueries({ queryKey: ['query-workflows'] }),
   })
   const run = useMutation({
-    mutationFn: runQueryWorkflow,
+    mutationFn: async (workflowId: string) => {
+      const quote = await quoteQueryWorkflow(workflowId)
+      const lines = quote.lines.map((line) => `${line.agent}: $${(line.clamped_usd_cents / 100).toFixed(2)} · ${line.reason}`)
+      const ok = window.confirm(
+        [
+          `Agent quote total: $${(quote.total_usd_cents / 100).toFixed(2)}`,
+          `Balance: $${(quote.balance_usd_cents / 100).toFixed(2)}`,
+          '',
+          ...lines,
+          '',
+          quote.missing_hexes.length > 0
+            ? `Process agent will auto-batch ${quote.missing_hexes.length} missing hexes in groups under 10.`
+            : 'All hexes are already processed.',
+          '',
+          'Run workflow now?',
+        ].join('\n'),
+      )
+      if (!ok) return null
+      return runQueryWorkflow(workflowId)
+    },
     onSuccess: (result) => {
+      if (!result) {
+        useExplorer.getState().setNotice('Run cancelled.')
+        return
+      }
       void client.invalidateQueries({ queryKey: ['query-workflows'] })
+      void client.invalidateQueries({ queryKey: ['agent-ledger'] })
       useExplorer.getState().setNotice(
         result.status === 'succeeded'
-          ? `Workflow ran · ${result.row_count} rows after enrichments`
+          ? `Workflow ran · ${result.row_count} rows · spent $${(result.quote_total_usd_cents / 100).toFixed(2)} · tips $${(result.tips_usd_cents / 100).toFixed(2)}`
           : result.error_message ?? 'Workflow run failed.',
       )
     },
+    onError: (error) =>
+      useExplorer
+        .getState()
+        .setNotice(error instanceof Error ? error.message : 'Could not quote and run this workflow.'),
   })
   const draftEnrichments = useExplorer((state) => state.draftEnrichments)
   const saveDraft = useMutation({
@@ -65,8 +99,9 @@ export function SavedQueriesPage() {
           <h1 className="mt-1 text-xl font-semibold">Saved inspect SQL</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
             A workflow is a private inspect query plus optional enrichments. Geofence keeps rows inside or outside a
-            custom polygon. Hail history attaches NOAA MESH stats. History starts at first Process; a run checks
-            overture_hex_snapshots for the latest cut and can pin an older one.{' '}
+            custom polygon. Hail history attaches NOAA MESH stats. AI column adds one typed result column per row.
+            History starts at first Process; run uses an orchestrator quote, optional process batching under 10 hexes,
+            then checks overture_hex_snapshots for the latest cut and can pin an older one.{' '}
             {MAX_QUERY_WORKFLOWS} per account.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
@@ -162,7 +197,9 @@ function WorkflowCard({
               {formatCount(workflow.h3_cells.length)} hexes
               {workflow.custom_sql ? ' · custom SQL' : ' · generated SQL'}
               {workflow.release_version ? ` · ${workflow.release_version}` : ' · latest snapshot'}
-              {workflow.enrichments.length > 0 ? ` · ${workflow.enrichments.map((step) => step.kind.replace('_', ' ')).join(' · ')}` : ''}
+              {workflow.enrichments.length > 0
+                ? ` · ${workflow.enrichments.map((step) => step.kind.replace('_', ' ')).join(' · ')}`
+                : ''}
             </p>
           </div>
           <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary">
@@ -191,7 +228,7 @@ function WorkflowCard({
           onClick={onRun}
           className="rounded-full bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
         >
-          {running ? 'Running…' : 'Run query'}
+          {running ? 'Running…' : 'Quote & run'}
         </button>
         <button
           type="button"
