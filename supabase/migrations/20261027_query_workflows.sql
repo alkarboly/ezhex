@@ -64,18 +64,21 @@ drop policy if exists query_workflows_owner_select on public.query_workflows;
 create policy query_workflows_owner_select
   on public.query_workflows
   for select
+  to authenticated
   using (auth.uid() = owner_user_id);
 
 drop policy if exists query_workflows_owner_insert on public.query_workflows;
 create policy query_workflows_owner_insert
   on public.query_workflows
   for insert
+  to authenticated
   with check (auth.uid() = owner_user_id);
 
 drop policy if exists query_workflows_owner_update on public.query_workflows;
 create policy query_workflows_owner_update
   on public.query_workflows
   for update
+  to authenticated
   using (auth.uid() = owner_user_id)
   with check (auth.uid() = owner_user_id);
 
@@ -83,6 +86,10 @@ drop policy if exists query_workflows_owner_delete on public.query_workflows;
 create policy query_workflows_owner_delete
   on public.query_workflows
   for delete
+  to authenticated
   using (auth.uid() = owner_user_id);
+
+revoke all on table public.query_workflows from public, anon;
+grant select, insert, update, delete on table public.query_workflows to authenticated;
 
 notify pgrst, 'reload schema';

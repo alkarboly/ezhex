@@ -5,7 +5,14 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useThemeQuery } from '../../hooks/useCompiledQuery'
 import { downloadCsv, featureRowsToCsv } from '../../lib/csv'
-import { filterFeatureRows, mergeFeatureRows, observedValues, type FeatureRow, type PresenceFilter } from '../../lib/feature-rows'
+import {
+  filterFeatureRows,
+  mergeFeatureRows,
+  observedValues,
+  type FeatureRow,
+  type InspectFilters,
+  type PresenceFilter,
+} from '../../lib/feature-rows'
 import { formatCount } from '../../lib/format'
 import { compileInspectSql, validateInspectSql } from '../../lib/inspect-sql'
 import { MAX_QUERY_WORKFLOWS } from '../../lib/limits'
@@ -257,20 +264,11 @@ export function HexQueryTable() {
           {fetching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <ConfidenceSlider
-            label="Confidence ≥"
-            value={confidenceMin}
-            onChange={(next) => patchInspectFilters({ confidenceMin: next })}
-          />
-          <ConfidenceSlider
-            label="Confidence ≤"
-            value={confidenceMax}
-            onChange={(next) => patchInspectFilters({ confidenceMax: next })}
-          />
-          <PresencePick
-            label="Confidence"
-            value={confidencePresence}
-            onChange={(next) => patchInspectFilters({ confidencePresence: next })}
+          <ConfidencePick
+            min={confidenceMin}
+            max={confidenceMax}
+            presence={confidencePresence}
+            onChange={(next) => patchInspectFilters(next)}
             resetPage={() => setPage(0)}
           />
           <PresencePick
@@ -687,34 +685,71 @@ function PresencePick({
   )
 }
 
-function ConfidenceSlider({
-  label,
-  value,
+const CONFIDENCE_FLOORS = [0.5, 0.7, 0.9] as const
+
+function confidenceSelectValue(
+  min: number | null,
+  max: number | null,
+  presence: PresenceFilter,
+): string {
+  if (presence === 'null' || presence === 'no') return 'missing'
+  if (presence === 'yes' && min == null && max == null) return 'has'
+  if (min == null && max == null) return 'any'
+  if (max == null && CONFIDENCE_FLOORS.includes(min as (typeof CONFIDENCE_FLOORS)[number])) return `gte:${min}`
+  return 'custom'
+}
+
+function ConfidencePick({
+  min,
+  max,
+  presence,
   onChange,
+  resetPage,
 }: {
-  label: string
-  value: number | null
-  onChange: (next: number | null) => void
+  min: number | null
+  max: number | null
+  presence: PresenceFilter
+  onChange: (next: Pick<InspectFilters, 'confidenceMin' | 'confidenceMax' | 'confidencePresence'>) => void
+  resetPage: () => void
 }) {
+  const selected = confidenceSelectValue(min, max, presence)
+  const customLabel =
+    min != null && max != null
+      ? `${min.toFixed(2)}–${max.toFixed(2)}`
+      : min != null
+        ? `≥ ${min.toFixed(2)}`
+        : max != null
+          ? `≤ ${max.toFixed(2)}`
+          : 'Custom'
   return (
-    <label className="flex h-6 items-center gap-1 rounded border border-white/[0.08] bg-black/30 px-2 text-[10px] text-muted-foreground">
-      {label}
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.01}
-        value={value ?? 0}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="w-16 accent-primary"
-      />
-      <span className="w-8 tabular-nums text-foreground">{value == null ? 'any' : value.toFixed(2)}</span>
-      {value != null && (
-        <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => onChange(null)}>
-          ×
-        </button>
-      )}
-    </label>
+    <select
+      aria-label="Confidence"
+      className={cn(nativeSelectClass, compactSelectClass, 'w-40')}
+      value={selected}
+      onChange={(event) => {
+        const next = event.target.value
+        if (next === 'any') {
+          onChange({ confidenceMin: null, confidenceMax: null, confidencePresence: 'any' })
+        } else if (next === 'has') {
+          onChange({ confidenceMin: null, confidenceMax: null, confidencePresence: 'yes' })
+        } else if (next === 'missing') {
+          onChange({ confidenceMin: null, confidenceMax: null, confidencePresence: 'null' })
+        } else if (next.startsWith('gte:')) {
+          onChange({ confidenceMin: Number(next.slice(4)), confidenceMax: null, confidencePresence: 'any' })
+        }
+        resetPage()
+      }}
+    >
+      <option value="any">Any confidence</option>
+      <option value="has">Has a score</option>
+      <option value="missing">Missing confidence</option>
+      {CONFIDENCE_FLOORS.map((floor) => (
+        <option key={floor} value={`gte:${floor}`}>
+          ≥ {floor.toFixed(1)}
+        </option>
+      ))}
+      {selected === 'custom' && <option value="custom">{customLabel}</option>}
+    </select>
   )
 }
 

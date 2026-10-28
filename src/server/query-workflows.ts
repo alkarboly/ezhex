@@ -370,6 +370,12 @@ function missingWorkflowColumn(error: SupabaseErrorLike): boolean {
 function supabaseError(error: SupabaseErrorLike | string): ApiError {
   const message = typeof error === 'string' ? error : errorText(error)
   if (message) console.error('[query-workflows]', message)
+  if (/42501|permission denied|GRANT SELECT/i.test(message)) {
+    return {
+      error: 'Run supabase/migrations/20261027_query_workflow_grants.sql in the Supabase SQL editor, then retry.',
+      status: 403,
+    }
+  }
   if (/does not exist|relation|schema cache|PGRST204/i.test(message)) {
     return {
       error:

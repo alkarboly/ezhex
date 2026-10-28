@@ -407,10 +407,8 @@ function matchesChoice(values: readonly string[], value: string | null): boolean
 
 function matchesConfidence(value: number | null, filters: InspectFilters): boolean {
   const presence = filters.confidencePresence ?? 'any'
-  if (presence === 'null') return value == null
-  if (presence === 'no') return value == null
-  if (presence === 'yes' && value == null) return false
-  if (value == null) return presence === 'any'
+  if (presence === 'null' || presence === 'no') return value == null
+  if (value == null) return presence === 'any' && filters.confidenceMin == null && filters.confidenceMax == null
   if (filters.confidenceMin != null && value < filters.confidenceMin) return false
   if (filters.confidenceMax != null && value > filters.confidenceMax) return false
   return true

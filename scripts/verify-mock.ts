@@ -230,6 +230,13 @@ assert(
   filterFeatureRows(splitTaxonomy, { ...defaultInspectFilters, categories: ['null'] }).every((row) => row.category == null),
   'inspect null category filter kept a labeled row',
 )
+assert(
+  filterFeatureRows(
+    [{ ...splitTaxonomy[0]!, confidence: null }, { ...splitTaxonomy[0]!, id: 'scored', confidence: 0.8 }],
+    { ...defaultInspectFilters, confidenceMin: 0.5 },
+  ).every((row) => row.confidence != null && row.confidence >= 0.5),
+  'inspect confidence floor kept a missing score',
+)
 const unmatchedPlace = {
   id: 'p-orphan',
   h3: capitol,
@@ -640,6 +647,8 @@ assert(generatedSql.includes('SELECT'), 'inspect SQL is not a SELECT')
 assert(generatedSql.includes(capitol), 'inspect SQL dropped the hex')
 assert(generatedSql.includes("'cafe'"), 'inspect SQL dropped the category filter')
 assert(generatedSql.includes('eat_and_drink'), 'inspect SQL dropped the main category filter')
+assert(generatedSql.includes('places.confidence >= 0.2'), 'inspect SQL dropped the confidence floor')
+assert(!generatedSql.includes('OR places.confidence IS NULL'), 'inspect SQL floor still kept missing scores')
 assert(validateInspectSql(generatedSql.replace(/^--.*$/gm, '').trim()) === null, 'generated inspect SQL should be valid once comments are removed')
 assert(validateInspectSql('INSERT INTO overture_places (id) VALUES (1)') !== null, 'inspect SQL accepted a write')
 assert(validateInspectSql('SELECT * FROM profiles') !== null, 'inspect SQL accepted a non-overture table')

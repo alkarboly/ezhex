@@ -83,4 +83,9 @@ create policy hail_hex_stats_owner_delete
   on public.hail_hex_stats for delete
   using (auth.uid() = owner_user_id);
 
+revoke all on table public.query_workflow_runs from public, anon;
+grant select, insert, update, delete on table public.query_workflow_runs to authenticated;
+revoke all on table public.hail_hex_stats from public, anon;
+grant select, insert, update, delete on table public.hail_hex_stats to authenticated;
+
 notify pgrst, 'reload schema';

@@ -176,12 +176,11 @@ function confidenceSql(filters: InspectFilters): string | null {
   const parts: string[] = []
   if (filters.confidenceMin != null) parts.push(`places.confidence >= ${filters.confidenceMin}`)
   if (filters.confidenceMax != null) parts.push(`places.confidence <= ${filters.confidenceMax}`)
-  if (presence === 'yes') {
+  if (presence === 'yes' || parts.length > 0) {
     parts.unshift('places.confidence IS NOT NULL')
     return parts.join(' AND ')
   }
-  if (parts.length === 0) return null
-  return `((${parts.join(' AND ')}) OR places.confidence IS NULL)`
+  return null
 }
 
 function presenceSql(column: string, value: PresenceFilter): string | null {
