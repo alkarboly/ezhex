@@ -26,6 +26,7 @@ import {
   type ViewportStatus,
 } from '../../lib/h3'
 import { createHexDropLayer, HEX_DROP_LAYER_ID } from '../../lib/hex-drop'
+import { createHexLiftLayer, HEX_LIFT_LAYER_ID } from '../../lib/hex-lift'
 import {
   appearDelayMs,
   appearDurationMs,
@@ -363,14 +364,20 @@ export function H3Map({
         if (hoverCell) setCellState(hoverCell, { hover: false })
         if (nextHover) setCellState(nextHover, { hover: true })
         hoverCell = nextHover
+        liftLayer.setCell(nextHover)
         if (!isTouch) {
           if (inspectOpenRef.current) {
             revealCard(null)
           } else {
             const cardH3 =
               nextHover && anchor ? cellAt(anchor, H3_RESOLUTION) : nextHover ? cellAt(rest, H3_RESOLUTION) : null
-            revealCard(cardH3)
-            if (cardH3) pinCard(cardH3)
+            const status = cardH3 ? coverageRef.current?.get(cardH3)?.status : null
+            if (cardH3 && (status === 'ready' || status === 'processing')) {
+              revealCard(cardH3)
+              pinCard(cardH3)
+            } else {
+              revealCard(null)
+            }
           }
         }
       } else if (!isTouch && hoverCell) {
@@ -440,6 +447,10 @@ export function H3Map({
     let arriving = !calm
     let arrivalArmed = false
     const dropLayer = createHexDropLayer()
+    const liftLayer = createHexLiftLayer()
+    let diveLive = false
+    let diveBasemap = false
+    let diveHandoff = false
 
     const report = () => {
       if (arriving || bridgingRef.current) return
@@ -533,9 +544,13 @@ export function H3Map({
       if (!arriving) return
       arriving = false
       arrivingRef.current = false
+      diveLive = false
+      diveBasemap = false
+      diveHandoff = false
       dropLayer.finish()
       if (map.getLayer(HEX_DROP_LAYER_ID)) map.removeLayer(HEX_DROP_LAYER_ID)
       showOpeningAssets(map, modeRef.current)
+      if (!map.getLayer(HEX_LIFT_LAYER_ID)) map.addLayer(liftLayer)
       settleViewMode()
       if (appliedBasemap.current === openingBasemap) {
         report()
@@ -577,9 +592,11 @@ export function H3Map({
         if (cancelled || performance.now() - mark.t < 350 || map.isMoving()) return
         if (phase === 'spin') {
           phase = 'dive'
+          diveLive = true
+          diveBasemap = false
+          diveHandoff = false
           mark.t = performance.now()
-          dropLayer.fadeOut(520)
-          showOpeningAssets(map, modeRef.current)
+          dropLayer.beginDive(map, AUSTIN_CENTER.lat, AUSTIN_CENTER.lng)
           map.flyTo({
             center: [AUSTIN_CENTER.lng, AUSTIN_CENTER.lat],
             zoom: AUSTIN_ZOOM,
@@ -611,6 +628,7 @@ export function H3Map({
       window.clearTimeout(slowTimer)
       ensureH3Layers(map, modeRef.current)
       ensureInspectLayers(map)
+      if (!map.getLayer(HEX_LIFT_LAYER_ID)) map.addLayer(liftLayer)
       showGlobe(map)
       applied = new Map()
       hoverCell = null
@@ -635,6 +653,20 @@ export function H3Map({
     map.on('zoom', maybeBridgeZoom)
     map.on('move', () => {
       schedule()
+      if (arriving && diveLive) {
+        const zoom = map.getZoom()
+        const center = map.getCenter()
+        dropLayer.syncDive(zoom, center.lat, center.lng)
+        if (!diveBasemap && dropLayer.diveBasemapDue(zoom)) {
+          diveBasemap = true
+          showOpeningAssets(map, modeRef.current)
+        }
+        if (!diveHandoff && dropLayer.diveHandoffDue(zoom)) {
+          diveHandoff = true
+          dropLayer.fadeOut(480)
+        }
+        return
+      }
       if (!arriving) {
         maybeBridgeZoom()
         reportSoon()
@@ -1024,7 +1056,7 @@ function hideOpeningAssets(map: MapLibreMap) {
       map.setPaintProperty('background', 'background-color', '#05080c')
       continue
     }
-    if (layer.id === HEX_DROP_LAYER_ID || layer.id.startsWith('h3')) continue
+    if (layer.id === HEX_DROP_LAYER_ID || layer.id === HEX_LIFT_LAYER_ID || layer.id.startsWith('h3')) continue
     map.setLayoutProperty(layer.id, 'visibility', 'none')
   }
   map.setSky({
@@ -1041,7 +1073,7 @@ function showOpeningAssets(map: MapLibreMap, mode: HexMode) {
   const style = map.getStyle()
   if (!style?.layers) return
   for (const layer of style.layers) {
-    if (layer.id === HEX_DROP_LAYER_ID) continue
+    if (layer.id === HEX_DROP_LAYER_ID || layer.id === HEX_LIFT_LAYER_ID) continue
     map.setLayoutProperty(layer.id, 'visibility', 'visible')
   }
   showGlobe(map)

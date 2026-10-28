@@ -29,6 +29,7 @@ export function HexHoverCard({
 }) {
   const ready = dataStatus === 'ready'
   const processing = dataStatus === 'processing'
+  if (!ready && !processing) return null
 
   return (
     <div
@@ -50,9 +51,7 @@ export function HexHoverCard({
           ? `Older snapshot${releaseVersion ? ` ${releaseVersion}` : ''}. Process again to refresh.`
           : snapshot === 'current'
             ? `Current snapshot${releaseVersion ? ` ${releaseVersion}` : ''}. Open inspect to see rows.`
-            : processing
-              ? 'An ingestion job is already queued for this hex.'
-              : 'No processed data yet. Empty hexes stay unfilled until you process them.'}
+            : 'An ingestion job is already queued for this hex.'}
       </p>
       <div className="mt-3 flex flex-wrap gap-1.5">
         <ActionButton disabled={!ready} onClick={() => onAction('query')}>

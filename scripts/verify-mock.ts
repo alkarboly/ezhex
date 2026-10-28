@@ -3,6 +3,9 @@ import {
   AUSTIN_CENTER,
   cellPolygon,
   cellsInView,
+  diveHexCells,
+  diveResolutionForZoom,
+  earthFocusCell,
   earthHexCells,
   readyCellsInParents,
   snapshotForDisplayCell,
@@ -15,6 +18,7 @@ import {
   buildHexDropMesh,
   hexDropElevation,
 } from '../src/lib/hex-drop.ts'
+import { HEX_LIFT_HEIGHT_M, hexLiftElevation } from '../src/lib/hex-lift.ts'
 import { appearDelayMs, appearIsQuiet, appearKind, introDelayMs, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
 import { mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
@@ -317,6 +321,13 @@ assert(hexDropElevation(HEX_DROP_DURATION_MS, 90) === 0, 'north hexes should lan
 assert(hexDropElevation(HEX_DROP_WAVE_MS, -90) === HEX_DROP_HEIGHT_M, 'south hexes should still be up when the north wave ends')
 assert(hexDropElevation(HEX_DROP_WAVE_MS + HEX_DROP_DURATION_MS, -90) === 0, 'south hexes should land last')
 assert(buildHexDropMesh().fillCount > 0, 'drop mesh should triangulate the earth hexes')
+assert(diveResolutionForZoom(1.5) === 1, 'orbit zoom should stay on the earth mesh')
+assert(diveResolutionForZoom(12.4) === 8, 'city dive should land on resolution 8')
+assert(earthFocusCell(AUSTIN_CENTER.lat, AUSTIN_CENTER.lng) === cellToParent(capitol, 1), 'Austin earth hex should be the res-1 parent')
+assert(diveHexCells(AUSTIN_CENTER.lat, AUSTIN_CENTER.lng, 1.5).length === 842, 'early dive should keep the earth mesh')
+assert(diveHexCells(AUSTIN_CENTER.lat, AUSTIN_CENTER.lng, 12.4).includes(capitol), 'late dive should include the city hex')
+assert(hexLiftElevation(0) === 0, 'a city hex should sit on the ground before hover')
+assert(hexLiftElevation(1) === HEX_LIFT_HEIGHT_M, 'a hovered city hex should lift off the ground')
 
 const view = cellsInView({ west: -97.76, south: 30.25, east: -97.72, north: 30.29 }, 13)
 assert(view.status === 'ready' && view.ids.length > 0, 'viewport cell lookup failed')

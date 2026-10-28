@@ -1,39 +1,47 @@
 /**
- * Opening hex drop. Vertices sit in mercator 0..1 and use MapLibre's
- * projectTileFor3D so elevation is meters above the globe sphere.
- * North hexes fall first. South hexes land last.
+ * Opening hex drop, then the dive punch-in.
+ * Vertices sit in mercator 0..1 and use MapLibre's projectTileFor3D.
+ * North hexes fall first. The dive keeps the Austin cell and splits it.
  */
 
-import { cellToBoundary, cellToLatLng } from 'h3-js'
+import { cellToLatLng } from 'h3-js'
+import type { CustomLayerInterface, CustomRenderMethodInput, Map as MapLibreMap } from 'maplibre-gl'
 import {
-  MercatorCoordinate,
-  type CustomLayerInterface,
-  type CustomRenderMethodInput,
-  type Map as MapLibreMap,
-} from 'maplibre-gl'
-import { earthHexCells } from './h3'
+  diveHexCells,
+  diveResolutionForZoom,
+  earthFocusCell,
+  earthHexCells,
+} from './h3'
 import { appearDurationMs, appearEase, introDelayMs } from './hex-appear'
+import {
+  bindGlobeProjection,
+  bindHexAttribs,
+  buildHexAttrMesh,
+  compileGlShader,
+  type HexMesh,
+} from './hex-mesh'
 
 export const HEX_DROP_LAYER_ID = 'hex-drop'
 export const HEX_DROP_HEIGHT_M = 2_800_000
 export const HEX_DROP_DURATION_MS = appearDurationMs('intro')
 export const HEX_DROP_WAVE_MS = 1800
-
-type Mesh = {
-  fill: Float32Array
-  fillCount: number
-  line: Float32Array
-  lineCount: number
-}
+export const HEX_DIVE_FADE_MS = 720
+export const HEX_DIVE_BASEMAP_ZOOM = 7.4
+export const HEX_DIVE_HANDOFF_ZOOM = 10.8
 
 type ProgramSet = {
   program: WebGLProgram
   aPos: number
   aDelay: number
+  aKeep: number
 }
 
 export type HexDropLayer = CustomLayerInterface & {
   start: (map: MapLibreMap) => void
+  beginDive: (map: MapLibreMap, lat: number, lng: number) => void
+  syncDive: (zoom: number, lat: number, lng: number) => void
+  diveBasemapDue: (zoom: number) => boolean
+  diveHandoffDue: (zoom: number) => boolean
   finish: () => void
   fadeOut: (ms?: number) => void
 }
@@ -48,56 +56,52 @@ export function createHexDropLayer(): HexDropLayer {
   const shaders = new Map<string, ProgramSet>()
   let fillBuffer: WebGLBuffer | null = null
   let lineBuffer: WebGLBuffer | null = null
-  let mesh: Mesh | null = null
+  let mesh: HexMesh | null = null
+  let gl: WebGL2RenderingContext | null = null
   let map: MapLibreMap | null = null
   let startedAt = 0
   let forceDone = false
   let fadeStart = 0
   let fadeMs = 0
   let layerAlpha = 1
+  let diveStarted = 0
+  let focus = ''
+  let meshKey = ''
 
   const tick = () => {
     map?.triggerRepaint()
   }
 
-  const bindProjection = (gl: WebGL2RenderingContext, program: WebGLProgram, args: CustomRenderMethodInput) => {
-    const data = args.defaultProjectionData
-    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_projection_fallback_matrix'), false, data.fallbackMatrix)
-    gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_projection_matrix'), false, data.mainMatrix)
-    gl.uniform4f(gl.getUniformLocation(program, 'u_projection_tile_mercator_coords'), ...data.tileMercatorCoords)
-    gl.uniform4f(gl.getUniformLocation(program, 'u_projection_clipping_plane'), ...data.clippingPlane)
-    gl.uniform1f(gl.getUniformLocation(program, 'u_projection_transition'), data.projectionTransition)
-    const clip = gl.getUniformLocation(program, 'u_projection_clip_antimeridian')
-    if (clip) gl.uniform1f(clip, data.clipAntimeridian ? 1 : 0)
-  }
-
-  const getProgram = (gl: WebGL2RenderingContext, args: CustomRenderMethodInput): ProgramSet | null => {
+  const getProgram = (context: WebGL2RenderingContext, args: CustomRenderMethodInput): ProgramSet | null => {
     const key = args.shaderData.variantName
     const cached = shaders.get(key)
     if (cached) return cached
-    const vertex = compile(
-      gl,
-      gl.VERTEX_SHADER,
+    const vertex = compileGlShader(
+      context,
+      context.VERTEX_SHADER,
       `#version 300 es
       ${args.shaderData.vertexShaderPrelude}
       ${args.shaderData.define}
       in vec2 a_pos;
       in float a_delay;
+      in float a_keep;
       uniform float u_now;
       uniform float u_duration;
       uniform float u_drop;
+      uniform float u_dive;
       out float v_alpha;
       void main() {
         float t = clamp((u_now - a_delay) / max(u_duration, 1.0), 0.0, 1.0);
         float eased = 1.0 - pow(1.0 - t, 3.0);
         float elevation = u_drop * (1.0 - eased);
-        v_alpha = smoothstep(0.0, 0.12, t);
+        float visible = mix(1.0, a_keep, clamp(u_dive, 0.0, 1.0));
+        v_alpha = smoothstep(0.0, 0.12, t) * visible;
         gl_Position = projectTileFor3D(a_pos, elevation);
       }`,
     )
-    const fragment = compile(
-      gl,
-      gl.FRAGMENT_SHADER,
+    const fragment = compileGlShader(
+      context,
+      context.FRAGMENT_SHADER,
       `#version 300 es
       precision highp float;
       in float v_alpha;
@@ -110,82 +114,94 @@ export function createHexDropLayer(): HexDropLayer {
       }`,
     )
     if (!vertex || !fragment) return null
-    const program = gl.createProgram()
+    const program = context.createProgram()
     if (!program) return null
-    gl.attachShader(program, vertex)
-    gl.attachShader(program, fragment)
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null
+    context.attachShader(program, vertex)
+    context.attachShader(program, fragment)
+    context.linkProgram(program)
+    if (!context.getProgramParameter(program, context.LINK_STATUS)) return null
     const next = {
       program,
-      aPos: gl.getAttribLocation(program, 'a_pos'),
-      aDelay: gl.getAttribLocation(program, 'a_delay'),
+      aPos: context.getAttribLocation(program, 'a_pos'),
+      aDelay: context.getAttribLocation(program, 'a_delay'),
+      aKeep: context.getAttribLocation(program, 'a_keep'),
     }
     shaders.set(key, next)
     return next
   }
 
+  const upload = (next: HexMesh) => {
+    if (!gl || !fillBuffer || !lineBuffer) {
+      mesh = next
+      return
+    }
+    mesh = next
+    gl.bindBuffer(gl.ARRAY_BUFFER, fillBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, next.fill, gl.DYNAMIC_DRAW)
+    gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer)
+    gl.bufferData(gl.ARRAY_BUFFER, next.line, gl.DYNAMIC_DRAW)
+  }
+
   const draw = (
-    gl: WebGL2RenderingContext,
+    context: WebGL2RenderingContext,
     args: CustomRenderMethodInput,
     buffer: WebGLBuffer,
     count: number,
     mode: number,
     color: [number, number, number, number],
   ) => {
-    const set = getProgram(gl, args)
+    const set = getProgram(context, args)
     if (!set || !mesh) return
     const elapsed = forceDone ? HEX_DROP_WAVE_MS + HEX_DROP_DURATION_MS : Math.max(0, performance.now() - startedAt)
     if (fadeStart > 0) {
       layerAlpha = Math.max(0, 1 - (performance.now() - fadeStart) / Math.max(1, fadeMs))
     }
-    gl.useProgram(set.program)
-    bindProjection(gl, set.program, args)
-    gl.uniform1f(gl.getUniformLocation(set.program, 'u_now'), elapsed)
-    gl.uniform1f(gl.getUniformLocation(set.program, 'u_duration'), HEX_DROP_DURATION_MS)
-    gl.uniform1f(gl.getUniformLocation(set.program, 'u_drop'), HEX_DROP_HEIGHT_M)
-    gl.uniform1f(gl.getUniformLocation(set.program, 'u_layer_alpha'), layerAlpha)
-    gl.uniform4f(gl.getUniformLocation(set.program, 'u_color'), color[0], color[1], color[2], color[3])
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer)
-    gl.enableVertexAttribArray(set.aPos)
-    gl.vertexAttribPointer(set.aPos, 2, gl.FLOAT, false, 12, 0)
-    gl.enableVertexAttribArray(set.aDelay)
-    gl.vertexAttribPointer(set.aDelay, 1, gl.FLOAT, false, 12, 8)
-    gl.drawArrays(mode, 0, count)
+    const dive = diveStarted > 0 ? Math.min(1, (performance.now() - diveStarted) / HEX_DIVE_FADE_MS) : 0
+    context.useProgram(set.program)
+    bindGlobeProjection(context, set.program, args)
+    context.uniform1f(context.getUniformLocation(set.program, 'u_now'), elapsed)
+    context.uniform1f(context.getUniformLocation(set.program, 'u_duration'), HEX_DROP_DURATION_MS)
+    context.uniform1f(context.getUniformLocation(set.program, 'u_drop'), HEX_DROP_HEIGHT_M)
+    context.uniform1f(context.getUniformLocation(set.program, 'u_dive'), dive)
+    context.uniform1f(context.getUniformLocation(set.program, 'u_layer_alpha'), layerAlpha)
+    context.uniform4f(context.getUniformLocation(set.program, 'u_color'), color[0], color[1], color[2], color[3])
+    context.bindBuffer(context.ARRAY_BUFFER, buffer)
+    bindHexAttribs(context, set.aPos, set.aDelay, set.aKeep)
+    context.drawArrays(mode, 0, count)
   }
 
   return {
     id: HEX_DROP_LAYER_ID,
     type: 'custom',
     renderingMode: '3d',
-    onAdd(nextMap, gl) {
+    onAdd(nextMap, context) {
       map = nextMap
-      mesh = buildHexDropMesh()
-      fillBuffer = gl.createBuffer()
-      lineBuffer = gl.createBuffer()
-      gl.bindBuffer(gl.ARRAY_BUFFER, fillBuffer)
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.fill, gl.STATIC_DRAW)
-      gl.bindBuffer(gl.ARRAY_BUFFER, lineBuffer)
-      gl.bufferData(gl.ARRAY_BUFFER, mesh.line, gl.STATIC_DRAW)
+      gl = context
+      mesh = buildEarthMesh(new Set())
+      fillBuffer = context.createBuffer()
+      lineBuffer = context.createBuffer()
+      upload(mesh)
     },
-    onRemove(_nextMap, gl) {
-      if (fillBuffer) gl.deleteBuffer(fillBuffer)
-      if (lineBuffer) gl.deleteBuffer(lineBuffer)
+    onRemove(_nextMap, context) {
+      if (fillBuffer) context.deleteBuffer(fillBuffer)
+      if (lineBuffer) context.deleteBuffer(lineBuffer)
       fillBuffer = null
       lineBuffer = null
+      gl = null
       map = null
     },
-    render(gl, args) {
+    render(context, args) {
       if (!mesh || !fillBuffer || !lineBuffer || layerAlpha <= 0) return
-      gl.enable(gl.BLEND)
-      gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
-      gl.enable(gl.DEPTH_TEST)
-      gl.depthFunc(gl.LEQUAL)
-      draw(gl, args, fillBuffer, mesh.fillCount, gl.TRIANGLES, [0.494, 0.941, 0.863, 0.16])
-      draw(gl, args, lineBuffer, mesh.lineCount, gl.LINES, [0.494, 0.941, 0.863, 0.92])
+      context.enable(context.BLEND)
+      context.blendFunc(context.ONE, context.ONE_MINUS_SRC_ALPHA)
+      context.enable(context.DEPTH_TEST)
+      context.depthFunc(context.LEQUAL)
+      draw(context, args, fillBuffer, mesh.fillCount, context.TRIANGLES, [0.494, 0.941, 0.863, 0.16])
+      draw(context, args, lineBuffer, mesh.lineCount, context.LINES, [0.494, 0.941, 0.863, 0.92])
       const elapsed = forceDone ? HEX_DROP_WAVE_MS + HEX_DROP_DURATION_MS : performance.now() - startedAt
       const fading = fadeStart > 0 && layerAlpha > 0
-      if (startedAt > 0 && (elapsed < HEX_DROP_WAVE_MS + HEX_DROP_DURATION_MS || fading)) tick()
+      const diving = diveStarted > 0 && performance.now() - diveStarted < HEX_DIVE_FADE_MS
+      if (startedAt > 0 && (elapsed < HEX_DROP_WAVE_MS + HEX_DROP_DURATION_MS || fading || diving)) tick()
     },
     start(nextMap) {
       map = nextMap
@@ -193,8 +209,39 @@ export function createHexDropLayer(): HexDropLayer {
       forceDone = false
       fadeStart = 0
       layerAlpha = 1
+      diveStarted = 0
+      focus = ''
+      meshKey = ''
+      upload(buildEarthMesh(new Set()))
       tick()
     },
+    beginDive(nextMap, lat, lng) {
+      map = nextMap
+      forceDone = true
+      fadeStart = 0
+      layerAlpha = 1
+      diveStarted = performance.now()
+      focus = earthFocusCell(lat, lng)
+      meshKey = ''
+      upload(buildEarthMesh(new Set([focus])))
+      tick()
+    },
+    syncDive(zoom, lat, lng) {
+      if (diveStarted === 0) return
+      const resolution = diveResolutionForZoom(zoom)
+      const cells = diveHexCells(lat, lng, zoom)
+      const key = `${resolution}:${cells[0] ?? ''}:${cells.length}`
+      if (key === meshKey) return
+      meshKey = key
+      if (resolution <= 1) {
+        upload(buildEarthMesh(new Set([focus || earthFocusCell(lat, lng)])))
+      } else {
+        upload(buildHexAttrMesh(cells, () => ({ delay: 0, keep: 1 })))
+      }
+      tick()
+    },
+    diveBasemapDue: (zoom) => zoom >= HEX_DIVE_BASEMAP_ZOOM,
+    diveHandoffDue: (zoom) => zoom >= HEX_DIVE_HANDOFF_ZOOM,
     finish() {
       forceDone = true
       fadeStart = 0
@@ -209,67 +256,16 @@ export function createHexDropLayer(): HexDropLayer {
   }
 }
 
-export function buildHexDropMesh(cells: readonly string[] = earthHexCells()): Mesh {
-  const fills: number[] = []
-  const lines: number[] = []
-  for (const cell of cells) {
+export function buildHexDropMesh(cells: readonly string[] = earthHexCells()): HexMesh {
+  return buildHexAttrMesh(cells, (cell) => {
     const [lat] = cellToLatLng(cell)
-    const delay = introDelayMs(lat)
-    const ring = unwrapRing(cellToBoundary(cell, true).map((pair) => [pair[0], pair[1]] as [number, number]))
-    const verts = ringToMercator(ring)
-    if (verts.length < 3) continue
-    for (let i = 1; i < verts.length - 1; i += 1) {
-      pushVert(fills, verts[0], delay)
-      pushVert(fills, verts[i], delay)
-      pushVert(fills, verts[i + 1], delay)
-    }
-    for (let i = 0; i < verts.length; i += 1) {
-      const next = verts[(i + 1) % verts.length]
-      pushVert(lines, verts[i], delay)
-      pushVert(lines, next, delay)
-    }
-  }
-  return {
-    fill: new Float32Array(fills),
-    fillCount: fills.length / 3,
-    line: new Float32Array(lines),
-    lineCount: lines.length / 3,
-  }
+    return { delay: introDelayMs(lat), keep: 1 }
+  })
 }
 
-function pushVert(target: number[], point: { x: number; y: number }, delay: number) {
-  target.push(point.x, point.y, delay)
-}
-
-function unwrapRing(ring: [number, number][]): [number, number][] {
-  if (ring.length === 0) return ring
-  const out: [number, number][] = [[ring[0][0], ring[0][1]]]
-  for (let i = 1; i < ring.length; i += 1) {
-    let lng = ring[i][0]
-    const prev = out[i - 1][0]
-    while (lng - prev > 180) lng -= 360
-    while (lng - prev < -180) lng += 360
-    out.push([lng, ring[i][1]])
-  }
-  const first = out[0]
-  const last = out[out.length - 1]
-  if (first[0] === last[0] && first[1] === last[1]) out.pop()
-  return out
-}
-
-function ringToMercator(ring: [number, number][]) {
-  return ring.map(([lng, lat]) => MercatorCoordinate.fromLngLat({ lng, lat }))
-}
-
-function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader | null {
-  const shader = gl.createShader(type)
-  if (!shader) return null
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    console.error(gl.getShaderInfoLog(shader))
-    gl.deleteShader(shader)
-    return null
-  }
-  return shader
+function buildEarthMesh(keep: ReadonlySet<string>): HexMesh {
+  return buildHexAttrMesh(earthHexCells(), (cell) => {
+    const [lat] = cellToLatLng(cell)
+    return { delay: introDelayMs(lat), keep: keep.size === 0 || keep.has(cell) ? 1 : 0 }
+  })
 }

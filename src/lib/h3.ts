@@ -6,6 +6,8 @@ import {
   getHexagonEdgeLengthAvg,
   getRes0Cells,
   getResolution,
+  gridDisk,
+  latLngToCell,
   polygonToCells,
   UNITS,
 } from 'h3-js'
@@ -46,6 +48,31 @@ export function earthHexCells(): string[] {
   if (earthCellsCache) return earthCellsCache
   earthCellsCache = getRes0Cells().flatMap((cell) => cellToChildren(cell, EARTH_HEX_RESOLUTION))
   return earthCellsCache
+}
+
+/** Resolution of the dive honeycomb. Finer than the city grid so one hex can split. */
+export function diveResolutionForZoom(zoom: number): number {
+  if (zoom >= 11.2) return 8
+  if (zoom >= 9.6) return 7
+  if (zoom >= 8.2) return 6
+  if (zoom >= 6.8) return 5
+  if (zoom >= 5.4) return 4
+  if (zoom >= 4.2) return 3
+  if (zoom >= 3) return 2
+  return 1
+}
+
+/** Hexes drawn while the opening camera punches into one cell. */
+export function diveHexCells(lat: number, lng: number, zoom: number): string[] {
+  const resolution = diveResolutionForZoom(zoom)
+  if (resolution <= 1) return earthHexCells()
+  const center = latLngToCell(lat, lng, resolution)
+  const rings = resolution <= 3 ? 2 : resolution <= 5 ? 3 : 2
+  return gridDisk(center, rings)
+}
+
+export function earthFocusCell(lat: number, lng: number): string {
+  return latLngToCell(lat, lng, EARTH_HEX_RESOLUTION)
 }
 
 export const MOCK_COVERAGE = {
