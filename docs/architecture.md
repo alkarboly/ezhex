@@ -29,13 +29,14 @@ The Node API also exposes workflow-ingestion planning and job endpoints:
 - `POST /api/workflow-ingestion/jobs/:id/run`
 - `POST /api/hex-status`
 - `GET /api/query-schemas`
+- `GET /api/releases`
 - `POST /api/query` (used when a ready hex opens the inspect table)
 
 The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps. Creating a job runs that planner, then Node downloads Overture parquet for that bbox only, keeps rows whose H3 resolution-8 cell is in the selection, and upserts them into Supabase. `POST /api/workflow-ingestion/jobs/:id/run` starts the same download. The default release is `2026-10-21.0` (`OVERTURE_RELEASE`). Jobs themselves stay in the Node process. Feature rows persist in Supabase.
 
 Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines from create, DuckDB S3 reads, bbox vs hex filter counts, RPC write batches, and the final row totals. The store keeps the newest 200 lines per job. `/jobs` keeps that stream collapsed until Logs is pressed, and polls every 1.2s while any job is queued or running.
 
-`POST /api/hex-status` returns `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null) and `release_version`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. `current` means the newest stored release is at least `OVERTURE_RELEASE` (`2026-10-21.0` by default). `stale` means the hex has rows from an older release. Processing means a download is running.
+`POST /api/hex-status` returns `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null) and `release_version`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. `current` means the newest stored release is at least `OVERTURE_RELEASE` (`2026-10-21.0` by default). `stale` means the hex has rows from an older release. Processing means a download is running. `GET /api/releases` lists ingested snapshot metadata (`release_version`, hex and theme counts, source datasets). Feature rows keep `(id, release_version)`, so a later process of a newer release does not overwrite an older cut. Queries may send `release_version` to pin one snapshot. Omitted queries use the newest stored release in each hex.
 
 `/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection. Each job has a log pane, hidden until opened. Process always loads places, buildings, and addresses together. The explorer is hex-first: hover a cell for status and Process, or click a ready hex to inspect. Inspect is a draggable window. Close on the title bar ends inspect and does not reopen the hex under the pointer. It fetches all three themes with no form filters, then left-joins each place to its linked address and building. Unmatched places stay in the table with null address or building. Unmatched addresses and buildings are appended. The Building column is `names.primary`, else `subtype` or `class`. Height and floors come from the linked building when those Overture fields are present; they are often null. Inspect dropdowns list values seen in those loaded rows, not a preset catalog. Wheel events stay in the window so they do not zoom the map.
 
@@ -59,7 +60,7 @@ Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Gre
 - **Grid** also paints empty-cell outlines across the view.
 - **Hidden** hides the H3 layers.
 
-The fill sits under the basemap's roads and buildings, so streets cut through the color. Outlines sit above roads, where they stay unbroken, and under the place labels.
+The fill sits under the basemap's roads and buildings, so streets cut through the color. Outlines sit above roads, where they stay unbroken, and under the place labels. MapLibre's attribution control stays on, with `© OpenStreetMap contributors, Overture Maps Foundation` and a link to `/licenses`. Streets tiles still credit OpenFreeMap / OSM. Satellite tiles still credit Esri. `/licenses` is the public notice for CDLA Permissive 2.0, Apache 2.0 / Foursquare, ODbL buildings, NAD addresses, and Esri terms.
 
 Switching basemaps calls `setStyle(style, { diff: false })`. That reloads the style and fires `style.load`, which re-adds the H3 source and layers. A diffed update drops them without an event. Box zoom is off because it claims every shift-press and swallows shift-click.
 
@@ -73,7 +74,7 @@ Hexes start as missing until Process finishes. Query unlocks when rows exist in 
 
 ## Overture ingest
 
-Process uses DuckDB `httpfs` and `spatial` against the public Overture S3 bucket. It always reads places, buildings, and addresses. DuckDB is capped at 160MB and one thread, reads 200-row pages, and is closed when the job ends. Places and addresses store a Point from `ST_X`/`ST_Y`. Building footprints are simplified (`ST_SimplifyPreserveTopology`, then at most 24 ring vertices). H3 comes from the geometry point or footprint centroid. Only rows in the selected hexes stay in memory. Node then associates place→building (point-in-polygon, else nearest within 40 m), place→address (nested `addresses[]` match, else nearest), and building→address (nearest). Map count queries load only `h3_res8` when there are no filters, and never load geometry. Anon can SELECT those tables. Direct INSERT is denied. Queries select `phones` and the other feature columns. If those are missing, run `supabase/migrations/20261027_overture_features.sql` (or re-run the base Overture file, which now adds the same columns) and reload the PostgREST schema, then reprocess existing hexes. The Node reader falls back to the original columns so Inspect still lists rows.
+Process uses DuckDB `httpfs` and `spatial` against the public Overture S3 bucket. It always reads places, buildings, and addresses. DuckDB is capped at 160MB and one thread, reads 200-row pages, and is closed when the job ends. Places and addresses store a Point from `ST_X`/`ST_Y`. Building footprints are simplified (`ST_SimplifyPreserveTopology`, then at most 24 ring vertices). H3 comes from the geometry point or footprint centroid. Only rows in the selected hexes stay in memory. Node then associates place→building (point-in-polygon, else nearest within 40 m), place→address (nested `addresses[]` match, else nearest), and building→address (nearest). Each feature row stores Overture `sources`. After the theme writes, Node upserts `overture_release_snapshots` and `overture_hex_snapshots` through `ingest_overture_snapshot`. Map count queries load only `h3_res8` and `release_version` when there are no filters, and never load geometry. Anon can SELECT those tables. Direct INSERT is denied. Queries select `phones`, `sources`, and the other feature columns. If those are missing, run `supabase/migrations/20261027_overture_features.sql` and `supabase/migrations/20261027_overture_snapshots.sql` (or re-run the base Overture file, which now adds the same columns) and reload the PostgREST schema, then reprocess existing hexes. The Node reader falls back to the original columns so Inspect still lists rows. Snapshot metadata is optional: a missing RPC logs a warning and does not fail the job.
 
 The Austin mock generator remains behind `DATA_MODE=mock` for `npm run verify` only.
 
@@ -94,7 +95,9 @@ Safety constraints are enforced in both API and schema:
 
 Spark job scaffold is under `pipelines/spark/workflow_ingest.py`. It reads a plan from `/api/workflow-ingestion/plan`, applies bbox prefilter + exact `h3_res8` filtering, enforces row caps again, and writes segmented outputs plus per-hex metrics.
 
-Explorer queries read `overture_places`, `overture_buildings`, and `overture_addresses`. Run `supabase/migrations/20261027_overture.sql` after the workflow migration.
+Explorer queries read `overture_places`, `overture_buildings`, and `overture_addresses`. Snapshot metadata lives in `overture_release_snapshots` and `overture_hex_snapshots`. Run `supabase/migrations/20261027_overture.sql` after the workflow migration, then the features and snapshots files.
+
+Account creation and a real workflow definition are next. The existing `workflows*` tables stay as an owner-RLS scaffold (`auth.uid()`). Do not invent a workflow product shape until that workshop. Node jobs still do not write those tables.
 
 The Node server may use the anon key only. The service-role key stays out of the environment and out of the repo. The browser never receives the key.
 

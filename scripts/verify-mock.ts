@@ -153,6 +153,7 @@ const unmatchedPlace = {
   lat: 30.2672,
   lng: -97.7431,
   geometry: pointGeometry(-97.7431, 30.2672),
+  release_version: '2026-10-21.0',
   values: { 'names.primary': 'Lone Place', basic_category: 'cafe' },
 }
 const unmatchedAddress = {
@@ -161,6 +162,7 @@ const unmatchedAddress = {
   lat: 30.2673,
   lng: -97.7432,
   geometry: pointGeometry(-97.7432, 30.2673),
+  release_version: '2026-10-21.0',
   values: { address: '1 Main St' },
 }
 const unmatchedBuilding = {
@@ -169,6 +171,7 @@ const unmatchedBuilding = {
   lat: 30.2674,
   lng: -97.7433,
   geometry: squarePolygon(-97.7433, 30.2674, 0.0002),
+  release_version: '2026-10-21.0',
   values: { subtype: 'commercial', 'names.primary': 'Lone Building' },
 }
 const joined = mergeFeatureRows([unmatchedPlace], [unmatchedBuilding], [unmatchedAddress])
@@ -475,6 +478,52 @@ assert(outsideCounts.status === 200 && Array.isArray(outsideCounts.body), 'inges
 assert(
   isRecord(outsideCounts.body[0]) && typeof outsideCounts.body[0].count === 'number' && outsideCounts.body[0].count > 0,
   'ingested hex has no mock places',
+)
+const currentQuery = await routeApi('POST', '/api/query', {
+  dataset: 'places',
+  h3_cells: [sampleCells[0]],
+  filters: [],
+  sort: { field: 'names.primary', direction: 'asc' },
+  limit: 10,
+  offset: 0,
+})
+assert(currentQuery.status === 200 && isRecord(currentQuery.body), 'current release query failed')
+assert(typeof currentQuery.body.total === 'number' && currentQuery.body.total > 0, 'current release query returned no rows')
+assert(
+  Array.isArray(currentQuery.body.rows) &&
+    isRecord(currentQuery.body.rows[0]) &&
+    currentQuery.body.rows[0].release_version === hexStatus.body.current_release_version,
+  'query rows are missing release_version',
+)
+const staleCapitol = await routeApi('POST', '/api/query', {
+  dataset: 'places',
+  h3_cells: [sampleCells[0]],
+  filters: [],
+  sort: { field: 'names.primary', direction: 'asc' },
+  limit: 10,
+  offset: 0,
+  release_version: '2026-09-24.0',
+})
+assert(staleCapitol.status === 200 && isRecord(staleCapitol.body) && staleCapitol.body.total === 0, 'capitol should not have the older release')
+const staleOutside = await routeApi('POST', '/api/query', {
+  dataset: 'places',
+  h3_cells: [outside],
+  filters: [],
+  sort: { field: 'names.primary', direction: 'asc' },
+  limit: 10,
+  offset: 0,
+  release_version: '2026-09-24.0',
+})
+assert(staleOutside.status === 200 && isRecord(staleOutside.body) && staleOutside.body.total > 0, 'historical query missed the older snapshot')
+const releases = await routeApi('GET', '/api/releases', undefined)
+assert(releases.status === 200 && isRecord(releases.body) && Array.isArray(releases.body.snapshots), 'release catalog failed')
+assert(
+  releases.body.snapshots.some((row) => isRecord(row) && row.release_version === hexStatus.body.current_release_version && row.current === true),
+  'current snapshot is missing from metadata',
+)
+assert(
+  releases.body.snapshots.some((row) => isRecord(row) && row.release_version === '2026-09-24.0' && row.current === false),
+  'older processed snapshot is missing from metadata',
 )
 
 console.log(

@@ -99,7 +99,7 @@ export function runIngestionJob(id: string): IngestionJob {
   job.started_at = now
   job.note = 'Processing selected hexes.'
   appendLog(job, 'info', `Mock ingest started for ${job.h3_cells.length} hexes.`)
-  const result = ingestMockCellsNow(job.h3_cells)
+  const result = ingestMockCellsNow(job.h3_cells, job.release_version)
   const finished = new Date().toISOString()
   job.status = 'succeeded'
   job.finished_at = finished

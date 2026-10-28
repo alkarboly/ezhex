@@ -3,6 +3,7 @@ import { AppShell } from '../components/layout/AppShell'
 import { DatasetsPage } from '../pages/DatasetsPage'
 import { ExplorerPage } from '../pages/ExplorerPage'
 import { JobsPage } from '../pages/JobsPage'
+import { LicensesPage } from '../pages/LicensesPage'
 import { SavedQueriesPage } from '../pages/SavedQueriesPage'
 import { SettingsPage } from '../pages/SettingsPage'
 
@@ -17,6 +18,7 @@ export function AppRouter() {
           <Route path="saved" element={<Navigate to="/workflows" replace />} />
           <Route path="datasets" element={<DatasetsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="licenses" element={<LicensesPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

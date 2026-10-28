@@ -1,5 +1,6 @@
 import type { DatasetId } from '../types/datasets'
 import type { CellCount, CellCountRequest, QueryResult, QuerySpec } from '../types/queries'
+import type { ReleaseSnapshot } from '../types/releases'
 
 export type SourceDescription = {
   mode: 'mock' | 'supabase'
@@ -14,6 +15,8 @@ export type SourceDescription = {
   coverage: { west: number; south: number; east: number; north: number } | null
   /** Whether the server has a URL and anon key. The key itself is never included. */
   supabase: { urlConfigured: boolean; anonKeyConfigured: boolean }
+  current_release_version: string
+  snapshots: ReleaseSnapshot[]
 }
 
 export type DataProvider = {

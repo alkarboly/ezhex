@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql` and `supabase/migrations/20261027_overture_features.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table; you do not pick a theme.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, and `supabase/migrations/20261027_overture_snapshots.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table; you do not pick a theme.
 
 ```bash
 npm run build
@@ -43,6 +43,7 @@ Copy `.env.example` to `.env` if you want to set them. The `VITE_` names of thos
 The server includes segmented-ingestion planning and job routes:
 
 - `GET /api/query-schemas`
+- `GET /api/releases`
 - `GET /api/workflow-ingestion/limits`
 - `POST /api/workflow-ingestion/plan`
 - `POST /api/workflow-ingestion/jobs`
@@ -106,13 +107,15 @@ render deploys create SERVICE_ID --wait --confirm
 - Hex-first explorer: hover a ready or processing cell for Inspect and Process. Empty hexes do not open a card. The selection dock has Query and Process. Workflows and Jobs stay in the side nav
 - Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase. Logs stay collapsed until opened.
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
+- Release snapshots stay as metadata (`GET /api/releases`). Process keeps older cuts. Query with `release_version` for a historical slice
+- `/licenses` credits OpenStreetMap, Overture, Foursquare, NAD, OpenFreeMap, and Esri
 - Hard caps on hex count, bbox area, and row counts
 
 Click a ready hex, press Inspect on the hover card, or use Query on the dock, to pin a scrollable table. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. Building name, subtype, height, and floors show when Overture has them — names and heights are often empty. Category and building dropdowns list values seen in that table. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 
-Sign-in UX and persisting job records to Supabase. See `docs/architecture.md`.
+Sign-in, account-owned workflows, and persisting job records to Supabase. Workflow tables exist as an owner-RLS scaffold; the product shape is still open. See `docs/architecture.md`.
 
 ## Docs
 

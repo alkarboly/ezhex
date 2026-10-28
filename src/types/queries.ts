@@ -23,6 +23,8 @@ export type QuerySpec = {
   sort: QuerySort
   limit: number
   offset: number
+  /** Pin to one Overture release. Omitted uses the newest stored release per hex. */
+  release_version?: string
 }
 
 export type CellCount = {
@@ -34,6 +36,7 @@ export type CellCountRequest = {
   dataset: DatasetId
   h3_cells: string[]
   filters: QueryFilter[]
+  release_version?: string
 }
 
 export type ResultRow = {
@@ -44,6 +47,7 @@ export type ResultRow = {
   geometry: GeoJsonGeometry | null
   building_id?: string | null
   address_id?: string | null
+  release_version: string
   values: Record<string, string | number | null>
 }
 

@@ -3,6 +3,7 @@ import { associateFeatures } from '../../lib/associate'
 import { pointGeometry, squarePolygon } from '../../lib/geojson'
 import { AUSTIN_CENTER, cellCenter, mockCoverageCells } from '../../lib/h3'
 import { H3_RESOLUTION } from '../../lib/limits'
+import { DEFAULT_OVERTURE_RELEASE } from '../../lib/overture-release'
 import { BUILDING_SUBTYPES, type BuildingSubtype, type DatasetId } from '../../types/datasets'
 import { PLACE_PRESETS } from '../../types/place-presets'
 import type { AddressRecord, BuildingRecord, PlaceRecord } from './records'
@@ -94,19 +95,23 @@ export function buildMockDatabase(): MockDatabase {
   const addresses = new Map<string, AddressRecord[]>()
   const totals: Record<DatasetId, number> = { places: 0, buildings: 0, addresses: 0 }
 
-  for (const cell of cells) addCell(places, buildings, addresses, totals, cell)
+  for (const cell of cells) addCell(places, buildings, addresses, totals, cell, DEFAULT_OVERTURE_RELEASE)
 
   return { cells, places, buildings, addresses, totals }
 }
 
 /** Generate mock rows for hexes that are not in the Austin seed coverage. */
-export function ingestMockCells(db: MockDatabase, cells: readonly string[]): { rows: number; added: string[] } {
+export function ingestMockCells(
+  db: MockDatabase,
+  cells: readonly string[],
+  release = DEFAULT_OVERTURE_RELEASE,
+): { rows: number; added: string[] } {
   const added: string[] = []
   let rows = 0
   for (const cell of cells) {
     const already = db.places.has(cell) && db.buildings.has(cell) && db.addresses.has(cell)
     if (!already) {
-      addCell(db.places, db.buildings, db.addresses, db.totals, cell)
+      addCell(db.places, db.buildings, db.addresses, db.totals, cell, release)
       if (!db.cells.includes(cell)) db.cells.push(cell)
       added.push(cell)
     }
@@ -124,15 +129,16 @@ function addCell(
   addresses: Map<string, AddressRecord[]>,
   totals: Record<DatasetId, number>,
   cell: string,
+  release: string,
 ) {
   const center = cellCenter(cell)
   if (latLngToCell(center.lat, center.lng, H3_RESOLUTION) !== cell) {
     throw new Error(`Cell center fell outside ${cell}.`)
   }
   const boost = downtownBoost(center.lat, center.lng)
-  const placeRows = buildPlaces(cell, center, boost)
-  const buildingRows = buildBuildings(cell, center, boost)
-  const addressRows = buildAddresses(cell, center, boost)
+  const placeRows = buildPlaces(cell, center, boost, release)
+  const buildingRows = buildBuildings(cell, center, boost, release)
+  const addressRows = buildAddresses(cell, center, boost, release)
   locateAndLink(placeRows, buildingRows, addressRows, center)
   places.set(cell, placeRows)
   buildings.set(cell, buildingRows)
@@ -146,6 +152,7 @@ function buildPlaces(
   cell: string,
   center: { lat: number; lng: number },
   boost: number,
+  release: string,
 ): PlaceRecord[] {
   const rng = mulberry32(hashString(`${cell}:places`))
   const count = Math.max(1, Math.round((2 + rng() * 10) * boost))
@@ -169,6 +176,7 @@ function buildPlaces(
     rows.push({
       id: `place_${cell}_${index}`,
       h3: cell,
+      release_version: release,
       lat: center.lat,
       lng: center.lng,
       geometry: pointGeometry(center.lng, center.lat),
@@ -223,6 +231,7 @@ function buildBuildings(
   cell: string,
   center: { lat: number; lng: number },
   boost: number,
+  release: string,
 ): BuildingRecord[] {
   const rng = mulberry32(hashString(`${cell}:buildings`))
   const count = Math.max(2, Math.round((8 + rng() * 20) * boost))
@@ -240,6 +249,7 @@ function buildBuildings(
     rows.push({
       id: `building_${cell}_${index}`,
       h3: cell,
+      release_version: release,
       lat: center.lat,
       lng: center.lng,
       geometry: squarePolygon(center.lng, center.lat),
@@ -280,6 +290,7 @@ function buildAddresses(
   cell: string,
   center: { lat: number; lng: number },
   boost: number,
+  release: string,
 ): AddressRecord[] {
   const rng = mulberry32(hashString(`${cell}:addresses`))
   const count = Math.max(1, Math.round((5 + rng() * 12) * boost))
@@ -292,6 +303,7 @@ function buildAddresses(
     rows.push({
       id: `address_${cell}_${index}`,
       h3: cell,
+      release_version: release,
       lat: center.lat,
       lng: center.lng,
       geometry: pointGeometry(center.lng, center.lat),

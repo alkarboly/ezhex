@@ -10,6 +10,7 @@ import {
   cellForPoint,
   overtureParquetGlob,
 } from '../lib/overture'
+import { asSources, mergeSourceDatasets, sourceDatasets } from '../lib/overture-sources'
 import type { JobLogLevel, WorkflowDataset, WorkflowIngestionPlan } from '../types/workflows'
 import { WORKFLOW_DATASETS } from '../types/workflows'
 
@@ -70,6 +71,7 @@ export async function ingestOverturePlan(
       `Associated ${links.place_building_matches} places→buildings, ${links.place_address_matches} places→addresses, ${links.building_address_matches} buildings→addresses`,
     )
 
+    const snapshot = snapshotMeta(plan, loaded)
     const byDataset: Partial<Record<WorkflowDataset, number>> = {}
     let rows = 0
     for (const dataset of WORKFLOW_DATASETS) {
@@ -78,6 +80,7 @@ export async function ingestOverturePlan(
       rows += written
       loaded[dataset] = []
     }
+    await writeSnapshot(plan.release_version, snapshot, log)
 
     log('info', `Ingest finished. ${rows} rows written.`)
     return { rows, by_dataset: byDataset }
@@ -194,7 +197,8 @@ function themeSql(dataset: WorkflowDataset, path: string): string {
       phones,
       brand.names.primary as brand_name,
       brand.wikidata as brand_wikidata,
-      addresses as place_addresses
+      addresses as place_addresses,
+      to_json(sources) as sources
     from ${source}
     where ${bbox}
     limit $limit
@@ -222,7 +226,8 @@ function themeSql(dataset: WorkflowDataset, path: string): string {
       roof_material,
       roof_shape,
       roof_direction,
-      roof_color
+      roof_color,
+      to_json(sources) as sources
     from ${source}
     where ${bbox}
     limit $limit
@@ -238,7 +243,8 @@ function themeSql(dataset: WorkflowDataset, path: string): string {
     postcode,
     unit,
     postal_city,
-    address_levels
+    address_levels,
+    to_json(sources) as sources
   from ${source}
   where ${bbox}
   limit $limit
@@ -276,6 +282,7 @@ function mapRow(dataset: WorkflowDataset, row: Record<string, unknown>): IngestR
       place_addresses: asPlaceAddresses(row.place_addresses),
       building_id: null,
       address_id: null,
+      sources: asSources(row.sources),
     }
   }
   if (dataset === 'buildings') {
@@ -303,6 +310,7 @@ function mapRow(dataset: WorkflowDataset, row: Record<string, unknown>): IngestR
       roof_direction: asNumber(row.roof_direction),
       roof_color: asString(row.roof_color) || null,
       address_id: null,
+      sources: asSources(row.sources),
     }
   }
   const levels = addressLevels(row.address_levels)
@@ -321,6 +329,7 @@ function mapRow(dataset: WorkflowDataset, row: Record<string, unknown>): IngestR
     region: levels.region,
     locality: levels.locality,
     building_id: null,
+    sources: asSources(row.sources),
   }
 }
 
@@ -356,6 +365,47 @@ function asBoolean(value: unknown): boolean | null {
   if (value === 1 || value === '1' || value === 'true') return true
   if (value === 0 || value === '0' || value === 'false') return false
   return null
+}
+
+function snapshotMeta(plan: WorkflowIngestionPlan, loaded: Record<WorkflowDataset, IngestRow[]>) {
+  const hexes = plan.h3_cells.map((h3) => {
+    const places = loaded.places.filter((row) => row.h3_res8 === h3)
+    const buildings = loaded.buildings.filter((row) => row.h3_res8 === h3)
+    const addresses = loaded.addresses.filter((row) => row.h3_res8 === h3)
+    return {
+      h3_res8: h3,
+      place_count: places.length,
+      building_count: buildings.length,
+      address_count: addresses.length,
+      source_datasets: mergeSourceDatasets(
+        ...places.map((row) => sourceDatasets(asSources(row.sources))),
+        ...buildings.map((row) => sourceDatasets(asSources(row.sources))),
+        ...addresses.map((row) => sourceDatasets(asSources(row.sources))),
+      ),
+    }
+  })
+  return {
+    source_uri: `s3://overturemaps-us-west-2/release/${plan.release_version}/`,
+    accessed_on: new Date().toISOString().slice(0, 10),
+    themes: [...WORKFLOW_DATASETS],
+    hexes,
+  }
+}
+
+async function writeSnapshot(
+  release: string,
+  meta: ReturnType<typeof snapshotMeta>,
+  log: JobLogger,
+) {
+  const client = getSupabaseClient()
+  if (!client) throw new Error('Supabase is not configured.')
+  const { data, error } = await client.rpc('ingest_overture_snapshot', { p_release: release, p_meta: meta })
+  if (error) {
+    log('warn', `Snapshot metadata was not written: ${error.message}. Run supabase/migrations/20261027_overture_snapshots.sql.`)
+    return
+  }
+  const hexes = typeof data === 'number' ? data : meta.hexes.length
+  log('info', `Snapshot ${release}: ${hexes} hexes recorded`)
 }
 
 async function duck(): Promise<DuckDBConnection> {

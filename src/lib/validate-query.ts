@@ -2,6 +2,7 @@ import { isValidCell } from 'h3-js'
 import { DATASET_IDS, fieldByName, type DatasetId } from '../types/datasets'
 import type { QueryFilter, QuerySpec } from '../types/queries'
 import { MAX_QUERY_LIMIT, MAX_SELECTED_CELLS } from './limits'
+import { assertOvertureRelease } from './overture-release'
 
 function isDatasetId(value: string): value is DatasetId {
   return (DATASET_IDS as readonly string[]).includes(value)
@@ -22,6 +23,16 @@ export function validateFilters(dataset: DatasetId, filters: readonly QueryFilte
   const errors: string[] = []
   for (const filter of filters) errors.push(...validateFilter(dataset, filter))
   return errors
+}
+
+export function validateReleaseVersion(release?: string): string[] {
+  if (release == null) return []
+  try {
+    assertOvertureRelease(release)
+    return []
+  } catch {
+    return ['release_version is not a valid Overture release id.']
+  }
 }
 
 export function validateQuery(spec: QuerySpec): string[] {
@@ -51,6 +62,7 @@ export function validateQuery(spec: QuerySpec): string[] {
   }
 
   errors.push(...validateFilters(spec.dataset, spec.filters))
+  errors.push(...validateReleaseVersion(spec.release_version))
   return errors
 }
 

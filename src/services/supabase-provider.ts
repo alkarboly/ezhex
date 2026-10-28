@@ -1,11 +1,13 @@
-import { compareOvertureRelease } from '../lib/overture'
+import { compareOvertureRelease, defaultOvertureRelease } from '../lib/overture'
 import { H3_RESOLUTION, MAX_VIEWPORT_CELLS } from '../lib/limits'
+import { recordsForRelease } from '../lib/release-query'
 import { readDataMode, supabasePublicConfig } from '../lib/server-env'
 import { getSupabaseClient } from '../lib/supabase'
-import { validateCellList, validateFilters, validateQuery } from '../lib/validate-query'
+import { validateCellList, validateFilters, validateQuery, validateReleaseVersion } from '../lib/validate-query'
 import type { DatasetId } from '../types/datasets'
 import { asPlaceAddresses } from '../lib/associate'
 import type { CellCount, QueryResult } from '../types/queries'
+import type { ReleaseCatalog, ReleaseSnapshot } from '../types/releases'
 import type { DataProvider } from './data-provider'
 import {
   asStringList,
@@ -46,17 +48,21 @@ export const supabaseProvider: DataProvider = {
         cells: null,
         counts: { places: null, buildings: null, addresses: null },
         coverage: null,
+        current_release_version: defaultOvertureRelease(),
+        snapshots: [],
       }
     }
     let places: number | null = null
     let buildings: number | null = null
     let addresses: number | null = null
+    let snapshots: ReleaseSnapshot[] = []
     let note = 'Hex-scoped rows from the public Overture Maps release, stored in Supabase.'
     try {
-      ;[places, buildings, addresses] = await Promise.all([
+      ;[places, buildings, addresses, snapshots] = await Promise.all([
         countTable(client, 'overture_places'),
         countTable(client, 'overture_buildings'),
         countTable(client, 'overture_addresses'),
+        listStoredSnapshots(client),
       ])
     } catch (error) {
       note =
@@ -75,19 +81,22 @@ export const supabaseProvider: DataProvider = {
       cells: null,
       counts: { places, buildings, addresses },
       coverage: null,
+      current_release_version: defaultOvertureRelease(),
+      snapshots,
     }
   },
   async getCellCounts(request) {
     const errors = [
       ...validateCellList(request.h3_cells, MAX_VIEWPORT_CELLS),
       ...validateFilters(request.dataset, request.filters),
+      ...validateReleaseVersion(request.release_version),
     ]
     if (errors.length > 0) throw new Error(errors.join(' '))
     if (request.filters.length === 0) {
-      const counts = await countByHex(request.dataset, request.h3_cells)
+      const counts = await countByHex(request.dataset, request.h3_cells, request.release_version)
       return request.h3_cells.map((h3) => ({ h3, count: counts.get(h3) ?? 0 }))
     }
-    const grouped = await loadRecords(request.dataset, request.h3_cells, false)
+    const grouped = await loadRecords(request.dataset, request.h3_cells, false, request.release_version)
     return request.h3_cells.map((h3) => ({
       h3,
       count: (grouped.get(h3) ?? []).filter((record) =>
@@ -108,7 +117,7 @@ export const supabaseProvider: DataProvider = {
         source: 'supabase',
       }
     }
-    const grouped = await loadRecords(spec.dataset, spec.h3_cells, true)
+    const grouped = await loadRecords(spec.dataset, spec.h3_cells, true, spec.release_version)
     const matches: AnyRecord[] = []
     const byCell: CellCount[] = spec.h3_cells.map((h3) => {
       const bucket = (grouped.get(h3) ?? []).filter((record) => matchesFilters(spec.dataset, record, spec.filters))
@@ -131,6 +140,14 @@ export const supabaseProvider: DataProvider = {
 
 export async function supabaseReadyHexes(cells: readonly string[]): Promise<Set<string>> {
   return new Set((await supabaseHexReleases(cells)).keys())
+}
+
+export async function supabaseReleaseCatalog(): Promise<ReleaseCatalog> {
+  const client = getSupabaseClient()
+  return {
+    current_release_version: defaultOvertureRelease(),
+    snapshots: client ? await listStoredSnapshots(client) : [],
+  }
 }
 
 /** Newest `release_version` stored for each hex across the Overture feature tables. */
@@ -166,15 +183,37 @@ async function countTable(client: NonNullable<ReturnType<typeof getSupabaseClien
   return count ?? 0
 }
 
-async function countByHex(dataset: DatasetId, cells: readonly string[]): Promise<Map<string, number>> {
+async function countByHex(
+  dataset: DatasetId,
+  cells: readonly string[],
+  release?: string,
+): Promise<Map<string, number>> {
   const client = requireClient()
   const counts = new Map<string, number>()
+  const newest = new Map<string, string>()
   for (const cell of cells) counts.set(cell, 0)
   for (const part of chunk(cells, 80)) {
-    const { data, error } = await client.from(TABLES[dataset]).select('h3_res8').in('h3_res8', part)
+    const { data, error } = await client.from(TABLES[dataset]).select('h3_res8, release_version').in('h3_res8', part)
     if (error) throw new Error(error.message)
-    for (const row of data ?? []) {
-      if (!row || typeof row.h3_res8 !== 'string') continue
+    const rows = (data ?? []) as { h3_res8?: string; release_version?: string }[]
+    if (release) {
+      for (const row of rows) {
+        if (row.h3_res8 && row.release_version === release) {
+          counts.set(row.h3_res8, (counts.get(row.h3_res8) ?? 0) + 1)
+        }
+      }
+      continue
+    }
+    for (const row of rows) {
+      if (!row.h3_res8 || !row.release_version) continue
+      const previous = newest.get(row.h3_res8)
+      if (!previous || compareOvertureRelease(row.release_version, previous) > 0) {
+        newest.set(row.h3_res8, row.release_version)
+      }
+    }
+    for (const row of rows) {
+      if (!row.h3_res8 || !row.release_version) continue
+      if (newest.get(row.h3_res8) !== row.release_version) continue
       counts.set(row.h3_res8, (counts.get(row.h3_res8) ?? 0) + 1)
     }
   }
@@ -185,12 +224,13 @@ async function loadRecords(
   dataset: DatasetId,
   cells: readonly string[],
   withGeometry: boolean,
+  release?: string,
 ): Promise<Map<string, AnyRecord[]>> {
   const client = requireClient()
   const grouped = new Map<string, AnyRecord[]>()
   for (const cell of cells) grouped.set(cell, [])
   for (const part of chunk(cells, 80)) {
-    const { data, error } = await selectRows(client, dataset, part, withGeometry)
+    const { data, error } = await selectRows(client, dataset, part, withGeometry, release)
     if (error) throw new Error(schemaError(error.message))
     for (const row of (data ?? []) as Record<string, unknown>[]) {
       const record = asRecord(dataset, row)
@@ -199,6 +239,9 @@ async function loadRecords(
       if (bucket) bucket.push(record)
       else grouped.set(record.h3, [record])
     }
+  }
+  if (!release) {
+    for (const [cell, rows] of grouped) grouped.set(cell, recordsForRelease(rows))
   }
   return grouped
 }
@@ -213,6 +256,7 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
     const place: PlaceRecord = {
       id: row.id,
       h3: row.h3_res8,
+      release_version: typeof row.release_version === 'string' ? row.release_version : defaultOvertureRelease(),
       lat,
       lng,
       geometry,
@@ -243,6 +287,7 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
     const building: BuildingRecord = {
       id: row.id,
       h3: row.h3_res8,
+      release_version: typeof row.release_version === 'string' ? row.release_version : defaultOvertureRelease(),
       lat,
       lng,
       geometry,
@@ -270,6 +315,7 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
   const address: AddressRecord = {
     id: row.id,
     h3: row.h3_res8,
+    release_version: typeof row.release_version === 'string' ? row.release_version : defaultOvertureRelease(),
     lat,
     lng,
     geometry,
@@ -293,10 +339,15 @@ async function selectRows(
   dataset: DatasetId,
   cells: readonly string[],
   withGeometry: boolean,
+  release?: string,
 ) {
-  const full = await client.from(TABLES[dataset]).select(columnsFor(dataset, withGeometry) as '*').in('h3_res8', cells)
+  let query = client.from(TABLES[dataset]).select(columnsFor(dataset, withGeometry) as '*').in('h3_res8', cells)
+  if (release) query = query.eq('release_version', release)
+  const full = await query
   if (!full.error || !missingColumn(full.error.message)) return full
-  return client.from(TABLES[dataset]).select(baseColumnsFor(dataset) as '*').in('h3_res8', cells)
+  let fallback = client.from(TABLES[dataset]).select(baseColumnsFor(dataset) as '*').in('h3_res8', cells)
+  if (release) fallback = fallback.eq('release_version', release)
+  return fallback
 }
 
 function missingColumn(message: string) {
@@ -305,33 +356,69 @@ function missingColumn(message: string) {
 
 function schemaError(message: string) {
   if (!missingColumn(message)) return message
-  return `${message} Run supabase/migrations/20261027_overture_features.sql in the Supabase SQL editor, then Reprocess the hex.`
+  return `${message} Run supabase/migrations/20261027_overture_features.sql and supabase/migrations/20261027_overture_snapshots.sql in the Supabase SQL editor, then Reprocess the hex.`
 }
 
 function baseColumnsFor(dataset: DatasetId): string {
   if (dataset === 'places') {
-    return 'id,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,taxonomy_hierarchy,confidence,operating_status'
+    return 'id,release_version,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,taxonomy_hierarchy,confidence,operating_status'
   }
   if (dataset === 'buildings') {
-    return 'id,h3_res8,lat,lng,subtype,height,num_floors'
+    return 'id,release_version,h3_res8,lat,lng,subtype,height,num_floors'
   }
-  return 'id,h3_res8,lat,lng,country,number,street,postcode,region,locality'
+  return 'id,release_version,h3_res8,lat,lng,country,number,street,postcode,region,locality'
 }
 
 function columnsFor(dataset: DatasetId, withGeometry: boolean): string {
   if (dataset === 'places') {
     return withGeometry
-      ? 'id,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,taxonomy_hierarchy,confidence,operating_status,phones,websites,socials,emails,brand_name,brand_wikidata,place_addresses,building_id,address_id,geometry'
-      : 'id,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,confidence,operating_status,phones,websites,brand_name,building_id,address_id'
+      ? 'id,release_version,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,taxonomy_hierarchy,confidence,operating_status,phones,websites,socials,emails,brand_name,brand_wikidata,place_addresses,building_id,address_id,sources,geometry'
+      : 'id,release_version,h3_res8,lat,lng,names_primary,basic_category,taxonomy_primary,confidence,operating_status,phones,websites,brand_name,building_id,address_id'
   }
   if (dataset === 'buildings') {
     return withGeometry
-      ? 'id,h3_res8,lat,lng,subtype,class,names_primary,height,num_floors,has_parts,is_underground,num_floors_underground,min_height,min_floor,level,facade_color,facade_material,roof_material,roof_shape,roof_direction,roof_color,address_id,geometry'
-      : 'id,h3_res8,lat,lng,subtype,class,names_primary,height,num_floors,address_id'
+      ? 'id,release_version,h3_res8,lat,lng,subtype,class,names_primary,height,num_floors,has_parts,is_underground,num_floors_underground,min_height,min_floor,level,facade_color,facade_material,roof_material,roof_shape,roof_direction,roof_color,address_id,sources,geometry'
+      : 'id,release_version,h3_res8,lat,lng,subtype,class,names_primary,height,num_floors,address_id'
   }
   return withGeometry
-    ? 'id,h3_res8,lat,lng,country,number,street,postcode,region,locality,unit,postal_city,building_id,geometry'
-    : 'id,h3_res8,lat,lng,country,number,street,postcode,region,locality,unit,postal_city,building_id'
+    ? 'id,release_version,h3_res8,lat,lng,country,number,street,postcode,region,locality,unit,postal_city,building_id,sources,geometry'
+    : 'id,release_version,h3_res8,lat,lng,country,number,street,postcode,region,locality,unit,postal_city,building_id'
+}
+
+async function listStoredSnapshots(
+  client: NonNullable<ReturnType<typeof getSupabaseClient>>,
+): Promise<ReleaseSnapshot[]> {
+  const current = defaultOvertureRelease()
+  const { data, error } = await client
+    .from('overture_release_snapshots')
+    .select(
+      'release_version, accessed_on, source_uri, themes, hex_count, place_count, building_count, address_count, source_datasets, ingested_at',
+    )
+    .order('release_version', { ascending: false })
+  if (error) {
+    if (missingColumn(error.message) || /does not exist|schema cache/i.test(error.message)) return []
+    throw new Error(error.message)
+  }
+  return (data ?? []).flatMap((row) => {
+    if (!row || typeof row.release_version !== 'string') return []
+    return [
+      {
+        release_version: row.release_version,
+        accessed_on: typeof row.accessed_on === 'string' ? row.accessed_on : '',
+        source_uri: typeof row.source_uri === 'string' ? row.source_uri : '',
+        themes: Array.isArray(row.themes) ? row.themes.filter((entry): entry is string => typeof entry === 'string') : [],
+        hex_count: typeof row.hex_count === 'number' ? row.hex_count : 0,
+        place_count: typeof row.place_count === 'number' ? row.place_count : 0,
+        building_count: typeof row.building_count === 'number' ? row.building_count : 0,
+        address_count: typeof row.address_count === 'number' ? row.address_count : 0,
+        source_datasets: Array.isArray(row.source_datasets)
+          ? row.source_datasets.filter((entry): entry is string => typeof entry === 'string')
+          : [],
+        ingested_at: typeof row.ingested_at === 'string' ? row.ingested_at : '',
+        current: compareOvertureRelease(row.release_version, current) >= 0,
+      } satisfies ReleaseSnapshot,
+    ]
+  })
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {

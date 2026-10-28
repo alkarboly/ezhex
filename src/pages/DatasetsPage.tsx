@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useDataSource } from '../hooks/useDataSource'
 import { formatCount } from '../lib/format'
 import { H3_RESOLUTION } from '../lib/limits'
@@ -19,7 +20,10 @@ export function DatasetsPage() {
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Process a hex to load places, buildings, and addresses from the public Overture release. All three themes
             are stored together, with geometry and computed building or address links. Inspect does not ask you to pick
-            a theme.
+            a theme. Each processed release is kept as a snapshot so later queries can pin a historical cut.{' '}
+            <Link to="/licenses" className="text-primary underline-offset-2 hover:underline">
+              Licenses
+            </Link>
           </p>
         </header>
         <section className="rounded-lg border border-border bg-card p-4">
@@ -47,6 +51,48 @@ export function DatasetsPage() {
             </div>
           )}
         </section>
+        {source.data?.snapshots && source.data.snapshots.length > 0 && (
+          <section>
+            <h2 className="text-base font-semibold">Release snapshots</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Process writes one metadata row per Overture release. Query with release_version to read that cut.
+              Omitted queries use the newest stored release in each hex.
+            </p>
+            <div className="mt-3 overflow-auto rounded-lg border border-border">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead className="bg-card">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Release</th>
+                    <th className="px-3 py-2 font-medium">Hexes</th>
+                    <th className="px-3 py-2 font-medium">Places</th>
+                    <th className="px-3 py-2 font-medium">Buildings</th>
+                    <th className="px-3 py-2 font-medium">Addresses</th>
+                    <th className="px-3 py-2 font-medium">Sources</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {source.data.snapshots.map((snapshot) => (
+                    <tr key={snapshot.release_version} className="border-t border-border">
+                      <td className="px-3 py-2 font-mono">
+                        {snapshot.release_version}
+                        {snapshot.current ? (
+                          <span className="ml-2 text-[10px] tracking-wide text-primary uppercase">Current</span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2 font-mono">{formatCount(snapshot.hex_count)}</td>
+                      <td className="px-3 py-2 font-mono">{formatCount(snapshot.place_count)}</td>
+                      <td className="px-3 py-2 font-mono">{formatCount(snapshot.building_count)}</td>
+                      <td className="px-3 py-2 font-mono">{formatCount(snapshot.address_count)}</td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {snapshot.source_datasets.length > 0 ? snapshot.source_datasets.join(', ') : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
         {DATASET_IDS.map((dataset) => (
           <section key={dataset}>
             <h2 className="text-base font-semibold">{DATASET_META[dataset].title}</h2>

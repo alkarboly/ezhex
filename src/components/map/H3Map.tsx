@@ -1,6 +1,7 @@
 import { cellToLatLng, gridDisk, latLngToCell } from 'h3-js'
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import { Map as MapLibreMap, setWorkerUrl, type AddLayerObject, type GeoJSONSource } from 'maplibre-gl'
+import { DATA_ATTRIBUTION_HTML } from '../../lib/licenses'
 import {
   useEffect,
   useImperativeHandle,
@@ -207,6 +208,7 @@ export function H3Map({
       fadeDuration: 300,
       renderWorldCopies: false,
       canvasContextAttributes: { antialias: true },
+      attributionControl: { compact: true, customAttribution: DATA_ATTRIBUTION_HTML },
     })
     map.touchZoomRotate.disableRotation()
     map.scrollZoom.setWheelZoomRate(1 / 1100)

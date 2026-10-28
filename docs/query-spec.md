@@ -13,11 +13,14 @@ The explorer opens this contract from a hex. Click a ready cell, press Inspect o
   ],
   "sort": { "field": "names.primary", "direction": "asc" },
   "limit": 50,
-  "offset": 0
+  "offset": 0,
+  "release_version": "2026-10-21.0"
 }
 ```
 
 `h3_cells` are `h3-js` indexes. `88489e3467fffff` is the resolution-8 cell for 30.2672, -97.7431. An empty list is valid and returns no rows. A query may include at most 300 cells. `limit` is an integer from 1 to 2000.
+
+`release_version` is optional snapshot metadata. When set, the query reads only that Overture release. When omitted, each hex uses its newest stored release so current and historical rows are not mixed. Every result row includes `release_version`. `GET /api/releases` lists ingested snapshots (`release_version`, hex and theme counts, `source_datasets`, `current`). `POST /api/cell-counts` accepts the same optional pin.
 
 Filters are combined with AND. Missing numeric values do not pass `gte` or `lte`.
 

@@ -8,6 +8,7 @@ import type { QueryFilter, ResultRow } from '../../types/queries'
 export type PlaceRecord = {
   id: string
   h3: string
+  release_version: string
   lat: number
   lng: number
   geometry: GeoJsonGeometry | null
@@ -34,6 +35,7 @@ export type PlaceRecord = {
 export type BuildingRecord = {
   id: string
   h3: string
+  release_version: string
   lat: number
   lng: number
   geometry: GeoJsonGeometry | null
@@ -60,6 +62,7 @@ export type BuildingRecord = {
 export type AddressRecord = {
   id: string
   h3: string
+  release_version: string
   lat: number
   lng: number
   geometry: GeoJsonGeometry | null
@@ -226,6 +229,7 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
       geometry: place.geometry,
       building_id: place.building_id,
       address_id: place.address_id,
+      release_version: place.release_version,
       values: {
         'names.primary': readField(dataset, place, 'names.primary'),
         basic_category: readField(dataset, place, 'basic_category'),
@@ -249,6 +253,7 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
       lng: building.lng,
       geometry: building.geometry,
       address_id: building.address_id,
+      release_version: building.release_version,
       values: {
         subtype: readField(dataset, building, 'subtype'),
         height: readField(dataset, building, 'height'),
@@ -267,6 +272,7 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
     lng: address.lng,
     geometry: address.geometry,
     building_id: address.building_id,
+    release_version: address.release_version,
     values: {
       number: readField(dataset, address, 'number'),
       street: readField(dataset, address, 'street'),

@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { useDataSource } from '../hooks/useDataSource'
 import { H3_RESOLUTION } from '../lib/limits'
 
@@ -45,7 +46,11 @@ export function SettingsPage() {
         </dl>
         <p className="text-sm leading-6 text-muted-foreground">
           Queries run on the server. Set SUPABASE_URL and SUPABASE_ANON_KEY there when that provider is connected. Do
-          not put the service-role key in the environment or in frontend source.
+          not put the service-role key in the environment or in frontend source. Map and dataset credits live on{' '}
+          <Link to="/licenses" className="text-primary underline-offset-2 hover:underline">
+            Licenses
+          </Link>
+          .
         </p>
       </div>
     </div>

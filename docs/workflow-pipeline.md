@@ -22,6 +22,7 @@ UI / API caller
   -> POST /api/hex-status
      ready | missing | processing, plus current | stale snapshot
   -> GET /api/query-schemas (dataset + field/operator whitelist + capability)
+  -> GET /api/releases (ingested snapshot metadata)
   -> GET /api/workflow-ingestion/limits
   -> POST /api/workflow-ingestion/plan
      validates hexes + connectedness + limits
@@ -86,6 +87,10 @@ Each log line is `{ at, level, message }` where `level` is `info`, `warn`, or `e
 
 Returns per-hex `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null), `release_version`, and counts including `current_count` and `stale_count`. The current snapshot is `OVERTURE_RELEASE`.
 
+`GET /api/releases`
+
+Lists `overture_release_snapshots` (or the mock catalog). Each row is one processed Overture release: hex count, theme counts, source datasets, and whether it is the current `OVERTURE_RELEASE`. Feature tables keep older releases. `POST /api/query` and `POST /api/cell-counts` take optional `release_version` to read one cut.
+
 The explorer hover card (ready or processing hexes) and `/jobs` create jobs from selected hexes. Process always loads places, buildings, and addresses. `/jobs` keeps a live log pane per job, including association match rates, collapsed until Logs is pressed, and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Inspect opens a draggable window, fetches all three themes unfiltered, and shows one place-address table with nulls when a link is missing. Building height and floors appear when the Overture row has them.
 
 `POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
@@ -120,8 +125,10 @@ Primary tables:
 - `workflow_subscriptions` (manual/scheduled/release triggers)
 - `workflow_runs` (run status, caps, storage prefixes, row counts)
 - `workflow_hex_metrics` (per-hex counts and quality rates)
+- `overture_release_snapshots` (release metadata for historical queries)
+- `overture_hex_snapshots` (per-hex counts for one release)
 
-All tables are protected with owner-based RLS using `auth.uid() = owner_user_id`.
+All workflow tables are protected with owner-based RLS using `auth.uid() = owner_user_id`. Snapshot tables are readable by anon. Account creation and the workflow product shape are next; do not treat the scaffold tables as the final workflow contract.
 
 ## Notes
 

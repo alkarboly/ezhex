@@ -1,6 +1,6 @@
 import { readDataMode, supabasePublicConfig } from '../lib/server-env'
-import { mockProvider } from '../services/mock-provider'
-import { SUPABASE_NOT_CONFIGURED, supabaseProvider } from '../services/supabase-provider'
+import { mockProvider, mockReleaseCatalog } from '../services/mock-provider'
+import { SUPABASE_NOT_CONFIGURED, supabaseProvider, supabaseReleaseCatalog } from '../services/supabase-provider'
 import type { SourceDescription } from '../services/data-provider'
 import type { CellCountRequest, QuerySpec } from '../types/queries'
 import { DATASET_IDS, DATASET_META, FIELD_CATALOG } from '../types/datasets'
@@ -45,6 +45,10 @@ export async function routeApi(method: string, pathname: string, body: unknown):
     const request = asCellCountRequest(body)
     if (!request) return invalid('Request body must include dataset, h3_cells, and filters.')
     return call(() => serverProvider().getCellCounts(request))
+  }
+
+  if (method === 'GET' && pathname === '/api/releases') {
+    return call(() => listReleases())
   }
 
   if (method === 'POST' && pathname === '/api/query') {
@@ -160,6 +164,10 @@ function serverProvider() {
   return readDataMode().resolved === 'supabase' ? supabaseProvider : mockProvider
 }
 
+function listReleases() {
+  return readDataMode().resolved === 'supabase' ? supabaseReleaseCatalog() : mockReleaseCatalog()
+}
+
 async function call(work: () => Promise<unknown>): Promise<ApiResult> {
   try {
     return { status: 200, body: await work() }
@@ -184,6 +192,7 @@ function asCellCountRequest(body: unknown): CellCountRequest | null {
   if (!isRecord(body) || typeof body.dataset !== 'string' || !Array.isArray(body.h3_cells) || !Array.isArray(body.filters)) {
     return null
   }
+  if (body.release_version != null && typeof body.release_version !== 'string') return null
   return body as CellCountRequest
 }
 
@@ -199,5 +208,6 @@ function asQuerySpec(body: unknown): QuerySpec | null {
   ) {
     return null
   }
+  if (body.release_version != null && typeof body.release_version !== 'string') return null
   return body as QuerySpec
 }

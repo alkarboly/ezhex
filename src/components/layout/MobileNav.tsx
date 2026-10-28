@@ -70,6 +70,13 @@ export function MobileNavButton({ className }: { className?: string }) {
                 ? 'Reading from the configured Supabase project.'
                 : 'Synthetic Austin records shaped like Overture features.'}
             </p>
+            <NavLink
+              to="/licenses"
+              onClick={() => setOpen(false)}
+              className="mt-2 inline-block text-primary underline-offset-2 hover:underline"
+            >
+              Licenses
+            </NavLink>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

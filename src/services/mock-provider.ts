@@ -1,9 +1,12 @@
 import { MOCK_COVERAGE } from '../lib/h3'
 import { H3_RESOLUTION, MAX_VIEWPORT_CELLS } from '../lib/limits'
+import { compareOvertureRelease, defaultOvertureRelease } from '../lib/overture'
+import { recordsForRelease } from '../lib/release-query'
 import { readDataMode, supabasePublicConfig } from '../lib/server-env'
-import { validateCellList, validateFilters, validateQuery } from '../lib/validate-query'
+import { validateCellList, validateFilters, validateQuery, validateReleaseVersion } from '../lib/validate-query'
 import type { DatasetId } from '../types/datasets'
 import type { CellCount, QueryResult, QuerySpec } from '../types/queries'
+import type { ReleaseCatalog, ReleaseSnapshot } from '../types/releases'
 import type { DataProvider } from './data-provider'
 import { buildMockDatabase, ingestMockCells, type MockDatabase } from './mock/database'
 import { compareField, matchesFilters, toResultRow, type AnyRecord } from './mock/records'
@@ -70,16 +73,19 @@ export const mockProvider: DataProvider = {
       cells: db.cells.length,
       counts: { ...db.totals },
       coverage: { ...MOCK_COVERAGE },
+      current_release_version: defaultOvertureRelease(),
+      snapshots: mockSnapshots(db),
     }
   },
   async getCellCounts(request) {
     const errors = [
       ...validateCellList(request.h3_cells, MAX_VIEWPORT_CELLS),
       ...validateFilters(request.dataset, request.filters),
+      ...validateReleaseVersion(request.release_version),
     ]
     if (errors.length > 0) throw new Error(errors.join(' '))
     const db = await loadDatabase()
-    return countCells(db, request.dataset, request.h3_cells, request.filters)
+    return countCells(db, request.dataset, request.h3_cells, request.filters, request.release_version)
   },
   async runQuery(spec) {
     assertQuery(spec)
@@ -91,7 +97,7 @@ export const mockProvider: DataProvider = {
     for (const cell of spec.h3_cells) {
       const bucket: AnyRecord[] = []
       grouped.set(cell, bucket)
-      for (const record of index.get(cell) ?? []) {
+      for (const record of recordsForRelease(index.get(cell) ?? [], spec.release_version)) {
         if (matchesFilters(spec.dataset, record, spec.filters)) {
           bucket.push(record)
           matches.push(record)
@@ -121,10 +127,11 @@ function countCells(
   dataset: DatasetId,
   cells: readonly string[],
   filters: QuerySpec['filters'],
+  release?: string,
 ): CellCount[] {
   const index = indexFor(db, dataset)
   return cells.map((h3) => {
-    const records = index.get(h3) ?? []
+    const records = recordsForRelease(index.get(h3) ?? [], release)
     const count =
       filters.length === 0
         ? records.length
@@ -139,7 +146,47 @@ export function resetMockDatabaseForTests() {
   buildError = null
 }
 
-export function ingestMockCellsNow(cells: readonly string[]) {
+export function ingestMockCellsNow(cells: readonly string[], release?: string) {
   if (!database) database = buildMockDatabase()
-  return ingestMockCells(database, cells)
+  return ingestMockCells(database, cells, release)
+}
+
+export async function mockReleaseCatalog(): Promise<ReleaseCatalog> {
+  const db = await loadDatabase()
+  return {
+    current_release_version: defaultOvertureRelease(),
+    snapshots: mockSnapshots(db),
+  }
+}
+
+function mockSnapshots(db: MockDatabase): ReleaseSnapshot[] {
+  const current = defaultOvertureRelease()
+  const buckets = new Map<
+    string,
+    { hexes: Set<string>; places: number; buildings: number; addresses: number }
+  >()
+  const add = (release: string, cell: string, theme: 'places' | 'buildings' | 'addresses', count: number) => {
+    const bucket = buckets.get(release) ?? { hexes: new Set<string>(), places: 0, buildings: 0, addresses: 0 }
+    bucket.hexes.add(cell)
+    bucket[theme] += count
+    buckets.set(release, bucket)
+  }
+  for (const [cell, rows] of db.places) add(rows[0]?.release_version ?? current, cell, 'places', rows.length)
+  for (const [cell, rows] of db.buildings) add(rows[0]?.release_version ?? current, cell, 'buildings', rows.length)
+  for (const [cell, rows] of db.addresses) add(rows[0]?.release_version ?? current, cell, 'addresses', rows.length)
+  return [...buckets.entries()]
+    .sort(([left], [right]) => compareOvertureRelease(right, left))
+    .map(([release, bucket]) => ({
+      release_version: release,
+      accessed_on: '2026-10-27',
+      source_uri: `mock://overture/${release}`,
+      themes: ['places', 'buildings', 'addresses'],
+      hex_count: bucket.hexes.size,
+      place_count: bucket.places,
+      building_count: bucket.buildings,
+      address_count: bucket.addresses,
+      source_datasets: ['mock'],
+      ingested_at: '2026-10-27T00:00:00.000Z',
+      current: compareOvertureRelease(release, current) >= 0,
+    }))
 }

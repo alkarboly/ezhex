@@ -25,6 +25,7 @@ export type QueryFormState = {
   limit: number
   page: number
   resultsSearch: string
+  releaseVersion?: string
 }
 
 export type CompiledQuery = {
@@ -55,6 +56,7 @@ export function buildQuerySpec(input: QueryFormState): CompiledQuery {
     },
     limit: input.limit,
     offset: Math.max(0, input.page) * input.limit,
+    ...(input.releaseVersion ? { release_version: input.releaseVersion } : {}),
   }
   return { spec, errors: [...errors, ...validateQuery(spec)] }
 }
@@ -180,12 +182,13 @@ export function summarizeQuery(spec: QuerySpec): string {
     spec.offset > 0
       ? `${spec.limit} per page, starting at result ${spec.offset + 1}`
       : `${spec.limit} per page`
+  const release = spec.release_version ? ` from release ${spec.release_version}` : ''
   if (spec.h3_cells.length === 0) {
-    return `Select H3 cells to query ${meta.plural}. Current filters are ${conditions}.`
+    return `Select H3 cells to query ${meta.plural}${release}. Current filters are ${conditions}.`
   }
   const cells =
     spec.h3_cells.length === 1 ? '1 selected H3 cell' : `${spec.h3_cells.length} selected H3 cells`
-  return `Find ${meta.plural} in ${cells} ${conditions}, sorted by ${sortLabel.toLowerCase()} ${direction}, ${window}.`
+  return `Find ${meta.plural} in ${cells}${release} ${conditions}, sorted by ${sortLabel.toLowerCase()} ${direction}, ${window}.`
 }
 
 function describeFilter(dataset: DatasetId, filter: QueryFilter): string {

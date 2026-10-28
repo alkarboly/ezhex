@@ -1,12 +1,10 @@
 import { latLngToCell } from 'h3-js'
 import { H3_RESOLUTION } from './limits'
-import { DEFAULT_OVERTURE_RELEASE } from './overture-release'
+import { DEFAULT_OVERTURE_RELEASE, OVERTURE_RELEASE_RE, assertOvertureRelease, compareOvertureRelease } from './overture-release'
 import { serverEnv } from './server-env'
 import type { WorkflowDataset } from '../types/workflows'
 
-export { DEFAULT_OVERTURE_RELEASE }
-
-const RELEASE_RE = /^[A-Za-z0-9._-]{3,64}$/
+export { DEFAULT_OVERTURE_RELEASE, assertOvertureRelease, compareOvertureRelease }
 
 const THEME_PATH: Record<WorkflowDataset, string> = {
   places: 'theme=places/type=place',
@@ -16,19 +14,7 @@ const THEME_PATH: Record<WorkflowDataset, string> = {
 
 export function defaultOvertureRelease(): string {
   const raw = serverEnv('OVERTURE_RELEASE') || DEFAULT_OVERTURE_RELEASE
-  return RELEASE_RE.test(raw) ? raw : DEFAULT_OVERTURE_RELEASE
-}
-
-/** Overture ids are `YYYY-MM-DD.N`, so lexical order matches recency. */
-export function compareOvertureRelease(left: string, right: string): number {
-  if (left === right) return 0
-  return left < right ? -1 : 1
-}
-
-export function assertOvertureRelease(release: string): string {
-  const value = release.trim()
-  if (!RELEASE_RE.test(value)) throw new Error('release_version is not a valid Overture release id.')
-  return value
+  return OVERTURE_RELEASE_RE.test(raw) ? raw : DEFAULT_OVERTURE_RELEASE
 }
 
 export function overtureParquetGlob(release: string, dataset: WorkflowDataset): string {
