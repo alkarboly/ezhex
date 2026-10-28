@@ -24,3 +24,20 @@ export function getSupabaseClient(): SupabaseClient | null {
   })
   return client
 }
+
+/** Per-request client that sends the signed-in user's JWT. Browser never sees this. */
+export function createUserClient(accessToken: string): SupabaseClient | null {
+  const url = serverEnv('SUPABASE_URL') || serverEnv('VITE_SUPABASE_URL')
+  const anonKey = serverEnv('SUPABASE_ANON_KEY') || serverEnv('VITE_SUPABASE_ANON_KEY')
+  if (!url || !anonKey || !accessToken) return null
+  return createClient(url, anonKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+    global: {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  })
+}

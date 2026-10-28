@@ -12,7 +12,6 @@ import {
   type CSSProperties,
   type Ref,
 } from 'react'
-import { HexHoverCard } from '../explorer/HexHoverCard'
 import {
   AUSTIN_CENTER,
   AUSTIN_ZOOM,
@@ -40,7 +39,6 @@ import {
 } from '../../lib/hex-appear'
 import { lensFalloff, lensRadius, lensRings } from '../../lib/lens'
 import { H3_RESOLUTION, MIN_VIEWPORT_ZOOM } from '../../lib/limits'
-import { cn } from '../../lib/utils'
 import { useExplorer, type BasemapId, type FitRequest, type HexMode } from '../../store/explorer-store'
 import type { FeatureRow } from '../../lib/feature-rows'
 import type { CellCount } from '../../types/queries'
@@ -68,8 +66,6 @@ type H3MapProps = {
   focusedH3: string | null
   hexMode: HexMode
   basemap: BasemapId
-  countLabel: string
-  addMode: boolean
   touch: boolean
   insets: MapInsets
   fit: FitRequest
@@ -104,8 +100,6 @@ export function H3Map({
   focusedH3,
   hexMode,
   basemap,
-  countLabel,
-  addMode,
   touch,
   insets,
   fit,
@@ -118,7 +112,6 @@ export function H3Map({
   inspectFeatures = [],
 }: H3MapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const cardRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const lensRef = useRef<LensApi>({ schedule: () => {}, setInput: () => {}, appear: () => {} })
   const prevGridRef = useRef<{ ids: Set<string>; collection: GeoJSON.FeatureCollection }>({
@@ -143,12 +136,8 @@ export function H3Map({
   const cameraLockRef = useRef(false)
   const lastHexCenterRef = useRef(AUSTIN_CENTER)
   const [styleReady, setStyleReady] = useState(0)
-  const [cardCell, setCardCell] = useState<string | null>(null)
-  const [cardVisible, setCardVisible] = useState(false)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [mapError, setMapError] = useState<string | null>(null)
-  const cardHeldRef = useRef(false)
-  const hideCardRef = useRef(0)
   const inspectOpen = useExplorer((state) => state.inspectOpen)
   const inspectOpenRef = useRef(inspectOpen)
   inspectOpenRef.current = inspectOpen
@@ -215,19 +204,6 @@ export function H3Map({
     map.scrollZoom.setZoomRate(1 / 320)
     mapRef.current = map
 
-    const revealCard = (cell: string | null) => {
-      window.clearTimeout(hideCardRef.current)
-      if (cell) {
-        setCardCell(cell)
-        setCardVisible(true)
-        return
-      }
-      if (cardHeldRef.current) return
-      hideCardRef.current = window.setTimeout(() => {
-        if (!cardHeldRef.current) setCardVisible(false)
-      }, 700)
-    }
-
     let active = true
     let frame = 0
     let pointer: Point | null = null
@@ -272,22 +248,6 @@ export function H3Map({
       map.setFeatureState({ source: 'h3', id: cell }, state)
     }
 
-    const pinCard = (cell: string) => {
-      const card = cardRef.current
-      if (!card) return
-      const [lat, lng] = cellToLatLng(cell)
-      const point = map.project([lng, lat])
-      const width = card.offsetWidth || 256
-      const height = card.offsetHeight || 180
-      const inset = insetsRef.current
-      let x = point.x + 22
-      let y = point.y - height / 2
-      if (x + width > container.clientWidth - 8) x = point.x - width - 22
-      if (y + height > container.clientHeight - inset.bottom - 8) {
-        y = container.clientHeight - inset.bottom - height - 8
-      }
-      card.style.transform = `translate3d(${Math.max(8, x)}px, ${Math.max(8, y)}px, 0)`
-    }
 
     function render(now: number) {
       frame = 0
@@ -349,8 +309,6 @@ export function H3Map({
         } else if (pointer) {
           const under = cellAt(pointer)
           nextHover = drawnCells.has(under) ? under : null
-        } else if (cardHeldRef.current) {
-          nextHover = hoverCell
         }
       }
 
@@ -367,23 +325,6 @@ export function H3Map({
         if (nextHover) setCellState(nextHover, { hover: true })
         hoverCell = nextHover
         liftLayer.setCell(nextHover)
-        if (!isTouch) {
-          if (inspectOpenRef.current) {
-            revealCard(null)
-          } else {
-            const cardH3 =
-              nextHover && anchor ? cellAt(anchor, H3_RESOLUTION) : nextHover ? cellAt(rest, H3_RESOLUTION) : null
-            const status = cardH3 ? coverageRef.current?.get(cardH3)?.status : null
-            if (cardH3 && (status === 'ready' || status === 'processing')) {
-              revealCard(cardH3)
-              pinCard(cardH3)
-            } else {
-              revealCard(null)
-            }
-          }
-        }
-      } else if (!isTouch && hoverCell) {
-        pinCard(hoverCell)
       }
       if (nextCenter !== centerCell) {
         centerCell = nextCenter
@@ -397,7 +338,6 @@ export function H3Map({
       setInput: (isTouch) => {
         if (isTouch) {
           pointer = null
-          setCardVisible(false)
         }
         fadeTo(restingStrength(), 300)
       },
@@ -685,7 +625,7 @@ export function H3Map({
     map.on('mouseout', () => {
       if (touchRef.current) return
       pointer = null
-      if (!cardHeldRef.current && !inspectOpenRef.current) fadeTo(0, 320)
+      if (!inspectOpenRef.current) fadeTo(0, 320)
     })
     map.on('click', (event) => {
       if (modeRef.current === 'off' || viewModeRef.current === 'earth') return
@@ -695,8 +635,6 @@ export function H3Map({
       if (!drawnRef.current.has(cell) && !drawnRef.current.has(display)) return
       const shift = event.originalEvent.shiftKey || touchRef.current
       if (!shift && coverageRef.current?.get(cell)?.status === 'ready') {
-        cardHeldRef.current = false
-        setCardVisible(false)
         actionRef.current?.(cell, 'query')
         return
       }
@@ -724,7 +662,6 @@ export function H3Map({
       window.clearTimeout(handoffTimer)
       window.clearTimeout(revealTimer)
       window.clearTimeout(reportTimer)
-      window.clearTimeout(hideCardRef.current)
       observer.disconnect()
       map.remove()
       mapRef.current = null
@@ -887,23 +824,6 @@ export function H3Map({
     x: (insets.left + size.width - insets.right) / 2,
     y: (insets.top + size.height - insets.bottom) / 2,
   }
-  const cardCount = cardCell ? (countMap.get(cardCell) ?? 0) : 0
-  const cardSelected = cardCell ? selectedSet.has(cardCell) : false
-  const cardCoverage = cardCell ? cellCoverage?.get(cardCell) : undefined
-  const cardStatus = cardCoverage?.status ?? 'missing'
-
-  const holdCard = () => {
-    cardHeldRef.current = true
-    window.clearTimeout(hideCardRef.current)
-    setCardVisible(true)
-  }
-
-  const releaseCard = () => {
-    cardHeldRef.current = false
-    hideCardRef.current = window.setTimeout(() => {
-      setCardVisible(false)
-    }, 500)
-  }
 
   return (
     <div
@@ -913,36 +833,6 @@ export function H3Map({
     >
       <div ref={containerRef} className="absolute inset-0" />
       {touch && hexMode !== 'off' && size.width > 0 && <Reticle x={rest.x} y={rest.y} />}
-      {!touch && (
-        <div
-          ref={cardRef}
-          aria-hidden={!cardVisible}
-          className={cn(
-            'absolute top-0 left-0 z-20 transition-opacity duration-180',
-            cardVisible && cardCell ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
-          )}
-        >
-          {cardCell && (
-            <HexHoverCard
-              h3={cardCell}
-              count={cardCount}
-              countLabel={countLabel}
-              selected={cardSelected}
-              addMode={addMode}
-              dataStatus={cardStatus}
-              snapshot={cardCoverage?.snapshot ?? null}
-              releaseVersion={cardCoverage?.release_version ?? null}
-              onAction={(action) => {
-                cardHeldRef.current = false
-                setCardVisible(false)
-                onHexAction?.(cardCell, action)
-              }}
-              onMouseEnter={holdCard}
-              onMouseLeave={releaseCard}
-            />
-          )}
-        </div>
-      )}
       {mapError && (
         <div className="glass absolute top-1/2 left-1/2 z-20 max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-xl px-4 py-3 text-sm text-destructive">
           {mapError}

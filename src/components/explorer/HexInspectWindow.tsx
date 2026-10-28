@@ -23,7 +23,7 @@ export function HexInspectWindow({ cells }: { cells: readonly string[] }) {
   return (
     <div
       data-testid="inspect-window"
-      className="glass pointer-events-auto absolute z-30 flex h-[min(36rem,calc(100%-1.5rem))] w-[min(52rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl shadow-[0_18px_50px_-24px_rgba(0,0,0,0.85)]"
+      className="glass pointer-events-auto absolute z-30 flex h-[min(40rem,calc(100%-1.5rem))] w-[min(92rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl shadow-[0_18px_50px_-24px_rgba(0,0,0,0.85)]"
       style={{ left: position.x, top: position.y }}
       onWheel={(event) => event.stopPropagation()}
     >

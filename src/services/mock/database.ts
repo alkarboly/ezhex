@@ -4,6 +4,7 @@ import { pointGeometry, squarePolygon } from '../../lib/geojson'
 import { AUSTIN_CENTER, cellCenter, mockCoverageCells } from '../../lib/h3'
 import { H3_RESOLUTION } from '../../lib/limits'
 import { DEFAULT_OVERTURE_RELEASE } from '../../lib/overture-release'
+import type { OvertureSource } from '../../lib/overture-sources'
 import { BUILDING_SUBTYPES, type BuildingSubtype, type DatasetId } from '../../types/datasets'
 import { PLACE_PRESETS } from '../../types/place-presets'
 import type { AddressRecord, BuildingRecord, PlaceRecord } from './records'
@@ -198,6 +199,7 @@ function buildPlaces(
       place_addresses: [],
       building_id: null,
       address_id: null,
+      sources: mockSources(identity.basic_category === 'restaurant' && rng() < 0.35 ? 'foursquare' : 'meta'),
     })
   }
   return rows
@@ -271,6 +273,7 @@ function buildBuildings(
       roof_direction: null,
       roof_color: null,
       address_id: null,
+      sources: mockSources('OpenStreetMap'),
     })
   }
   return rows
@@ -315,6 +318,7 @@ function buildAddresses(
       postcode,
       address_levels: [{ value: 'TX' }, { value: locality }],
       building_id: null,
+      sources: mockSources('National Address Database'),
     })
   }
   return rows
@@ -419,6 +423,10 @@ function hashString(input: string): number {
     hash = Math.imul(hash, 16777619)
   }
   return hash >>> 0
+}
+
+function mockSources(dataset: string): OvertureSource[] {
+  return [{ property: null, dataset, record_id: null, update_time: null, confidence: null }]
 }
 
 function mulberry32(seed: number): () => number {

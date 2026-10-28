@@ -147,6 +147,18 @@ assert(cafes.rows.every((row) => row.geometry?.type === 'Point'), 'place query d
 const merged = mergeFeatureRows(allPlaces.rows, [], [])
 assert(merged.length === allPlaces.rows.length, 'inspect merge dropped place rows')
 assert(merged.some((row) => row.kind === 'places'), 'inspect merge lost places')
+assert(
+  allPlaces.rows.every((row) => typeof row.values.sources === 'string' && String(row.values.sources).length > 0),
+  'query rows dropped sources',
+)
+assert(
+  allPlaces.rows.every((row) => typeof row.values.attribution === 'string' && String(row.values.attribution).length > 0),
+  'query rows dropped attribution',
+)
+assert(
+  merged.every((row) => row.snapshot.length > 0 && row.sources && row.attribution),
+  'inspect merge dropped snapshot, sources, or attribution',
+)
 const unmatchedPlace = {
   id: 'p-orphan',
   h3: capitol,
@@ -372,6 +384,14 @@ process.env.DATA_MODE = 'mock'
 const { routeApi } = await import('../src/server/api.ts')
 const health = await routeApi('GET', '/api/health', undefined)
 assert(health.status === 200 && isRecord(health.body) && health.body.ok === true, 'health check failed')
+const authSession = await routeApi('GET', '/api/auth/session', undefined)
+assert(authSession.status === 200 && isRecord(authSession.body), 'auth session failed')
+assert(authSession.body.user === null, 'verify should start signed out')
+assert(typeof authSession.body.configured === 'boolean', 'auth configured flag is missing')
+const badSignup = await routeApi('POST', '/api/auth/signup', { email: 'nope', password: 'short' })
+assert(badSignup.status === 400, 'auth accepted a weak signup')
+const deleteAnon = await routeApi('POST', '/api/auth/delete', { password: 'password1', confirm: 'DELETE' })
+assert(deleteAnon.status === 401 || deleteAnon.status === 503, 'anon delete should not succeed')
 const servedCounts = await routeApi('POST', '/api/cell-counts', {
   dataset: 'places',
   h3_cells: sampleCells,
@@ -385,6 +405,17 @@ const schemas = await routeApi('GET', '/api/query-schemas', undefined)
 assert(schemas.status === 200 && isRecord(schemas.body), 'query schema route failed')
 assert(Array.isArray(schemas.body.datasets) && schemas.body.datasets.length >= 3, 'query schemas are missing datasets')
 assert(typeof schemas.body.query_enabled === 'boolean', 'query schema capabilities are missing')
+const placesSchema = Array.isArray(schemas.body.datasets)
+  ? schemas.body.datasets.find((dataset) => isRecord(dataset) && dataset.id === 'places')
+  : null
+assert(
+  isRecord(placesSchema) &&
+    Array.isArray(placesSchema.fields) &&
+    placesSchema.fields.some((field) => isRecord(field) && field.field === 'release_version') &&
+    placesSchema.fields.some((field) => isRecord(field) && field.field === 'sources') &&
+    placesSchema.fields.some((field) => isRecord(field) && field.field === 'attribution'),
+  'places schema is missing snapshot, sources, or attribution',
+)
 const ingestLimits = await routeApi('GET', '/api/workflow-ingestion/limits', undefined)
 assert(ingestLimits.status === 200 && isRecord(ingestLimits.body), 'workflow ingestion limits failed')
 assert(ingestLimits.body.max_hexes === 20, 'workflow max hex cap drifted')

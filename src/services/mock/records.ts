@@ -1,5 +1,6 @@
 import type { PlaceAddressLabel } from '../../lib/associate'
 import { asGeometry, type GeoJsonGeometry } from '../../lib/geojson'
+import { formatAttribution, formatSources, type OvertureSource } from '../../lib/overture-sources'
 import type { BuildingSubtype } from '../../types/datasets'
 import type { OperatingStatus } from '../../types/place-presets'
 import type { DatasetId } from '../../types/datasets'
@@ -30,6 +31,7 @@ export type PlaceRecord = {
   place_addresses: PlaceAddressLabel[]
   building_id: string | null
   address_id: string | null
+  sources: OvertureSource[]
 }
 
 export type BuildingRecord = {
@@ -57,6 +59,7 @@ export type BuildingRecord = {
   roof_direction: number | null
   roof_color: string | null
   address_id: string | null
+  sources: OvertureSource[]
 }
 
 export type AddressRecord = {
@@ -74,6 +77,7 @@ export type AddressRecord = {
   postcode: string
   address_levels: [{ value: string }, { value: string }]
   building_id: string | null
+  sources: OvertureSource[]
 }
 
 export type AnyRecord = PlaceRecord | BuildingRecord | AddressRecord
@@ -100,12 +104,28 @@ function readPlace(record: PlaceRecord, field: string): string | number | null {
       return record.phones.join(', ')
     case 'websites':
       return record.websites.join(', ')
+    case 'socials':
+      return record.socials.join(', ')
+    case 'emails':
+      return record.emails.join(', ')
     case 'brand_name':
       return record.brand_name
+    case 'brand_wikidata':
+      return record.brand_wikidata
+    case 'taxonomy.hierarchy':
+      return record.taxonomy.hierarchy.join(' > ')
+    case 'place_addresses':
+      return formatPlaceAddresses(record.place_addresses)
     case 'building_id':
       return record.building_id
     case 'address_id':
       return record.address_id
+    case 'release_version':
+      return record.release_version
+    case 'sources':
+      return formatSources(record.sources)
+    case 'attribution':
+      return formatAttribution(record.sources)
     case 'geometry':
       return record.geometry?.type ?? null
     default:
@@ -125,8 +145,38 @@ function readBuilding(record: BuildingRecord, field: string): string | number | 
       return record.names.primary
     case 'class':
       return record.class
+    case 'has_parts':
+      return flag(record.has_parts)
+    case 'is_underground':
+      return flag(record.is_underground)
+    case 'num_floors_underground':
+      return record.num_floors_underground
+    case 'min_height':
+      return record.min_height
+    case 'min_floor':
+      return record.min_floor
+    case 'level':
+      return record.level
+    case 'facade_color':
+      return record.facade_color
+    case 'facade_material':
+      return record.facade_material
+    case 'roof_material':
+      return record.roof_material
+    case 'roof_shape':
+      return record.roof_shape
+    case 'roof_direction':
+      return record.roof_direction
+    case 'roof_color':
+      return record.roof_color
     case 'address_id':
       return record.address_id
+    case 'release_version':
+      return record.release_version
+    case 'sources':
+      return formatSources(record.sources)
+    case 'attribution':
+      return formatAttribution(record.sources)
     case 'geometry':
       return record.geometry?.type ?? null
     default:
@@ -152,13 +202,33 @@ function readAddress(record: AddressRecord, field: string): string | number | nu
       return record.unit
     case 'postal_city':
       return record.postal_city
+    case 'country':
+      return record.country
     case 'building_id':
       return record.building_id
+    case 'release_version':
+      return record.release_version
+    case 'sources':
+      return formatSources(record.sources)
+    case 'attribution':
+      return formatAttribution(record.sources)
     case 'geometry':
       return record.geometry?.type ?? null
     default:
       throw new Error(`Unsupported addresses field: ${field}`)
   }
+}
+
+function formatPlaceAddresses(labels: readonly PlaceAddressLabel[]): string | null {
+  const parts = labels
+    .map((label) => label.freeform || `${label.number ?? ''} ${label.street ?? ''}`.trim())
+    .filter((part) => part.length > 0)
+  return parts.length > 0 ? parts.join('; ') : null
+}
+
+function flag(value: boolean | null): string | null {
+  if (value == null) return null
+  return value ? 'true' : 'false'
 }
 
 export function formatAddress(record: AddressRecord): string {
@@ -234,13 +304,21 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
         'names.primary': readField(dataset, place, 'names.primary'),
         basic_category: readField(dataset, place, 'basic_category'),
         'taxonomy.primary': readField(dataset, place, 'taxonomy.primary'),
+        'taxonomy.hierarchy': readField(dataset, place, 'taxonomy.hierarchy'),
         confidence: readField(dataset, place, 'confidence'),
         operating_status: readField(dataset, place, 'operating_status'),
         phones: readField(dataset, place, 'phones'),
         websites: readField(dataset, place, 'websites'),
+        socials: readField(dataset, place, 'socials'),
+        emails: readField(dataset, place, 'emails'),
         brand_name: readField(dataset, place, 'brand_name'),
+        brand_wikidata: readField(dataset, place, 'brand_wikidata'),
+        place_addresses: readField(dataset, place, 'place_addresses'),
         building_id: place.building_id,
         address_id: place.address_id,
+        release_version: place.release_version,
+        sources: readField(dataset, place, 'sources'),
+        attribution: readField(dataset, place, 'attribution'),
       },
     }
   }
@@ -260,7 +338,22 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
         num_floors: readField(dataset, building, 'num_floors'),
         'names.primary': readField(dataset, building, 'names.primary'),
         class: readField(dataset, building, 'class'),
+        has_parts: readField(dataset, building, 'has_parts'),
+        is_underground: readField(dataset, building, 'is_underground'),
+        num_floors_underground: readField(dataset, building, 'num_floors_underground'),
+        min_height: readField(dataset, building, 'min_height'),
+        min_floor: readField(dataset, building, 'min_floor'),
+        level: readField(dataset, building, 'level'),
+        facade_color: readField(dataset, building, 'facade_color'),
+        facade_material: readField(dataset, building, 'facade_material'),
+        roof_material: readField(dataset, building, 'roof_material'),
+        roof_shape: readField(dataset, building, 'roof_shape'),
+        roof_direction: readField(dataset, building, 'roof_direction'),
+        roof_color: readField(dataset, building, 'roof_color'),
         address_id: building.address_id,
+        release_version: building.release_version,
+        sources: readField(dataset, building, 'sources'),
+        attribution: readField(dataset, building, 'attribution'),
       },
     }
   }
@@ -282,7 +375,11 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
       address: readField(dataset, address, 'address'),
       unit: readField(dataset, address, 'unit'),
       postal_city: readField(dataset, address, 'postal_city'),
+      country: readField(dataset, address, 'country'),
       building_id: address.building_id,
+      release_version: address.release_version,
+      sources: readField(dataset, address, 'sources'),
+      attribution: readField(dataset, address, 'attribution'),
     },
   }
 }

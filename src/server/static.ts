@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
+import { parseCookies } from '../lib/auth-cookies'
 import { BodyTooLargeError, InvalidJsonError, readJsonBody, routeApi } from './api'
 
 const CLIENT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../dist')
@@ -54,8 +55,8 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: st
       throw error
     }
   }
-  const result = await routeApi(method, pathname, body)
-  sendJson(res, result.status, result.body)
+  const result = await routeApi(method, pathname, body, { cookies: parseCookies(req.headers.cookie) })
+  sendJson(res, result.status, result.body, result.cookies)
 }
 
 function serveClient(req: IncomingMessage, res: ServerResponse, pathname: string) {
@@ -120,10 +121,11 @@ function sendFile(req: IncomingMessage, res: ServerResponse, file: string, html:
   })
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown) {
+function sendJson(res: ServerResponse, status: number, body: unknown, cookies?: string[]) {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.setHeader('X-Content-Type-Options', 'nosniff')
   res.setHeader('Cache-Control', 'no-store')
+  if (cookies && cookies.length > 0) res.setHeader('Set-Cookie', cookies)
   res.end(JSON.stringify(body))
 }

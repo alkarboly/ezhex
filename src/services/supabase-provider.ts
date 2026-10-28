@@ -6,6 +6,7 @@ import { getSupabaseClient } from '../lib/supabase'
 import { validateCellList, validateFilters, validateQuery, validateReleaseVersion } from '../lib/validate-query'
 import type { DatasetId } from '../types/datasets'
 import { asPlaceAddresses } from '../lib/associate'
+import { asSources } from '../lib/overture-sources'
 import type { CellCount, QueryResult } from '../types/queries'
 import type { ReleaseCatalog, ReleaseSnapshot } from '../types/releases'
 import type { DataProvider } from './data-provider'
@@ -280,6 +281,7 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
       place_addresses: asPlaceAddresses(row.place_addresses),
       building_id: typeof row.building_id === 'string' ? row.building_id : null,
       address_id: typeof row.address_id === 'string' ? row.address_id : null,
+      sources: asSources(row.sources),
     }
     return place
   }
@@ -309,6 +311,7 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
       roof_direction: typeof row.roof_direction === 'number' ? row.roof_direction : null,
       roof_color: typeof row.roof_color === 'string' ? row.roof_color : null,
       address_id: typeof row.address_id === 'string' ? row.address_id : null,
+      sources: asSources(row.sources),
     }
     return building
   }
@@ -330,6 +333,7 @@ function asRecord(dataset: DatasetId, row: Record<string, unknown>): AnyRecord |
       { value: typeof row.locality === 'string' ? row.locality : '' },
     ],
     building_id: typeof row.building_id === 'string' ? row.building_id : null,
+    sources: asSources(row.sources),
   }
   return address
 }

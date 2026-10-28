@@ -56,6 +56,40 @@ export function mergeSourceDatasets(...groups: readonly (readonly string[])[]): 
   return names
 }
 
+/** Compact Overture `sources` for a table cell: dataset, property, record, time. */
+export function formatSources(sources: readonly OvertureSource[]): string | null {
+  const parts = sources
+    .map((source) =>
+      [source.dataset, source.property, source.record_id, source.update_time].filter((part): part is string => Boolean(part)).join(' · '),
+    )
+    .filter((part) => part.length > 0)
+  return parts.length > 0 ? parts.join('; ') : null
+}
+
+/**
+ * License-facing attribution from Overture `sources[].dataset`.
+ * Unknown datasets stay as the dataset name. Terms live on /licenses.
+ */
+export function formatAttribution(sources: readonly OvertureSource[]): string | null {
+  const parts = sourceDatasets(sources).map((name) => {
+    const license = ATTRIBUTION_BY_DATASET[name.toLowerCase()]
+    return license ? `${name} (${license})` : name
+  })
+  return parts.length > 0 ? parts.join('; ') : null
+}
+
+const ATTRIBUTION_BY_DATASET: Record<string, string> = {
+  meta: 'CDLA Permissive 2.0',
+  foursquare: 'Apache 2.0',
+  'foursquare labs': 'Apache 2.0',
+  openstreetmap: 'ODbL',
+  osm: 'ODbL',
+  microsoft: 'ODbL',
+  'microsoft building footprints': 'ODbL',
+  'national address database': 'NAD / US government work',
+  nad: 'NAD / US government work',
+}
+
 function asOptionalString(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const next = value.trim()

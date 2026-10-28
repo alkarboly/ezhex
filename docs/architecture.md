@@ -17,7 +17,7 @@ Browser
   → JSON back to the map, hover actions, and Jobs UI
 ```
 
-The browser does not import the dataset or the Supabase client. It still uses `h3-js` to draw cell shapes. Filtering and counts run in Node, from the libraries in `node_modules`, so the server can take on packages that do not belong in a page bundle. There is no auth hop. Mock records are not user-scoped because they are not stored. The nav rail shows the mode the server reports. On phones it is in the menu.
+The browser does not import the dataset or the Supabase client. It still uses `h3-js` to draw cell shapes. Filtering and counts run in Node, from the libraries in `node_modules`, so the server can take on packages that do not belong in a page bundle. Accounts are optional. The public map, Process, Inspect, and Jobs stay open without a login. Sign-up, sign-in, sign-out, and account delete run on Node (`/api/auth/*`) with httpOnly `wp_access` / `wp_refresh` cookies. The browser never receives the anon key or a JWT. Mock records are not user-scoped because they are not stored. The nav rail shows the mode the server reports, and a sign-in or email chip that opens Settings. On phones that line is in the menu.
 
 The Node API also exposes workflow-ingestion planning and job endpoints:
 
@@ -30,6 +30,11 @@ The Node API also exposes workflow-ingestion planning and job endpoints:
 - `POST /api/hex-status`
 - `GET /api/query-schemas`
 - `GET /api/releases`
+- `GET /api/auth/session`
+- `POST /api/auth/signup`
+- `POST /api/auth/signin`
+- `POST /api/auth/signout`
+- `POST /api/auth/delete`
 - `POST /api/query` (used when a ready hex opens the inspect table)
 
 The planning route validates selected hexes, enforces connectedness, computes bbox, and applies hard caps. Creating a job runs that planner, then Node downloads Overture parquet for that bbox only, keeps rows whose H3 resolution-8 cell is in the selection, and upserts them into Supabase. `POST /api/workflow-ingestion/jobs/:id/run` starts the same download. The default release is `2026-10-21.0` (`OVERTURE_RELEASE`). Jobs themselves stay in the Node process. Feature rows persist in Supabase.
@@ -38,7 +43,7 @@ Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines 
 
 `POST /api/hex-status` returns `ready`, `missing`, or `processing`, plus `snapshot` (`current` | `stale` | null) and `release_version`. Ready means those tables already have rows for the hex, or a succeeded in-memory job. `current` means the newest stored release is at least `OVERTURE_RELEASE` (`2026-10-21.0` by default). `stale` means the hex has rows from an older release. Processing means a download is running. `GET /api/releases` lists ingested snapshot metadata (`release_version`, hex and theme counts, source datasets). Feature rows keep `(id, release_version)`, so a later process of a newer release does not overwrite an older cut. Queries may send `release_version` to pin one snapshot. Omitted queries use the newest stored release in each hex.
 
-`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection. Each job has a log pane, hidden until opened. Process always loads places, buildings, and addresses together. The explorer is hex-first: hover a cell for status and Process, or click a ready hex to inspect. Inspect is a draggable window. Close on the title bar ends inspect and does not reopen the hex under the pointer. It fetches all three themes with no form filters, then left-joins each place to its linked address and building. Unmatched places stay in the table with null address or building. Unmatched addresses and buildings are appended. The Building column is `names.primary`, else `subtype` or `class`. Height and floors come from the linked building when those Overture fields are present; they are often null. Inspect dropdowns list values seen in those loaded rows, not a preset catalog. Wheel events stay in the window so they do not zoom the map.
+`/workflows` still builds and downloads plan JSON. `/jobs` creates and lists ingestion jobs from the current map selection. Each job has a log pane, hidden until opened. Process always loads places, buildings, and addresses together. The explorer is hex-first: click a ready hex to inspect, or use Query and Process on the selection dock. There is no hover card. Inspect is a draggable window. Close on the title bar ends inspect and does not reopen the hex under the pointer. It fetches all three themes with no form filters, then left-joins each place to its linked address and building. Unmatched places stay in the table with null address or building. Unmatched addresses and buildings are appended. The table includes snapshot (`release_version`), Overture `sources`, derived `attribution`, contact fields, building extras, address extras, and ids. The Building column is `names.primary`, else `subtype` or `class`. Height and floors come from the linked building when those Overture fields are present; they are often null. Inspect dropdowns list values seen in those loaded rows, not a preset catalog. Wheel events stay in the window so they do not zoom the map.
 
 ## Map
 
@@ -56,7 +61,7 @@ Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Gre
 
 **Map layers** picks one of three modes:
 
-- **Lens** (default). Empty hex outlines fade in near the pointer. Hexes with current or stale data stay filled and outlined even when the pointer is elsewhere. City zoom (resolution 7 and 8) stays still until hover. The hovered cell lifts off the globe on a `hex-lift` layer (`projectTileFor3D`, about 420 m) with a ground shadow. A tooltip pins to the hex centroid only when that hex is ready or processing (Inspect / Process). Empty hexes do not open a card. Click a ready hex to open Inspect. Shift-click still selects. Inspect opens a draggable window, not the tooltip. Process queues an ingestion job. Workflow uses the hovered hex, or the whole selection if that hex is already selected. Zooming in or out keeps the last grid on a second source (`h3-out`) and fades it while the next cells appear, so resolution swaps do not pop. `prefers-reduced-motion` skips the stagger. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`, `appear`) on the affected cells, so pointer moves never rebuild the GeoJSON source.
+- **Lens** (default). Empty hex outlines fade in near the pointer. Hexes with current or stale data stay filled and outlined even when the pointer is elsewhere. City zoom (resolution 7 and 8) stays still until hover. The hovered cell lifts off the globe on a `hex-lift` layer (`projectTileFor3D`, about 420 m) with a ground shadow. There is no hover card. Click a ready hex to open Inspect. Shift-click still selects. Inspect opens a draggable window. Process queues an ingestion job from the selection dock or `/jobs`. Zooming in or out keeps the last grid on a second source (`h3-out`) and fades it while the next cells appear, so resolution swaps do not pop. `prefers-reduced-motion` skips the stagger. The radius scales with zoom. Each frame sets MapLibre feature state (`lens`, `hover`, `appear`) on the affected cells, so pointer moves never rebuild the GeoJSON source.
 - **Grid** also paints empty-cell outlines across the view.
 - **Hidden** hides the H3 layers.
 
@@ -97,7 +102,7 @@ Spark job scaffold is under `pipelines/spark/workflow_ingest.py`. It reads a pla
 
 Explorer queries read `overture_places`, `overture_buildings`, and `overture_addresses`. Snapshot metadata lives in `overture_release_snapshots` and `overture_hex_snapshots`. Run `supabase/migrations/20261027_overture.sql` after the workflow migration, then the features and snapshots files.
 
-Account creation and a real workflow definition are next. The existing `workflows*` tables stay as an owner-RLS scaffold (`auth.uid()`). Do not invent a workflow product shape until that workshop. Node jobs still do not write those tables.
+Accounts live in Supabase Auth plus `public.profiles` (`id` = `auth.users.id`, email, timestamps). A trigger writes the profile on sign-up. `delete_own_account()` is a SECURITY DEFINER RPC that deletes `auth.users` for `auth.uid()`; profiles and workflow rows cascade. Settings requires the password and the word DELETE. Run `supabase/migrations/20261027_auth.sql` after the workflow file. Turn off Confirm email in the Supabase Auth settings if a session should start right after create-account. The existing `workflows*` tables stay an owner-RLS scaffold (`auth.uid()`). Do not invent a workflow product shape until that workshop. Node jobs still do not write those tables.
 
 The Node server may use the anon key only. The service-role key stays out of the environment and out of the repo. The browser never receives the key.
 

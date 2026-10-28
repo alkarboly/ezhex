@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../../hooks/useAuth'
 import { useDataSource } from '../../hooks/useDataSource'
 import { cn } from '../../lib/utils'
 import { BrandMark } from './BrandMark'
@@ -6,7 +7,9 @@ import { NAV } from './nav'
 
 export function Sidebar() {
   const source = useDataSource()
+  const auth = useAuth()
   const mode = source.data?.mode
+  const email = auth.session.data?.user?.email
   return (
     <aside className="relative z-30 flex h-full w-[76px] shrink-0 flex-col items-center border-r border-white/[0.06] bg-[#060a0f] py-3">
       <NavLink to="/" aria-label="WorldPulse home" className="grid size-12 place-items-center rounded-xl">
@@ -49,6 +52,13 @@ export function Sidebar() {
         >
           {mode === 'supabase' ? 'Supabase' : mode === 'mock' ? 'Mock' : '…'}
         </span>
+        <NavLink
+          to="/settings"
+          title={email ? email : 'Sign in'}
+          className="max-w-14 truncate text-center font-mono text-[9px] text-muted-foreground hover:text-foreground"
+        >
+          {email ? email.split('@')[0] : 'Sign in'}
+        </NavLink>
         <span className="font-mono text-[9px] text-muted-foreground">H3 · r8</span>
       </div>
     </aside>

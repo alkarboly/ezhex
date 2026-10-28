@@ -2,6 +2,7 @@ import * as Dialog from '@radix-ui/react-dialog'
 import { X } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { useAuth } from '../../hooks/useAuth'
 import { useDataSource } from '../../hooks/useDataSource'
 import { H3_RESOLUTION } from '../../lib/limits'
 import { cn } from '../../lib/utils'
@@ -11,7 +12,9 @@ import { NAV } from './nav'
 export function MobileNavButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false)
   const source = useDataSource()
+  const auth = useAuth()
   const mode = source.data?.mode
+  const email = auth.session.data?.user?.email
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Trigger asChild>
@@ -69,6 +72,12 @@ export function MobileNavButton({ className }: { className?: string }) {
               {mode === 'supabase'
                 ? 'Reading from the configured Supabase project.'
                 : 'Synthetic Austin records shaped like Overture features.'}
+            </p>
+            <p className="mt-2">
+              {email ? `Signed in as ${email}` : 'Not signed in.'}{' '}
+              <NavLink to="/settings" onClick={() => setOpen(false)} className="text-primary underline-offset-2 hover:underline">
+                {email ? 'Account' : 'Sign in'}
+              </NavLink>
             </p>
             <NavLink
               to="/licenses"

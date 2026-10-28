@@ -18,12 +18,25 @@ import {
   planWorkflowIngestion,
   workflowIngestionLimits,
 } from './workflow-ingestion'
+import { routeAuth } from './auth'
 
-export type ApiResult = { status: number; body: unknown }
+export type ApiContext = {
+  cookies: Record<string, string>
+}
+
+export type ApiResult = { status: number; body: unknown; cookies?: string[] }
 
 const BODY_LIMIT = 1_000_000
 
-export async function routeApi(method: string, pathname: string, body: unknown): Promise<ApiResult> {
+export async function routeApi(
+  method: string,
+  pathname: string,
+  body: unknown,
+  context: ApiContext = { cookies: {} },
+): Promise<ApiResult> {
+  const auth = await routeAuth(method, pathname, body, context.cookies)
+  if (auth) return auth
+
   if (method === 'GET' && pathname === '/api/health') {
     return { status: 200, body: { ok: true } }
   }

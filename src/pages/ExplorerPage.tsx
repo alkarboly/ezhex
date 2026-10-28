@@ -36,7 +36,6 @@ export function ExplorerPage() {
   const basemap = useExplorer((state) => state.basemap)
   const focus = useExplorer((state) => state.focus)
   const fit = useExplorer((state) => state.fit)
-  const selectionMode = useExplorer((state) => state.selectionMode)
   const toggleCell = useExplorer((state) => state.toggleCell)
   const setViewportCells = useExplorer((state) => state.setViewportCells)
   const setCenterCell = useExplorer((state) => state.setCenterCell)
@@ -60,7 +59,6 @@ export function ExplorerPage() {
   const counts = canQueryCells && compiled.errors.length === 0 ? (stats.data ?? NO_COUNTS) : NO_COUNTS
   const allZero = stats.isSuccess && counts.length > 0 && counts.every((entry) => entry.count === 0)
   const hasFilters = compiled.spec.filters.length > 0
-  const countLabel = hasFilters ? `matching ${meta.plural}` : meta.plural
   const statusCells = useMemo(() => [...new Set([...queryCells, ...selected])], [queryCells, selected])
   const coverage = useQuery({
     queryKey: ['hex-status', statusCells.join(',')],
@@ -176,8 +174,6 @@ export function ExplorerPage() {
         focusedH3={focus?.h3 ?? null}
         hexMode={hexMode}
         basemap={basemap}
-        countLabel={countLabel}
-        addMode={selectionMode}
         touch={touch}
         insets={insets}
         fit={fit}

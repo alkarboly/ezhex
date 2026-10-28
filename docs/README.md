@@ -1,6 +1,6 @@
 # WorldPulse docs
 
-- [Architecture](architecture.md) — hex-first Explorer, Overture ingest with geometry and links, Jobs, inspect window, licenses, and Render
+- [Architecture](architecture.md) — hex-first Explorer, Overture ingest, optional Supabase auth, Jobs, inspect, licenses, and Render
 - [Query spec](query-spec.md) — server query JSON contract, operators, Overture fields, and release snapshots
 - [Workflow pipeline](workflow-pipeline.md) — segmented ingestion guardrails, always-all-three themes, in-memory jobs, live job logs, Spark job contract, storage layout, and Supabase workflow tables
 

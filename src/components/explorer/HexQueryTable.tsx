@@ -10,13 +10,49 @@ import { nativeSelectClass } from '../ui/input'
 import { PageButton } from '../results/ResultsPanel'
 
 const COLUMNS = [
+  { field: 'kind', label: 'Theme', numeric: false },
+  { field: 'snapshot', label: 'Snapshot', numeric: false },
   { field: 'name', label: 'Place', numeric: false },
   { field: 'category', label: 'Category', numeric: false },
+  { field: 'taxonomy', label: 'Taxonomy', numeric: false },
+  { field: 'operating_status', label: 'Status', numeric: false },
+  { field: 'confidence', label: 'Confidence', numeric: true },
   { field: 'address', label: 'Address', numeric: false },
+  { field: 'unit', label: 'Unit', numeric: false },
+  { field: 'locality', label: 'Locality', numeric: false },
+  { field: 'region', label: 'Region', numeric: false },
+  { field: 'postcode', label: 'Postcode', numeric: false },
+  { field: 'postal_city', label: 'Postal city', numeric: false },
+  { field: 'country', label: 'Country', numeric: false },
   { field: 'building', label: 'Building', numeric: false },
+  { field: 'building_class', label: 'Building class', numeric: false },
   { field: 'height', label: 'Height m', numeric: true },
   { field: 'floors', label: 'Floors', numeric: true },
-  { field: 'extra', label: 'Detail', numeric: false },
+  { field: 'min_height', label: 'Min height', numeric: true },
+  { field: 'min_floor', label: 'Min floor', numeric: true },
+  { field: 'level', label: 'Level', numeric: true },
+  { field: 'underground_floors', label: 'Und. floors', numeric: true },
+  { field: 'has_parts', label: 'Has parts', numeric: false },
+  { field: 'is_underground', label: 'Underground', numeric: false },
+  { field: 'facade_material', label: 'Facade', numeric: false },
+  { field: 'facade_color', label: 'Facade color', numeric: false },
+  { field: 'roof_shape', label: 'Roof', numeric: false },
+  { field: 'roof_material', label: 'Roof material', numeric: false },
+  { field: 'roof_color', label: 'Roof color', numeric: false },
+  { field: 'roof_direction', label: 'Roof dir.', numeric: true },
+  { field: 'phones', label: 'Phones', numeric: false },
+  { field: 'websites', label: 'Websites', numeric: false },
+  { field: 'socials', label: 'Socials', numeric: false },
+  { field: 'emails', label: 'Emails', numeric: false },
+  { field: 'brand', label: 'Brand', numeric: false },
+  { field: 'brand_wikidata', label: 'Brand Wikidata', numeric: false },
+  { field: 'place_addresses', label: 'Nested addresses', numeric: false },
+  { field: 'sources', label: 'Sources', numeric: false },
+  { field: 'attribution', label: 'Attribution', numeric: false },
+  { field: 'building_id', label: 'Building id', numeric: false },
+  { field: 'address_id', label: 'Address id', numeric: false },
+  { field: 'id', label: 'Id', numeric: false },
+  { field: 'h3', label: 'H3', numeric: false },
   { field: 'lat', label: 'Lat', numeric: true },
   { field: 'lng', label: 'Lng', numeric: true },
 ] as const
@@ -128,7 +164,7 @@ export function HexQueryTable() {
             setSearch(event.target.value)
             setPage(0)
           }}
-          placeholder="Search place or address"
+          placeholder="Search place, address, snapshot, sources"
           className="h-6 min-w-36 flex-1 rounded border border-white/[0.08] bg-black/30 px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
         />
         <span className="text-[11px] tabular-nums text-muted-foreground">{formatCount(filtered.length)} rows</span>
@@ -187,15 +223,18 @@ export function HexQueryTable() {
                   focusH3 === row.h3 ? 'bg-primary/[0.08]' : 'hover:bg-white/[0.03]',
                 )}
               >
-                <td className="max-w-44 truncate px-2 py-1.5">{row.name ?? '—'}</td>
-                <td className="max-w-36 truncate px-2 py-1.5">{row.category ?? '—'}</td>
-                <td className="max-w-52 truncate px-2 py-1.5">{row.address ?? '—'}</td>
-                <td className="max-w-36 truncate px-2 py-1.5">{row.building ?? '—'}</td>
-                <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.height == null ? '—' : row.height}</td>
-                <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.floors == null ? '—' : row.floors}</td>
-                <td className="max-w-36 truncate px-2 py-1.5">{row.extra ?? '—'}</td>
-                <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.lat.toFixed(5)}</td>
-                <td className="px-2 py-1.5 text-right font-mono tabular-nums">{row.lng.toFixed(5)}</td>
+                {COLUMNS.map((column) => (
+                  <td
+                    key={column.field}
+                    className={cn(
+                      'max-w-52 truncate px-2 py-1.5',
+                      column.numeric && 'text-right font-mono tabular-nums',
+                      (column.field === 'sources' || column.field === 'attribution') && 'max-w-72',
+                    )}
+                  >
+                    {formatCell(row, column.field)}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>
@@ -214,6 +253,13 @@ export function HexQueryTable() {
       </div>
     </div>
   )
+}
+
+function formatCell(row: FeatureRow, field: ColumnField): string {
+  const value = row[field]
+  if (value == null || value === '') return '—'
+  if (field === 'lat' || field === 'lng') return (value as number).toFixed(5)
+  return String(value)
 }
 
 function compareFeature(left: FeatureRow, right: FeatureRow, field: ColumnField, direction: 'asc' | 'desc') {
