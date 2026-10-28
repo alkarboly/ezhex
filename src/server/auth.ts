@@ -138,14 +138,16 @@ async function deleteAccount(body: unknown, cookies: Record<string, string>): Pr
   }
 }
 
-export async function resolveUser(cookies: Record<string, string>): Promise<{ user: AuthUser | null; cookies?: string[] }> {
+export async function resolveUser(
+  cookies: Record<string, string>,
+): Promise<{ user: AuthUser | null; accessToken?: string; cookies?: string[] }> {
   const client = requireAuthClient()
   if (!client) return { user: null }
   const access = cookies[ACCESS_COOKIE]
   const refresh = cookies[REFRESH_COOKIE]
   if (access) {
     const { data, error } = await client.auth.getUser(access)
-    if (!error && data.user) return { user: asUser(data.user.id, data.user.email) }
+    if (!error && data.user) return { user: asUser(data.user.id, data.user.email), accessToken: access }
   }
   if (!refresh) return { user: null, cookies: access || refresh ? clearedSessionCookies(cookieSecure()) : undefined }
   const refreshed = await client.auth.refreshSession({ refresh_token: refresh })
@@ -155,6 +157,7 @@ export async function resolveUser(cookies: Record<string, string>): Promise<{ us
   const session = refreshed.data.session
   return {
     user: asUser(session.user.id, session.user.email),
+    accessToken: session.access_token,
     cookies: sessionCookies(session.access_token, session.refresh_token, cookieSecure()),
   }
 }

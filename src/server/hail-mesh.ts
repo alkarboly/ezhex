@@ -13,7 +13,6 @@ import { readDataMode } from '../lib/server-env'
 import { createUserClient } from '../lib/supabase'
 import type { HailEnrichResponse, HailHexStat, HailHexSummary } from '../types/enrichments'
 import { resolveUser } from './auth'
-import { ACCESS_COOKIE } from '../lib/auth-cookies'
 
 const MOCK_OWNER = 'mock-guest'
 const mockHail = new Map<string, HailHexStat>()
@@ -203,7 +202,7 @@ async function hailOwner(cookies: Record<string, string>): Promise<{ ownerId: st
   if (readDataMode().resolved === 'mock') return { ownerId: MOCK_OWNER, accessToken: '' }
   const resolved = await resolveUser(cookies)
   if (!resolved.user) return { error: 'Sign in to run a private enrichment.', status: 401 }
-  const accessToken = cookies[ACCESS_COOKIE]
+  const accessToken = resolved.accessToken
   if (!accessToken) return { error: 'Sign in to run a private enrichment.', status: 401 }
   return { ownerId: resolved.user.id, accessToken }
 }

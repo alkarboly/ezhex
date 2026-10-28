@@ -6,12 +6,11 @@ import { MAX_QUERY_WORKFLOWS, MAX_SELECTED_CELLS } from '../lib/limits'
 import { OVERTURE_RELEASE_RE } from '../lib/overture-release'
 import { asInspectFilters, validateInspectSql } from '../lib/inspect-sql'
 import { readDataMode } from '../lib/server-env'
-import { ACCESS_COOKIE } from '../lib/auth-cookies'
 import { createUserClient } from '../lib/supabase'
 import type { QueryWorkflow, QueryWorkflowList } from '../types/query-workflows'
 import { resolveUser } from './auth'
 
-type RouteResult = { status: number; body: unknown }
+type RouteResult = { status: number; body: unknown; cookies?: string[] }
 
 const MOCK_OWNER = 'mock-guest'
 const mockStore = new Map<string, QueryWorkflow>()
@@ -119,8 +118,15 @@ export async function deleteQueryWorkflow(id: string, cookies: Record<string, st
 
 type ApiError = { error: string; status: number }
 type SessionOwner =
-  | { mode: 'mock'; ownerId: string; accessToken: string; signInRequired: false; error?: undefined }
-  | { mode: 'supabase'; ownerId: string; accessToken: string; signInRequired: false; error?: undefined }
+  | { mode: 'mock'; ownerId: string; accessToken: string; signInRequired: false; error?: undefined; cookies?: string[] }
+  | {
+      mode: 'supabase'
+      ownerId: string
+      accessToken: string
+      signInRequired: false
+      error?: undefined
+      cookies?: string[]
+    }
   | { signInRequired: true; error?: undefined }
   | { error: ApiError }
 
@@ -130,9 +136,15 @@ async function sessionOwner(cookies: Record<string, string>): Promise<SessionOwn
   }
   const resolved = await resolveUser(cookies)
   if (!resolved.user) return { signInRequired: true }
-  const accessToken = cookies[ACCESS_COOKIE]
+  const accessToken = resolved.accessToken
   if (!accessToken) return { error: { error: 'Sign in to save a workflow.', status: 401 } }
-  return { mode: 'supabase', ownerId: resolved.user.id, accessToken, signInRequired: false }
+  return {
+    mode: 'supabase',
+    ownerId: resolved.user.id,
+    accessToken,
+    signInRequired: false,
+    cookies: resolved.cookies,
+  }
 }
 
 function parseCreate(body: unknown): Omit<QueryWorkflow, 'id' | 'owner_user_id' | 'created_at' | 'updated_at'> | ApiError {
@@ -352,11 +364,12 @@ function errorText(error: SupabaseErrorLike): string {
 
 function missingWorkflowColumn(error: SupabaseErrorLike): boolean {
   const text = errorText(error)
-  return /schema cache|does not exist|PGRST204/i.test(text) && /enrichments|release_version|column/i.test(text)
+  return /PGRST204/i.test(text) || (/schema cache|does not exist/i.test(text) && /enrichments|release_version|column/i.test(text))
 }
 
 function supabaseError(error: SupabaseErrorLike | string): ApiError {
   const message = typeof error === 'string' ? error : errorText(error)
+  if (message) console.error('[query-workflows]', message)
   if (/does not exist|relation|schema cache|PGRST204/i.test(message)) {
     return {
       error:
@@ -364,8 +377,12 @@ function supabaseError(error: SupabaseErrorLike | string): ApiError {
       status: 400,
     }
   }
+  if (/row-level security|jwt|expired|PGRST301/i.test(message)) {
+    return { error: 'Sign in again to save a workflow.', status: 401 }
+  }
   const short = message.trim()
-  return { error: short.length > 0 && short.length < 180 ? short : 'The workflow request failed.', status: 400 }
+  if (!short) return { error: 'The workflow request failed.', status: 400 }
+  return { error: short.length <= 180 ? short : `${short.slice(0, 160).trim()}…`, status: 400 }
 }
 
 function respond(result: unknown): RouteResult {

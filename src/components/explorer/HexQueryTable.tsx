@@ -340,14 +340,16 @@ export function HexQueryTable() {
             setCreateError(sqlError)
             return
           }
-          create.mutate({
-            name: workflowName.trim() || defaultWorkflowName(selectedCells.length),
-            sql,
-            custom_sql: customSql != null,
-            h3_cells: selectedCells,
-            filters: inspectFilters,
-            enrichments: draftEnrichments,
-            release_version: inspectRelease,
+          void client.invalidateQueries({ queryKey: ['auth-session'] }).then(() => {
+            create.mutate({
+              name: workflowName.trim() || defaultWorkflowName(selectedCells.length),
+              sql,
+              custom_sql: customSql != null,
+              h3_cells: selectedCells,
+              filters: inspectFilters,
+              enrichments: draftEnrichments,
+              release_version: inspectRelease,
+            })
           })
         }}
         creating={create.isPending}
