@@ -42,7 +42,11 @@ UI / API caller
      cap checks
      writes segmented outputs + hex metrics
   -> Supabase stores workflow, runs, subscriptions, and metrics
-     (Node jobs are not written here yet; no auth hop)
+     (Node jobs are not written here yet)
+  -> Inspect SQL + Create a workflow
+     GET/POST/DELETE /api/query-workflows
+     owner RLS, 5 per account, nationwide hexes
+     selecting a workflow previews every hex on the map
 ```
 
 ## API contract
@@ -91,7 +95,9 @@ Returns per-hex `ready`, `missing`, or `processing`, plus `snapshot` (`current` 
 
 Lists `overture_release_snapshots` (or the mock catalog). Each row is one processed Overture release: hex count, theme counts, source datasets, and whether it is the current `OVERTURE_RELEASE`. Feature tables keep older releases. `POST /api/query` and `POST /api/cell-counts` take optional `release_version` to read one cut.
 
-The explorer selection dock and `/jobs` create jobs from selected hexes. There is no hover card and no Query button. Process always loads places, buildings, and addresses. `/jobs` keeps a live log pane per job, including association match rates, collapsed until Logs is pressed, and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` still builds and downloads plan JSON. Inspect opens a fitted panel from a ready hex click, fetches all three themes unfiltered, and shows one joined table with snapshot, snapshot date, sources, attribution, split taxonomy, and the stored theme fields. Further hex clicks add cells to that query. Browser filters cover category, main category, snapshot date, status, building class, confidence, and presence flags. Nulls stay when a link is missing. Building height and floors appear when the Overture row has them.
+The explorer selection dock and `/jobs` create jobs from selected hexes. There is no hover card and no Query button. Process always loads places, buildings, and addresses. `/jobs` keeps a live log pane per job, including association match rates, collapsed until Logs is pressed, and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` lists saved query workflows (inspect SQL + hexes, 5 per account). Selecting one previews every hex on the map, including nationwide disconnected sets. The same page still builds and downloads ingest plan JSON. Inspect opens a fitted panel from a ready hex click, fetches all three themes unfiltered, and shows one joined table with snapshot, snapshot date, sources, attribution, split taxonomy, and the stored theme fields. The inspect query is shown as SQL. Copy SQL and download CSV are available. Create a workflow stores that SQL and the selected hexes. Further hex clicks add cells to that query. Browser filters cover category, main category, snapshot date, status, building class, confidence, and presence flags. Nulls stay when a link is missing. Building height and floors appear when the Overture row has them.
+
+`GET /api/query-workflows` lists the signed-in owner's query workflows (`limit` 5, `remaining`). `POST /api/query-workflows` saves `{ name, sql, custom_sql, h3_cells, filters }`. Custom SQL must be a single SELECT on `overture_places`, `overture_buildings`, and `overture_addresses`. Execution still uses `/api/query` plus the stored inspect filters. `GET` / `DELETE /api/query-workflows/:id` are owner-only. Ingest connectedness and the 20-hex / 220 km2 caps do not apply to query workflows. Mock mode keeps the same list in memory without an account.
 
 `POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
 
@@ -128,7 +134,11 @@ Primary tables:
 - `overture_release_snapshots` (release metadata for historical queries)
 - `overture_hex_snapshots` (per-hex counts for one release)
 
-All workflow tables are protected with owner-based RLS using `auth.uid() = owner_user_id`. Snapshot tables are readable by anon. `profiles` and `delete_own_account()` come from `supabase/migrations/20261027_auth.sql`. Accounts are optional and owned in Settings. The workflow product shape is still open; do not treat the scaffold tables as the final workflow contract.
+Query-workflow migration: `supabase/migrations/20261027_query_workflows.sql`
+
+- `query_workflows` (owner, inspect SQL, custom flag, nationwide hexes 1–300, inspect filters, 5 per owner)
+
+All workflow tables are protected with owner-based RLS using `auth.uid() = owner_user_id`. Snapshot tables are readable by anon. `profiles` and `delete_own_account()` come from `supabase/migrations/20261027_auth.sql`. Accounts are optional for the public map. Saving a query workflow requires a session when Supabase is configured. The ingest `workflows*` tables stay the 20-hex connected scaffold. Query workflows are the user-facing saved inspect queries.
 
 ## Notes
 

@@ -1,5 +1,6 @@
 import { getResolution, gridDisk, latLngToCell } from 'h3-js'
 import { create } from 'zustand'
+import type { InspectFilters } from '../lib/feature-rows'
 import { AUSTIN_CENTER, type ViewportStatus } from '../lib/h3'
 import { DEFAULT_QUERY_LIMIT, H3_RESOLUTION, MAX_SELECTED_CELLS } from '../lib/limits'
 import { defaultSort, type DatasetId } from '../types/datasets'
@@ -19,6 +20,14 @@ export type HexMode = 'lens' | 'grid' | 'off'
 export type SheetSnap = 'peek' | 'half' | 'full'
 export type FitRequest = { nonce: number; zoomIn: boolean }
 export type MobileTab = 'query' | 'results'
+export type InspectReplay = {
+  nonce: number
+  workflowId: string | null
+  workflowName: string | null
+  filters: InspectFilters
+  sql: string
+  customSql: boolean
+}
 
 type ExplorerState = {
   dataset: DatasetId
@@ -52,6 +61,7 @@ type ExplorerState = {
   notice: string | null
   inspectOpen: boolean
   inspectPosition: { x: number; y: number }
+  inspectReplay: InspectReplay | null
   setDataset: (dataset: DatasetId) => void
   toggleCell: (h3: string, shiftKey: boolean) => void
   clearSelection: () => void
@@ -83,6 +93,15 @@ type ExplorerState = {
   setNotice: (notice: string | null) => void
   setInspectOpen: (inspectOpen: boolean) => void
   setInspectPosition: (inspectPosition: { x: number; y: number }) => void
+  previewWorkflow: (input: {
+    id: string
+    name: string
+    h3_cells: readonly string[]
+    filters: InspectFilters
+    sql: string
+    custom_sql: boolean
+  }) => void
+  clearWorkflowPreview: () => void
 }
 
 const initialSort = defaultSort('places')
@@ -117,6 +136,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   notice: null,
   inspectOpen: false,
   inspectPosition: { x: 420, y: 72 },
+  inspectReplay: null,
   setDataset: (dataset) => {
     const sort = defaultSort(dataset)
     set({
@@ -325,4 +345,31 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   setNotice: (notice) => set({ notice }),
   setInspectOpen: (inspectOpen) => set({ inspectOpen }),
   setInspectPosition: (inspectPosition) => set({ inspectPosition }),
+  previewWorkflow: (input) => {
+    const cells = [...new Set(input.h3_cells)].slice(0, MAX_SELECTED_CELLS)
+    set((state) => ({
+      selectedCells: cells,
+      page: 0,
+      resultsSearch: '',
+      inspectOpen: true,
+      inspectReplay: {
+        nonce: (state.inspectReplay?.nonce ?? 0) + 1,
+        workflowId: input.id,
+        workflowName: input.name,
+        filters: input.filters,
+        sql: input.sql,
+        customSql: input.custom_sql,
+      },
+      fit: cells.length > 0 ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
+      notice:
+        cells.length === 0
+          ? 'That workflow has no hexes.'
+          : `Workflow “${input.name}” · ${cells.length} hexes on the map`,
+    }))
+  },
+  clearWorkflowPreview: () =>
+    set({
+      inspectReplay: null,
+      inspectOpen: false,
+    }),
 }))

@@ -20,7 +20,9 @@ import {
 } from '../src/lib/hex-drop.ts'
 import { HEX_LIFT_HEIGHT_M, hexLiftElevation } from '../src/lib/hex-lift.ts'
 import { appearDelayMs, appearIsQuiet, appearKind, introDelayMs, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
-import { filterFeatureRows, mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
+import { defaultInspectFilters, filterFeatureRows, mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
+import { compileInspectSql, validateInspectSql } from '../src/lib/inspect-sql.ts'
+import { featureRowsToCsv } from '../src/lib/csv.ts'
 import { snapshotDate } from '../src/lib/overture-release.ts'
 import { parseTaxonomyLabel } from '../src/lib/taxonomy.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
@@ -618,6 +620,65 @@ assert(
 assert(
   releases.body.snapshots.some((row) => isRecord(row) && row.release_version === '2026-09-24.0' && row.current === false),
   'older processed snapshot is missing from metadata',
+)
+
+const generatedSql = compileInspectSql([capitol, sampleCells[1] ?? capitol], {
+  ...defaultInspectFilters,
+  categories: ['cafe'],
+  mainCategories: ['eat_and_drink'],
+  confidenceMin: 0.2,
+})
+assert(generatedSql.includes('SELECT'), 'inspect SQL is not a SELECT')
+assert(generatedSql.includes(capitol), 'inspect SQL dropped the hex')
+assert(generatedSql.includes("'cafe'"), 'inspect SQL dropped the category filter')
+assert(generatedSql.includes('eat_and_drink'), 'inspect SQL dropped the main category filter')
+assert(validateInspectSql(generatedSql.replace(/^--.*$/gm, '').trim()) === null, 'generated inspect SQL should be valid once comments are removed')
+assert(validateInspectSql('INSERT INTO overture_places (id) VALUES (1)') !== null, 'inspect SQL accepted a write')
+assert(validateInspectSql('SELECT * FROM profiles') !== null, 'inspect SQL accepted a non-overture table')
+const csv = featureRowsToCsv(splitTaxonomy)
+assert(csv.includes('Main category'), 'inspect CSV dropped the main category column')
+assert(csv.includes('Split Cafe'), 'inspect CSV dropped the place name')
+
+const emptyWorkflows = await routeApi('GET', '/api/query-workflows', undefined)
+assert(emptyWorkflows.status === 200 && isRecord(emptyWorkflows.body) && Array.isArray(emptyWorkflows.body.workflows), 'query workflow list failed')
+assert(emptyWorkflows.body.limit === 5, 'query workflow cap is not 5')
+for (let index = 0; index < 5; index += 1) {
+  const created = await routeApi('POST', '/api/query-workflows', {
+    name: `Inspect ${index + 1}`,
+    sql: generatedSql,
+    custom_sql: false,
+    h3_cells: [capitol, sampleCells[1] ?? capitol],
+    filters: { ...defaultInspectFilters, categories: ['cafe'] },
+  })
+  assert(created.status === 200 && isRecord(created.body) && typeof created.body.id === 'string', `query workflow ${index + 1} failed to save`)
+}
+const sixth = await routeApi('POST', '/api/query-workflows', {
+  name: 'Inspect 6',
+  sql: generatedSql,
+  custom_sql: false,
+  h3_cells: [capitol],
+  filters: defaultInspectFilters,
+})
+assert(sixth.status === 400 && isRecord(sixth.body) && sixth.body.error === 'Workflow limit is 5.', 'query workflow cap leaked a sixth save')
+const listedWorkflows = await routeApi('GET', '/api/query-workflows', undefined)
+assert(
+  listedWorkflows.status === 200 &&
+    isRecord(listedWorkflows.body) &&
+    Array.isArray(listedWorkflows.body.workflows) &&
+    listedWorkflows.body.workflows.length === 5 &&
+    listedWorkflows.body.remaining === 0,
+  'query workflow list did not stay at 5',
+)
+const firstSaved = listedWorkflows.body.workflows[0]
+assert(isRecord(firstSaved) && Array.isArray(firstSaved.h3_cells) && firstSaved.h3_cells.includes(capitol), 'saved workflow dropped nationwide hexes')
+const opened = await routeApi('GET', `/api/query-workflows/${firstSaved.id}`, undefined)
+assert(opened.status === 200 && isRecord(opened.body) && opened.body.id === firstSaved.id, 'saved workflow could not be reopened')
+const removed = await routeApi('DELETE', `/api/query-workflows/${firstSaved.id}`, undefined)
+assert(removed.status === 200, 'saved workflow could not be deleted')
+const afterDelete = await routeApi('GET', '/api/query-workflows', undefined)
+assert(
+  afterDelete.status === 200 && isRecord(afterDelete.body) && Array.isArray(afterDelete.body.workflows) && afterDelete.body.workflows.length === 4,
+  'deleted workflow is still listed',
 )
 
 console.log(

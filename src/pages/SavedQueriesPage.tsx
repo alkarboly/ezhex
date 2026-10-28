@@ -1,10 +1,15 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { Hexagon, MapPinned, Trash2 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
+import { useAuth } from '../hooks/useAuth'
 import { formatCount } from '../lib/format'
+import { MAX_QUERY_WORKFLOWS } from '../lib/limits'
 import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
+import { cn } from '../lib/utils'
+import { deleteQueryWorkflow, listQueryWorkflows } from '../services/query-workflows'
 import {
   createWorkflowIngestionPlan,
   getQuerySchemas,
@@ -12,8 +17,174 @@ import {
 } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
 import { WORKFLOW_DATASETS, type WorkflowIngestionPlan } from '../types/workflows'
+import type { QueryWorkflow } from '../types/query-workflows'
 
 export function SavedQueriesPage() {
+  const navigate = useNavigate()
+  const previewWorkflow = useExplorer((state) => state.previewWorkflow)
+  const inspectReplay = useExplorer((state) => state.inspectReplay)
+  const auth = useAuth()
+  const client = useQueryClient()
+  const user = auth.session.data?.user ?? null
+  const configured = auth.session.data?.configured ?? false
+
+  const saved = useQuery({
+    queryKey: ['query-workflows'],
+    queryFn: listQueryWorkflows,
+  })
+  const remove = useMutation({
+    mutationFn: deleteQueryWorkflow,
+    onSuccess: () => client.invalidateQueries({ queryKey: ['query-workflows'] }),
+  })
+
+  const workflows = saved.data?.workflows ?? []
+  const remaining = saved.data?.remaining ?? Math.max(0, MAX_QUERY_WORKFLOWS - workflows.length)
+  const signInNeeded = configured && !user
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto">
+      <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
+        <header className="overflow-hidden rounded-2xl border border-primary/20 bg-[linear-gradient(135deg,rgba(46,230,166,0.12),rgba(8,12,18,0.4)_55%,rgba(245,196,81,0.08))] p-5">
+          <p className="font-mono text-[10px] tracking-[0.22em] text-primary uppercase">Query workflows</p>
+          <h1 className="mt-1 text-xl font-semibold">Saved inspect SQL</h1>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
+            A workflow is an inspect query: the SQL plus every selected hex. Hexes can sit across the country.
+            Selecting one paints them all on the map. {MAX_QUERY_WORKFLOWS} per account.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 font-mono text-primary">
+              {formatCount(workflows.length)} / {MAX_QUERY_WORKFLOWS}
+            </span>
+            <span className="text-muted-foreground">{formatCount(remaining)} open slots</span>
+          </div>
+        </header>
+
+        {signInNeeded && (
+          <p className="rounded-xl border border-white/[0.08] bg-card px-4 py-3 text-sm text-muted-foreground">
+            <Link to="/settings" className="text-primary hover:underline">
+              Sign in
+            </Link>{' '}
+            to keep workflows. Create one from Inspect on the map.
+          </p>
+        )}
+
+        {saved.isLoading && <p className="text-sm text-muted-foreground">Loading workflows…</p>}
+        {saved.error && <p className="text-sm text-destructive">{saved.error.message}</p>}
+
+        <section className="grid gap-3">
+          {workflows.map((workflow) => (
+            <WorkflowCard
+              key={workflow.id}
+              workflow={workflow}
+              active={inspectReplay?.workflowId === workflow.id}
+              onOpen={() => {
+                previewWorkflow(workflow)
+                navigate('/')
+              }}
+              onDelete={() => remove.mutate(workflow.id)}
+              deleting={remove.isPending && remove.variables === workflow.id}
+            />
+          ))}
+          {Array.from({ length: remaining }, (_, index) => (
+            <OpenSlot key={`slot-${index}`} index={workflows.length + index + 1} />
+          ))}
+          {!saved.isLoading && workflows.length === 0 && !signInNeeded && (
+            <p className="text-sm text-muted-foreground">
+              No workflows yet. Open Inspect, copy or edit the SQL, then press Create a workflow.
+            </p>
+          )}
+        </section>
+
+        <IngestPlanSection />
+      </div>
+    </div>
+  )
+}
+
+function WorkflowCard({
+  workflow,
+  active,
+  onOpen,
+  onDelete,
+  deleting,
+}: {
+  workflow: QueryWorkflow
+  active: boolean
+  onOpen: () => void
+  onDelete: () => void
+  deleting: boolean
+}) {
+  const preview = workflow.sql
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith('--'))
+    .slice(0, 4)
+    .join('\n')
+  return (
+    <article
+      className={cn(
+        'overflow-hidden rounded-2xl border bg-[#080c12]/80 shadow-[0_16px_40px_-24px_rgba(0,0,0,0.85)]',
+        active ? 'border-primary/50 shadow-[0_0_24px_-8px_rgba(46,230,166,0.45)]' : 'border-white/[0.08]',
+      )}
+    >
+      <button type="button" onClick={onOpen} className="block w-full px-4 pt-4 text-left">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{workflow.name}</p>
+            <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <MapPinned className="size-3 text-primary" />
+              {formatCount(workflow.h3_cells.length)} hexes
+              {workflow.custom_sql ? ' · custom SQL' : ' · generated SQL'}
+            </p>
+          </div>
+          <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary">
+            <Hexagon className="size-4" />
+          </span>
+        </div>
+        <pre className="mt-3 max-h-20 overflow-hidden rounded-lg border border-white/[0.06] bg-[#05080c] px-3 py-2 font-mono text-[10px] leading-4 text-[#9fd9c8]">
+          {preview}
+        </pre>
+        <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground">
+          {workflow.h3_cells.slice(0, 3).join(' · ')}
+          {workflow.h3_cells.length > 3 ? ` · +${workflow.h3_cells.length - 3}` : ''}
+        </p>
+      </button>
+      <div className="flex items-center justify-between px-4 py-3">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="rounded-full bg-primary/15 px-3 py-1 text-[11px] font-medium text-primary hover:bg-primary/25"
+        >
+          Preview on map
+        </button>
+        <button
+          type="button"
+          disabled={deleting}
+          onClick={onDelete}
+          className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-foreground hover:bg-white/[0.05] hover:text-destructive disabled:opacity-40"
+        >
+          <Trash2 className="size-3" />
+          {deleting ? 'Removing…' : 'Delete'}
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function OpenSlot({ index }: { index: number }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/[0.1] px-4 py-5 text-center">
+      <p className="font-mono text-[10px] tracking-[0.18em] text-muted-foreground uppercase">Open slot {index}</p>
+      <p className="mt-1 text-[11px] text-muted-foreground">
+        Create from Inspect ·{' '}
+        <Link to="/" className="text-primary hover:underline">
+          Open explorer
+        </Link>
+      </p>
+    </div>
+  )
+}
+
+function IngestPlanSection() {
   const selectedCells = useExplorer((state) => state.selectedCells)
   const [releaseVersion, setReleaseVersion] = useState(DEFAULT_OVERTURE_RELEASE)
   const [useSelection, setUseSelection] = useState(true)
@@ -68,142 +239,64 @@ export function SavedQueriesPage() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
-        <header>
-          <h1 className="text-xl font-semibold">Workflows</h1>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Build a guarded ingestion plan from selected H3 cells. Queue the run from{' '}
-            <Link to="/jobs" className="text-primary hover:underline">
-              Jobs
-            </Link>
-            , or process the hexes from the map. Jobs run on this server.
-          </p>
-        </header>
-
-        <section className="rounded-lg border border-border bg-card p-4 text-sm">
-          <h2 className="text-sm font-semibold">Ingestion limits</h2>
-          {limits.isLoading && <p className="mt-2 text-muted-foreground">Loading limits…</p>}
-          {limits.error && <p className="mt-2 text-destructive">{limits.error.message}</p>}
-          {limits.data && (
-            <dl className="mt-3 grid gap-2 sm:grid-cols-2">
-              <div>
-                <dt className="text-xs text-muted-foreground">H3 resolution</dt>
-                <dd className="font-mono">{limits.data.h3_resolution}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Max hexes per run</dt>
-                <dd className="font-mono">{formatCount(limits.data.max_hexes)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Max bbox area</dt>
-                <dd className="font-mono">{formatCount(limits.data.max_bbox_area_km2)} km2</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Rows per dataset</dt>
-                <dd className="font-mono">{formatCount(limits.data.max_rows_per_dataset)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Rows per run</dt>
-                <dd className="font-mono">{formatCount(limits.data.max_total_rows)}</dd>
-              </div>
-            </dl>
-          )}
-          {schemas.isLoading && <p className="mt-2 text-xs text-muted-foreground">Loading query schemas…</p>}
-          {schemas.error && <p className="mt-2 text-xs text-destructive">{schemas.error.message}</p>}
-          {schemas.data && (
-            <div className="mt-3 rounded-md border border-white/[0.08] bg-white/[0.02] px-3 py-2">
-              <p className="text-xs text-muted-foreground">
-                Query schemas from server whitelist:{' '}
-                {schemas.data.datasets.map((dataset) => `${dataset.title} (${dataset.fields.length})`).join(' · ')}
-              </p>
-              {!schemas.data.query_enabled && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {schemas.data.reason} UI plan creation still works for ingestion.
-                </p>
-              )}
-            </div>
-          )}
-        </section>
-
-        <form onSubmit={submit} className="grid gap-4 rounded-lg border border-border bg-card p-4">
-          <div className="grid gap-2">
-            <label htmlFor="workflow-release" className="text-xs font-medium text-muted-foreground">
-              Release version
-            </label>
-            <Input
-              id="workflow-release"
-              value={releaseVersion}
-              onChange={(event) => setReleaseVersion(event.target.value)}
-              placeholder="2026-09-24.0"
-            />
-          </div>
-
+    <details className="rounded-2xl border border-white/[0.08] bg-card">
+      <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium">
+        Ingest plan
+        <span className="ml-2 text-xs font-normal text-muted-foreground">
+          Connected hexes, 20 max, for Process / Spark
+        </span>
+      </summary>
+      <div className="grid gap-4 border-t border-white/[0.06] px-4 py-4">
+        <p className="text-sm leading-6 text-muted-foreground">
+          This is the guarded ingestion plan. Query workflows above do not use these caps. Queue a run from{' '}
+          <Link to="/jobs" className="text-primary hover:underline">
+            Jobs
+          </Link>
+          .
+        </p>
+        {limits.data && (
           <p className="text-xs text-muted-foreground">
-            Plans always include places, buildings, and addresses.
+            Caps: {formatCount(limits.data.max_hexes)} hexes, {formatCount(limits.data.max_bbox_area_km2)} km2,{' '}
+            {formatCount(limits.data.max_rows_per_dataset)} rows / dataset
           </p>
-
-          <div className="grid gap-2">
-            <span className="text-xs font-medium text-muted-foreground">Hex source</span>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant={useSelection ? 'default' : 'outline'}
-                type="button"
-                onClick={() => setUseSelection(true)}
-              >
-                Explorer selection ({selectedCells.length})
-              </Button>
-              <Button
-                size="sm"
-                variant={useSelection ? 'outline' : 'default'}
-                type="button"
-                onClick={() => setUseSelection(false)}
-              >
-                Manual list
-              </Button>
-            </div>
-
-            {useSelection ? (
-              <p className="text-xs text-muted-foreground">
-                Using {formatCount(inputCells.length)} selected cells from Explorer.
-              </p>
-            ) : (
-              <>
-                <textarea
-                  value={manualCells}
-                  onChange={(event) => setManualCells(event.target.value)}
-                  placeholder={'88489e3467fffff\n88489e30bdfffff'}
-                  className="min-h-28 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] p-3 font-mono text-xs leading-5 text-foreground transition-colors hover:border-white/15 focus-visible:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/20"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Parsed {formatCount(inputCells.length)} unique cells from the manual list.
-                </p>
-              </>
-            )}
+        )}
+        {schemas.data && !schemas.data.query_enabled && (
+          <p className="text-xs text-muted-foreground">{schemas.data.reason}</p>
+        )}
+        <form onSubmit={submit} className="grid gap-3">
+          <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+            Release version
+            <Input value={releaseVersion} onChange={(event) => setReleaseVersion(event.target.value)} />
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant={useSelection ? 'default' : 'outline'} type="button" onClick={() => setUseSelection(true)}>
+              Explorer selection ({selectedCells.length})
+            </Button>
+            <Button size="sm" variant={useSelection ? 'outline' : 'default'} type="button" onClick={() => setUseSelection(false)}>
+              Manual list
+            </Button>
           </div>
-
+          {!useSelection && (
+            <textarea
+              value={manualCells}
+              onChange={(event) => setManualCells(event.target.value)}
+              placeholder={'88489e3467fffff\n88489e30bdfffff'}
+              className="min-h-24 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] p-3 font-mono text-xs leading-5"
+            />
+          )}
           {formError && <p className="text-sm text-destructive">{formError}</p>}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={createPlan.isPending}>
               {createPlan.isPending ? 'Creating plan…' : 'Create ingestion plan'}
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setPlan(null)
-                setFormError(null)
-              }}
-            >
+            <Button type="button" variant="outline" onClick={() => { setPlan(null); setFormError(null) }}>
               Clear output
             </Button>
           </div>
         </form>
-
         {plan && (
-          <section className="grid gap-3 rounded-lg border border-border bg-card p-4">
-            <div className="flex flex-wrap items-center gap-2">
+          <section className="grid gap-2">
+            <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold">Plan JSON</h2>
               <Button size="sm" variant="outline" onClick={() => downloadPlan(plan)}>
                 Download
@@ -215,7 +308,7 @@ export function SavedQueriesPage() {
           </section>
         )}
       </div>
-    </div>
+    </details>
   )
 }
 

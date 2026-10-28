@@ -44,6 +44,8 @@ export function ExplorerPage() {
   const setNotice = useExplorer((state) => state.setNotice)
   const setInspectOpen = useExplorer((state) => state.setInspectOpen)
   const inspectOpen = useExplorer((state) => state.inspectOpen)
+  const inspectReplay = useExplorer((state) => state.inspectReplay)
+  const clearWorkflowPreview = useExplorer((state) => state.clearWorkflowPreview)
   const configured = Boolean(source.data?.supabase?.urlConfigured && source.data?.supabase?.anonKeyConfigured)
   const queryUnavailable = source.data?.mode === 'supabase' && !configured
   const canQueryCells = source.data?.mode === 'mock' || (source.data?.mode === 'supabase' && configured)
@@ -219,6 +221,16 @@ export function ExplorerPage() {
           >
             {status}
           </div>
+          {inspectReplay?.workflowName && (
+            <div
+              className="pointer-events-none absolute inset-x-3 z-20 flex justify-center"
+              style={{ top: `calc(max(0.75rem, env(safe-area-inset-top)) + 8.8rem)` }}
+            >
+              <div className="pointer-events-auto">
+                <WorkflowPreviewBanner name={inspectReplay.workflowName} count={selected.length} onClear={clearWorkflowPreview} />
+              </div>
+            </div>
+          )}
           <div
             className="pointer-events-none absolute inset-x-3 z-20 flex justify-center"
             style={{ top: `calc(max(0.75rem, env(safe-area-inset-top)) + 5.6rem)` }}
@@ -249,6 +261,11 @@ export function ExplorerPage() {
             <SnapshotLegend />
           </div>
           <div className="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2">{status}</div>
+          {inspectReplay?.workflowName && (
+            <div className="pointer-events-none absolute top-14 left-1/2 z-20 -translate-x-1/2">
+              <WorkflowPreviewBanner name={inspectReplay.workflowName} count={selected.length} onClear={clearWorkflowPreview} />
+            </div>
+          )}
           {queryUnavailable && (
             <div
               role="status"
@@ -358,6 +375,33 @@ function StatusPill({
   return (
     <div role="status" className="glass rounded-full px-3.5 py-1.5 text-center text-xs text-muted-foreground">
       {text}
+    </div>
+  )
+}
+
+function WorkflowPreviewBanner({
+  name,
+  count,
+  onClear,
+}: {
+  name: string
+  count: number
+  onClear: () => void
+}) {
+  return (
+    <div className="glass pointer-events-auto flex items-center gap-2 rounded-full py-1 pr-1 pl-3 text-[11px] shadow-[0_0_20px_-8px_rgba(46,230,166,0.55)]">
+      <span className="size-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(46,230,166,0.9)]" />
+      <span className="max-w-56 truncate">
+        {name}
+        <span className="text-muted-foreground"> · {count} hexes</span>
+      </span>
+      <button
+        type="button"
+        onClick={onClear}
+        className="rounded-full px-2 py-0.5 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+      >
+        Clear
+      </button>
     </div>
   )
 }

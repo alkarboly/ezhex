@@ -37,10 +37,10 @@ export function HexInspectWindow({ cells }: { cells: readonly string[] }) {
       data-testid="inspect-window"
       className={
         mobile
-          ? 'glass pointer-events-auto absolute inset-x-3 bottom-[4.75rem] z-30 flex max-h-[min(28rem,calc(100dvh-8rem))] flex-col overflow-hidden rounded-2xl shadow-[0_18px_50px_-24px_rgba(0,0,0,0.85)]'
+          ? 'glass pointer-events-auto absolute inset-x-3 bottom-[4.75rem] z-30 flex max-h-[min(34rem,calc(100dvh-8rem))] flex-col overflow-hidden rounded-2xl shadow-[0_18px_50px_-24px_rgba(0,0,0,0.85)]'
           : 'glass pointer-events-auto absolute z-30 flex max-h-[calc(100dvh-6.5rem)] w-[min(46rem,calc(100vw-11rem))] flex-col overflow-hidden rounded-2xl shadow-[0_18px_50px_-24px_rgba(0,0,0,0.85)]'
       }
-      style={mobile ? undefined : { left: position.x, top: position.y, height: 'min(36rem, calc(100dvh - 6.5rem))' }}
+      style={mobile ? undefined : { left: position.x, top: position.y, height: 'min(42rem, calc(100dvh - 6.5rem))' }}
       onWheel={(event) => event.stopPropagation()}
     >
       <div
@@ -66,7 +66,7 @@ export function HexInspectWindow({ cells }: { cells: readonly string[] }) {
         }}
       >
         <div className="min-w-0">
-          <p className="text-xs font-medium">Inspect</p>
+          <p className="text-[10px] font-medium tracking-[0.16em] text-primary uppercase">Inspect SQL</p>
           <p className="truncate font-mono text-[10px] text-muted-foreground">
             {cells.length === 1 ? cells[0] : `${cells.length} hexes`}
           </p>

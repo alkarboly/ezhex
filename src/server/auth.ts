@@ -138,7 +138,7 @@ async function deleteAccount(body: unknown, cookies: Record<string, string>): Pr
   }
 }
 
-async function resolveUser(cookies: Record<string, string>): Promise<{ user: AuthUser | null; cookies?: string[] }> {
+export async function resolveUser(cookies: Record<string, string>): Promise<{ user: AuthUser | null; cookies?: string[] }> {
   const client = requireAuthClient()
   if (!client) return { user: null }
   const access = cookies[ACCESS_COOKIE]

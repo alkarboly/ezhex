@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, and `supabase/migrations/20261027_auth.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table; you do not pick a theme. Settings creates and deletes accounts. The map does not require a login.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, `supabase/migrations/20261027_auth.sql`, and `supabase/migrations/20261027_query_workflows.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table as SQL; you do not pick a theme. Settings creates and deletes accounts. Saving a workflow needs a sign-in when Supabase is configured. The map does not require a login.
 
 ```bash
 npm run build
@@ -49,6 +49,10 @@ The server includes segmented-ingestion planning and job routes:
 - `POST /api/auth/signin`
 - `POST /api/auth/signout`
 - `POST /api/auth/delete`
+- `GET /api/query-workflows`
+- `POST /api/query-workflows`
+- `GET /api/query-workflows/:id`
+- `DELETE /api/query-workflows/:id`
 - `GET /api/workflow-ingestion/limits`
 - `POST /api/workflow-ingestion/plan`
 - `POST /api/workflow-ingestion/jobs`
@@ -115,13 +119,15 @@ render deploys create SERVICE_ID --wait --confirm
 - Release snapshots stay as metadata (`GET /api/releases`). Process keeps older cuts. Query with `release_version` for a historical slice
 - `/licenses` credits OpenStreetMap, Overture, Foursquare, NAD, OpenFreeMap, and Esri
 - Optional Supabase accounts in Settings: create, sign in, sign out, delete account. The public map does not require a login
-- Hard caps on hex count, bbox area, and row counts
+- Inspect is SQL: generated from hexes and filters, editable custom SELECT, copy SQL, download CSV
+- Query workflows (5 per account) save that inspect SQL and hex set. Selecting one previews every hex on the map, including nationwide selections
+- Hard caps on hex count, bbox area, and row counts for ingest. Query workflows allow up to 300 disconnected hexes
 
 Click a ready hex to pin a fitted table. Click another ready hex to add it to the same query. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. Taxonomy `primary < category` splits into main category and category. Snapshot stays the release id; snapshot date is the date prefix. Filters cover category, main category, snapshot date, status, building class, confidence, underground, phone, email, socials, and official id. The table also includes sources, attribution, contact fields, building extras, and address extras. Building name, subtype, height, and floors show when Overture has them — names and heights are often empty. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 
-Account-owned workflows and persisting job records to Supabase. Workflow tables exist as an owner-RLS scaffold; the product shape is still open. See `docs/architecture.md`.
+Persisting ingest job records to Supabase. The older `workflows*` tables stay the connected ingest scaffold. Query workflows live in `query_workflows`. See `docs/architecture.md`.
 
 ## Docs
 

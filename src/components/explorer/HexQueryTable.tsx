@@ -1,15 +1,24 @@
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, LoaderCircle } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Copy, Download, LoaderCircle, Workflow } from 'lucide-react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuth } from '../../hooks/useAuth'
 import { useThemeQuery } from '../../hooks/useCompiledQuery'
+import { downloadCsv, featureRowsToCsv } from '../../lib/csv'
 import {
+  defaultInspectFilters,
   filterFeatureRows,
   mergeFeatureRows,
   observedValues,
   type FeatureRow,
+  type InspectFilters,
   type PresenceFilter,
 } from '../../lib/feature-rows'
 import { formatCount } from '../../lib/format'
+import { compileInspectSql, validateInspectSql } from '../../lib/inspect-sql'
+import { MAX_QUERY_WORKFLOWS } from '../../lib/limits'
 import { cn } from '../../lib/utils'
+import { createQueryWorkflow, listQueryWorkflows } from '../../services/query-workflows'
 import { useExplorer } from '../../store/explorer-store'
 import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
 import { nativeSelectClass } from '../ui/input'
@@ -72,6 +81,9 @@ const compactSelectClass = 'h-6 rounded border border-white/[0.08] bg-black/30 p
 
 export function HexQueryTable() {
   const inspectOpen = useExplorer((state) => state.inspectOpen)
+  const selectedCells = useExplorer((state) => state.selectedCells)
+  const inspectReplay = useExplorer((state) => state.inspectReplay)
+  const previewWorkflow = useExplorer((state) => state.previewWorkflow)
   const places = useThemeQuery('places', inspectOpen)
   const buildings = useThemeQuery('buildings', inspectOpen)
   const addresses = useThemeQuery('addresses', inspectOpen)
@@ -80,8 +92,8 @@ export function HexQueryTable() {
   const limit = useExplorer((state) => state.limit)
   const focusCell = useExplorer((state) => state.focusCell)
   const focusH3 = useExplorer((state) => state.focus?.h3 ?? null)
-  const [kind, setKind] = useState<DatasetId | 'all'>('all')
-  const [search, setSearch] = useState('')
+  const [kind, setKind] = useState<DatasetId | 'all'>(defaultInspectFilters.kind)
+  const [search, setSearch] = useState(defaultInspectFilters.search)
   const [categories, setCategories] = useState<string[]>([])
   const [mainCategories, setMainCategories] = useState<string[]>([])
   const [snapshotDates, setSnapshotDates] = useState<string[]>([])
@@ -96,6 +108,23 @@ export function HexQueryTable() {
   const [hasOfficialId, setHasOfficialId] = useState<PresenceFilter>('any')
   const [sortField, setSortField] = useState<ColumnField>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [customSql, setCustomSql] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [workflowName, setWorkflowName] = useState('')
+  const [createError, setCreateError] = useState<string | null>(null)
+  const client = useQueryClient()
+  const create = useMutation({
+    mutationFn: createQueryWorkflow,
+    onSuccess: (workflow) => {
+      setCreateOpen(false)
+      setCreateError(null)
+      setWorkflowName('')
+      void client.invalidateQueries({ queryKey: ['query-workflows'] })
+      previewWorkflow(workflow)
+    },
+    onError: (next) => setCreateError(next instanceof Error ? next.message : 'Could not save the workflow.'),
+  })
 
   const merged = useMemo(
     () =>
@@ -160,6 +189,65 @@ export function HexQueryTable() {
   const loading = (places.results.isLoading || buildings.results.isLoading || addresses.results.isLoading) && merged.length === 0
   const error = places.results.error ?? buildings.results.error ?? addresses.results.error
   const invalid = [...places.compiled.errors, ...buildings.compiled.errors, ...addresses.compiled.errors]
+  const inspectFilters = useMemo<InspectFilters>(
+    () => ({
+      kind,
+      search,
+      categories,
+      mainCategories,
+      snapshotDates,
+      statuses,
+      buildingClasses,
+      confidenceMin,
+      confidenceMax,
+      underground,
+      hasPhone,
+      hasEmail,
+      hasSocials,
+      hasOfficialId,
+    }),
+    [
+      kind,
+      search,
+      categories,
+      mainCategories,
+      snapshotDates,
+      statuses,
+      buildingClasses,
+      confidenceMin,
+      confidenceMax,
+      underground,
+      hasPhone,
+      hasEmail,
+      hasSocials,
+      hasOfficialId,
+    ],
+  )
+  const generatedSql = useMemo(() => compileInspectSql(selectedCells, inspectFilters), [inspectFilters, selectedCells])
+  const sql = customSql ?? generatedSql
+  const sqlError = customSql ? validateInspectSql(customSql) : null
+
+  useEffect(() => {
+    if (!inspectReplay) return
+    applyInspectFilters(inspectReplay.filters, {
+      setKind,
+      setSearch,
+      setCategories,
+      setMainCategories,
+      setSnapshotDates,
+      setStatuses,
+      setBuildingClasses,
+      setConfidenceMin,
+      setConfidenceMax,
+      setUnderground,
+      setHasPhone,
+      setHasEmail,
+      setHasSocials,
+      setHasOfficialId,
+    })
+    setCustomSql(inspectReplay.customSql ? inspectReplay.sql : null)
+    setPage(0)
+  }, [inspectReplay, setPage])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="hex-query-table">
@@ -240,6 +328,51 @@ export function HexQueryTable() {
           <PresencePick label="Official id" value={hasOfficialId} onChange={setHasOfficialId} resetPage={() => setPage(0)} />
         </div>
       </div>
+      <SqlWorkbench
+        sql={sql}
+        custom={customSql != null}
+        sqlError={sqlError}
+        copied={copied}
+        createOpen={createOpen}
+        workflowName={workflowName}
+        createError={createError}
+        rowCount={sorted.length}
+        hexCount={selectedCells.length}
+        onSqlChange={(next) => {
+          setCustomSql(next === generatedSql ? null : next)
+        }}
+        onReset={() => setCustomSql(null)}
+        onCopy={() => {
+          void navigator.clipboard.writeText(sql).then(() => {
+            setCopied(true)
+            window.setTimeout(() => setCopied(false), 1400)
+          })
+        }}
+        onDownload={() => {
+          const stamp = new Date().toISOString().slice(0, 10)
+          downloadCsv(`worldpulse-inspect-${stamp}.csv`, featureRowsToCsv(sorted))
+        }}
+        onToggleCreate={() => {
+          setCreateOpen((open) => !open)
+          setCreateError(null)
+        }}
+        onNameChange={setWorkflowName}
+        onCreate={() => {
+          setCreateError(null)
+          if (sqlError) {
+            setCreateError(sqlError)
+            return
+          }
+          create.mutate({
+            name: workflowName.trim() || defaultWorkflowName(selectedCells.length),
+            sql,
+            custom_sql: customSql != null,
+            h3_cells: selectedCells,
+            filters: inspectFilters,
+          })
+        }}
+        creating={create.isPending}
+      />
       {invalid[0] && <p className="text-[11px] text-destructive">{invalid[0]}</p>}
       {error && <p className="text-[11px] text-destructive">{error.message}</p>}
       {loading && <p className="text-[11px] text-muted-foreground">Loading features…</p>}
@@ -323,6 +456,192 @@ export function HexQueryTable() {
       </div>
     </div>
   )
+}
+
+function SqlWorkbench({
+  sql,
+  custom,
+  sqlError,
+  copied,
+  createOpen,
+  workflowName,
+  createError,
+  rowCount,
+  hexCount,
+  creating,
+  onSqlChange,
+  onReset,
+  onCopy,
+  onDownload,
+  onToggleCreate,
+  onNameChange,
+  onCreate,
+}: {
+  sql: string
+  custom: boolean
+  sqlError: string | null
+  copied: boolean
+  createOpen: boolean
+  workflowName: string
+  createError: string | null
+  rowCount: number
+  hexCount: number
+  creating: boolean
+  onSqlChange: (next: string) => void
+  onReset: () => void
+  onCopy: () => void
+  onDownload: () => void
+  onToggleCreate: () => void
+  onNameChange: (next: string) => void
+  onCreate: () => void
+}) {
+  const auth = useAuth()
+  const user = auth.session.data?.user ?? null
+  const configured = auth.session.data?.configured ?? false
+  const { data: saved } = useQuery({
+    queryKey: ['query-workflows'],
+    queryFn: listQueryWorkflows,
+    enabled: createOpen,
+  })
+
+  return (
+    <section className="shrink-0 overflow-hidden rounded-xl border border-primary/20 bg-[linear-gradient(180deg,rgba(46,230,166,0.08),rgba(8,12,18,0.55))]">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-white/[0.06] px-2.5 py-1.5">
+        <span className="font-mono text-[10px] tracking-[0.18em] text-primary uppercase">SQL</span>
+        <span className="rounded-full bg-black/30 px-1.5 py-0.5 font-mono text-[9px] text-muted-foreground">
+          {custom ? 'custom' : 'generated'}
+        </span>
+        {custom && (
+          <button type="button" onClick={onReset} className="text-[10px] text-primary hover:underline">
+            Reset
+          </button>
+        )}
+        <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">{formatCount(rowCount)} rows</span>
+      </div>
+      <textarea
+        data-testid="inspect-sql"
+        spellCheck={false}
+        value={sql}
+        onChange={(event) => onSqlChange(event.target.value)}
+        className="min-h-28 w-full resize-y bg-[#05080c] px-3 py-2 font-mono text-[11px] leading-5 text-[#d7fff2] placeholder:text-muted-foreground/50 focus-visible:outline-none"
+      />
+      {sqlError && <p className="px-2.5 pb-1 text-[10px] text-destructive">{sqlError}</p>}
+      <div className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
+        <SqlAction onClick={onCopy}>
+          <Copy className="size-3" />
+          {copied ? 'Copied' : 'Copy SQL'}
+        </SqlAction>
+        <SqlAction onClick={onDownload}>
+          <Download className="size-3" />
+          Download CSV
+        </SqlAction>
+        <SqlAction primary onClick={onToggleCreate}>
+          <Workflow className="size-3" />
+          Create a workflow
+        </SqlAction>
+      </div>
+      {createOpen && (
+        <div className="grid gap-2 border-t border-white/[0.06] bg-black/25 px-2.5 py-2.5">
+          {configured && !user ? (
+            <p className="text-[11px] text-muted-foreground">
+              <Link to="/settings" className="text-primary hover:underline">
+                Sign in
+              </Link>{' '}
+              to save up to {MAX_QUERY_WORKFLOWS} workflows. Hexes can sit anywhere on the map.
+            </p>
+          ) : (
+            <>
+              <p className="text-[10px] text-muted-foreground">
+                Saves this SQL and every selected hex. Preview later from Workflows.                 {MAX_QUERY_WORKFLOWS} max
+                {typeof saved?.remaining === 'number' ? ` · ${saved.remaining} left` : ''}.
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input
+                  value={workflowName}
+                  onChange={(event) => onNameChange(event.target.value)}
+                  placeholder={defaultWorkflowName(hexCount)}
+                  className="h-7 min-w-40 flex-1 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={creating}
+                  onClick={onCreate}
+                  className="h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+                >
+                  {creating ? 'Saving…' : 'Save workflow'}
+                </button>
+              </div>
+            </>
+          )}
+          {createError && <p className="text-[11px] text-destructive">{createError}</p>}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function SqlAction({
+  children,
+  onClick,
+  primary,
+}: {
+  children: ReactNode
+  onClick: () => void
+  primary?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[10px] font-medium',
+        primary
+          ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+          : 'bg-white/[0.06] text-foreground/90 hover:bg-primary/15 hover:text-primary',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function defaultWorkflowName(hexCount: number) {
+  return `Inspect · ${hexCount} hexes`
+}
+
+function applyInspectFilters(
+  filters: InspectFilters,
+  setters: {
+    setKind: (next: DatasetId | 'all') => void
+    setSearch: (next: string) => void
+    setCategories: (next: string[]) => void
+    setMainCategories: (next: string[]) => void
+    setSnapshotDates: (next: string[]) => void
+    setStatuses: (next: string[]) => void
+    setBuildingClasses: (next: string[]) => void
+    setConfidenceMin: (next: number | null) => void
+    setConfidenceMax: (next: number | null) => void
+    setUnderground: (next: PresenceFilter) => void
+    setHasPhone: (next: PresenceFilter) => void
+    setHasEmail: (next: PresenceFilter) => void
+    setHasSocials: (next: PresenceFilter) => void
+    setHasOfficialId: (next: PresenceFilter) => void
+  },
+) {
+  setters.setKind(filters.kind)
+  setters.setSearch(filters.search)
+  setters.setCategories([...filters.categories])
+  setters.setMainCategories([...filters.mainCategories])
+  setters.setSnapshotDates([...filters.snapshotDates])
+  setters.setStatuses([...filters.statuses])
+  setters.setBuildingClasses([...filters.buildingClasses])
+  setters.setConfidenceMin(filters.confidenceMin)
+  setters.setConfidenceMax(filters.confidenceMax)
+  setters.setUnderground(filters.underground)
+  setters.setHasPhone(filters.hasPhone)
+  setters.setHasEmail(filters.hasEmail)
+  setters.setHasSocials(filters.hasSocials)
+  setters.setHasOfficialId(filters.hasOfficialId)
 }
 
 function MultiPick({

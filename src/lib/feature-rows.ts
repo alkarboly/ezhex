@@ -219,6 +219,23 @@ export type InspectFilters = {
   hasOfficialId: PresenceFilter
 }
 
+export const defaultInspectFilters: InspectFilters = {
+  kind: 'all',
+  search: '',
+  categories: [],
+  mainCategories: [],
+  snapshotDates: [],
+  statuses: [],
+  buildingClasses: [],
+  confidenceMin: null,
+  confidenceMax: null,
+  underground: 'any',
+  hasPhone: 'any',
+  hasEmail: 'any',
+  hasSocials: 'any',
+  hasOfficialId: 'any',
+}
+
 export function filterFeatureRows(rows: readonly FeatureRow[], filters: InspectFilters): FeatureRow[] {
   const query = filters.search.trim().toLowerCase()
   return rows.filter((row) => {

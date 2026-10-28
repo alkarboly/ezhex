@@ -16,7 +16,7 @@ export function SettingsPage() {
         <header>
           <h1 className="text-xl font-semibold">Settings</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Sign in to own workflows later. The public map stays open. This page never shows a key.
+            Sign in to save up to 5 query workflows. The public map stays open. This page never shows a key.
           </p>
         </header>
         <AccountCard />

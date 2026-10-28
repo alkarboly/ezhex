@@ -19,6 +19,7 @@ import {
   workflowIngestionLimits,
 } from './workflow-ingestion'
 import { routeAuth } from './auth'
+import { routeQueryWorkflows } from './query-workflows'
 
 export type ApiContext = {
   cookies: Record<string, string>
@@ -36,6 +37,9 @@ export async function routeApi(
 ): Promise<ApiResult> {
   const auth = await routeAuth(method, pathname, body, context.cookies)
   if (auth) return auth
+
+  const workflows = await routeQueryWorkflows(method, pathname, body, context.cookies)
+  if (workflows) return workflows
 
   if (method === 'GET' && pathname === '/api/health') {
     return { status: 200, body: { ok: true } }
