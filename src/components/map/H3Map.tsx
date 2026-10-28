@@ -1052,18 +1052,46 @@ function withAppear(opacity: Expression): Expression {
   return ['*', APPEAR, opacity]
 }
 
+/** City zoom uses the opening drop language: glass fill, bright rim, soft bloom. */
+function zoomPaint(near: Expression | number, city: Expression | number): Expression {
+  return ['interpolate', ['linear'], ['zoom'], 6.8, near, 12.4, city]
+}
+
 function fillOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return withAppear(['case', EMPTY, 0, HOVER, 0.78, SELECTED, 0.62, FOCUSED, 0.55, 0.5])
+  const plate: Expression = ['case', EMPTY, 0, HOVER, 0.34, SELECTED, 0.26, FOCUSED, 0.24, 0.22]
+  return zoomPaint(withAppear(plate), withAppear(['case', EMPTY, 0, HOVER, 0.3, SELECTED, 0.22, FOCUSED, 0.2, 0.15]))
 }
 
 function lineOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
-  return withAppear(['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, mode === 'grid' ? 0.22 : ['*', LENS, 0.4], 0.55])
+  const empty: Expression | number = mode === 'grid' ? 0.16 : (['*', LENS, 0.22] as Expression)
+  const rim: Expression = ['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, empty, 0.78]
+  return zoomPaint(withAppear(rim), withAppear(['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, empty, 0.92]))
 }
 
 function glowOpacity(): Expression {
-  return withAppear(['case', HOVER, 0.55, FOCUSED, 0.6, SELECTED, 0.32, 0])
+  const bloom: Expression = ['case', EMPTY, 0, HOVER, 0.48, FOCUSED, 0.55, SELECTED, 0.38, 0.16]
+  return zoomPaint(withAppear(bloom), withAppear(['case', EMPTY, 0, HOVER, 0.5, FOCUSED, 0.58, SELECTED, 0.42, 0.36]))
+}
+
+function lineWidth(): Expression {
+  return zoomPaint(
+    ['case', HOVER, 1.5, FOCUSED, 1.7, SELECTED, 1.4, EMPTY, 0.45, 0.85],
+    ['case', HOVER, 2.2, FOCUSED, 2.4, SELECTED, 2, EMPTY, 0.75, 1.6],
+  )
+}
+
+function lineBlur(): Expression {
+  return zoomPaint(['case', EMPTY, 0, 0.12], ['case', EMPTY, 0.3, 0.65])
+}
+
+function glowWidth(): Expression {
+  return zoomPaint(['case', HOVER, 6, FOCUSED, 7, SELECTED, 6, 4.5], ['case', HOVER, 14, FOCUSED, 16, SELECTED, 13, 12])
+}
+
+function glowBlur(): Expression {
+  return zoomPaint(3.4, 11)
 }
 
 /** Fills go under roads and buildings, so streets cut through the color. */
@@ -1134,7 +1162,7 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         id: 'h3-glow',
         type: 'line',
         source: 'h3',
-        layout: { visibility, 'line-join': 'round' },
+        layout: { visibility, 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': [
             'case',
@@ -1142,10 +1170,10 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
             '#ffffff',
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
-            '#2ee6a6',
+            '#7ef0dc',
           ],
-          'line-width': 7,
-          'line-blur': 6,
+          'line-width': glowWidth(),
+          'line-blur': glowBlur(),
           'line-opacity': glowOpacity(),
           'line-opacity-transition': { duration: 0, delay: 0 },
         },
@@ -1159,7 +1187,7 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         id: 'h3-line',
         type: 'line',
         source: 'h3',
-        layout: { visibility, 'line-join': 'round' },
+        layout: { visibility, 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': [
             'case',
@@ -1170,12 +1198,13 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
             SELECTED,
             '#ffffff',
             ['==', ['get', 'snapshot'], 'current'],
-            '#2ee6a6',
+            '#7ef0dc',
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
             '#6d7d8f',
           ],
-          'line-width': ['case', HOVER, 2, FOCUSED, 2.4, SELECTED, 1.8, EMPTY, 0.55, 1.15],
+          'line-width': lineWidth(),
+          'line-blur': lineBlur(),
           'line-opacity': lineOpacity(mode),
           'line-opacity-transition': { duration: 0, delay: 0 },
         },
@@ -1189,23 +1218,38 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
         id: 'h3-out-line',
         type: 'line',
         source: 'h3-out',
-        layout: { visibility, 'line-join': 'round' },
+        layout: { visibility, 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': [
             'case',
             ['==', ['get', 'snapshot'], 'current'],
-            '#2ee6a6',
+            '#7ef0dc',
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
             '#6d7d8f',
           ],
-          'line-width': ['case', ['==', ['get', 'snapshot'], 'none'], 0.55, 1.15],
+          'line-width': lineWidth(),
+          'line-blur': lineBlur(),
           'line-opacity': 0,
           'line-opacity-transition': { duration: 0, delay: 0 },
         },
       },
       beforeId,
     )
+  }
+  setPaint(map, 'h3-fill', 'fill-emissive-strength', 0.7)
+  setPaint(map, 'h3-out-fill', 'fill-emissive-strength', 0.55)
+  setPaint(map, 'h3-line', 'line-emissive-strength', 0.85)
+  setPaint(map, 'h3-out-line', 'line-emissive-strength', 0.85)
+  setPaint(map, 'h3-glow', 'line-emissive-strength', 0.9)
+}
+
+function setPaint(map: MapLibreMap, layer: string, property: string, value: number) {
+  if (!map.getLayer(layer)) return
+  try {
+    ;(map.setPaintProperty as (id: string, name: string, next: number) => void)(layer, property, value)
+  } catch {
+    /* MapLibre style types omit globe emissive paints. */
   }
 }
 
@@ -1341,10 +1385,10 @@ function applyHexMode(map: MapLibreMap, mode: HexMode) {
 
 function paintOutgoing(map: MapLibreMap, fade: number) {
   if (map.getLayer('h3-out-fill')) {
-    map.setPaintProperty('h3-out-fill', 'fill-opacity', ['*', ['case', EMPTY, 0, 0.5], fade])
+    map.setPaintProperty('h3-out-fill', 'fill-opacity', ['*', ['case', EMPTY, 0, 0.16], fade])
   }
   if (map.getLayer('h3-out-line')) {
-    map.setPaintProperty('h3-out-line', 'line-opacity', ['*', ['case', EMPTY, 0.18, 0.45], fade])
+    map.setPaintProperty('h3-out-line', 'line-opacity', ['*', ['case', EMPTY, 0.12, 0.72], fade])
   }
 }
 

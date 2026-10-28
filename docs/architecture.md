@@ -64,7 +64,7 @@ The projection is a globe. On each style load the map sets that projection and a
 
 Zoom buttons ease 0.55 steps over 1180ms with an ease-in-out curve, centered on the unobstructed map area. Wheel zoom is slower so the globe does not jump. The grid updates during the move, and resolution bands have 0.35 zoom of hysteresis so they do not flicker. Fit and reset use the same curve. `prefers-reduced-motion` jumps instead.
 
-Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Green (`#2ee6a6`) is the current Overture release. Yellow (`#f5c451`) is an older stored release. Those populated fills stay visible without hover. Outlines match that fill; hover and selection use white.
+Cell fill is snapshot freshness, not record count. Empty hexes have no fill. Green (`#2ee6a6`) is the current Overture release. Yellow (`#f5c451`) is an older stored release. Those populated fills stay visible without hover. City zoom matches the opening drop: glass fill, a mint rim (`#7ef0dc` for current), and a soft bloom that grows as you get closer. Hover and selection use white.
 
 ### Cell display
 
