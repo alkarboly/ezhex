@@ -20,8 +20,8 @@ export function DatasetsPage() {
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Process a hex to load places, buildings, and addresses from the public Overture release. All three themes
             are stored together, with geometry, Overture sources, and computed building or address links. Inspect shows
-            those fields plus snapshot and attribution. It does not ask you to pick a theme. Each processed release is
-            kept as a snapshot so later queries can pin a historical cut.{' '}
+            those fields plus snapshot, snapshot date, split taxonomy, and attribution. It does not ask you to pick a
+            theme. Each processed release is kept as a snapshot so later queries can pin a historical cut.{' '}
             <Link to="/licenses" className="text-primary underline-offset-2 hover:underline">
               Licenses
             </Link>

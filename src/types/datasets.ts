@@ -180,6 +180,15 @@ export const FIELD_CATALOG: Record<DatasetId, readonly FieldDefinition[]> = {
       source: 'taxonomy.hierarchy',
     },
     {
+      field: 'main_category',
+      label: 'Main category',
+      valueType: 'string',
+      operators: [],
+      sortable: true,
+      showInTable: true,
+      source: 'Characters left of the first < in taxonomy.primary',
+    },
+    {
       field: 'place_addresses',
       label: 'Nested addresses',
       valueType: 'string',
@@ -196,6 +205,15 @@ export const FIELD_CATALOG: Record<DatasetId, readonly FieldDefinition[]> = {
       sortable: true,
       showInTable: true,
       source: 'release_version',
+    },
+    {
+      field: 'snapshot_date',
+      label: 'Snapshot date',
+      valueType: 'string',
+      operators: [],
+      sortable: true,
+      showInTable: true,
+      source: 'YYYY-MM-DD prefix of release_version',
     },
     {
       field: 'sources',
@@ -401,6 +419,15 @@ export const FIELD_CATALOG: Record<DatasetId, readonly FieldDefinition[]> = {
       source: 'release_version',
     },
     {
+      field: 'snapshot_date',
+      label: 'Snapshot date',
+      valueType: 'string',
+      operators: [],
+      sortable: true,
+      showInTable: true,
+      source: 'YYYY-MM-DD prefix of release_version',
+    },
+    {
       field: 'sources',
       label: 'Sources',
       valueType: 'string',
@@ -527,6 +554,15 @@ export const FIELD_CATALOG: Record<DatasetId, readonly FieldDefinition[]> = {
       sortable: true,
       showInTable: true,
       source: 'release_version',
+    },
+    {
+      field: 'snapshot_date',
+      label: 'Snapshot date',
+      valueType: 'string',
+      operators: [],
+      sortable: true,
+      showInTable: true,
+      source: 'YYYY-MM-DD prefix of release_version',
     },
     {
       field: 'sources',

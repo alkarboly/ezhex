@@ -1,7 +1,13 @@
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, LoaderCircle } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useThemeQuery } from '../../hooks/useCompiledQuery'
-import { filterFeatureRows, mergeFeatureRows, observedValues, type FeatureRow } from '../../lib/feature-rows'
+import {
+  filterFeatureRows,
+  mergeFeatureRows,
+  observedValues,
+  type FeatureRow,
+  type PresenceFilter,
+} from '../../lib/feature-rows'
 import { formatCount } from '../../lib/format'
 import { cn } from '../../lib/utils'
 import { useExplorer } from '../../store/explorer-store'
@@ -12,8 +18,10 @@ import { PageButton } from '../results/ResultsPanel'
 const COLUMNS = [
   { field: 'kind', label: 'Theme', numeric: false },
   { field: 'snapshot', label: 'Snapshot', numeric: false },
+  { field: 'snapshot_date', label: 'Snapshot date', numeric: false },
   { field: 'name', label: 'Place', numeric: false },
   { field: 'category', label: 'Category', numeric: false },
+  { field: 'main_category', label: 'Main category', numeric: false },
   { field: 'taxonomy', label: 'Taxonomy', numeric: false },
   { field: 'operating_status', label: 'Status', numeric: false },
   { field: 'confidence', label: 'Confidence', numeric: true },
@@ -45,6 +53,7 @@ const COLUMNS = [
   { field: 'socials', label: 'Socials', numeric: false },
   { field: 'emails', label: 'Emails', numeric: false },
   { field: 'brand', label: 'Brand', numeric: false },
+  { field: 'official_id', label: 'Official id', numeric: false },
   { field: 'brand_wikidata', label: 'Brand Wikidata', numeric: false },
   { field: 'place_addresses', label: 'Nested addresses', numeric: false },
   { field: 'sources', label: 'Sources', numeric: false },
@@ -73,8 +82,18 @@ export function HexQueryTable() {
   const focusH3 = useExplorer((state) => state.focus?.h3 ?? null)
   const [kind, setKind] = useState<DatasetId | 'all'>('all')
   const [search, setSearch] = useState('')
-  const [category, setCategory] = useState('')
-  const [building, setBuilding] = useState('')
+  const [categories, setCategories] = useState<string[]>([])
+  const [mainCategories, setMainCategories] = useState<string[]>([])
+  const [snapshotDates, setSnapshotDates] = useState<string[]>([])
+  const [statuses, setStatuses] = useState<string[]>([])
+  const [buildingClasses, setBuildingClasses] = useState<string[]>([])
+  const [confidenceMin, setConfidenceMin] = useState<number | null>(null)
+  const [confidenceMax, setConfidenceMax] = useState<number | null>(null)
+  const [underground, setUnderground] = useState<PresenceFilter>('any')
+  const [hasPhone, setHasPhone] = useState<PresenceFilter>('any')
+  const [hasEmail, setHasEmail] = useState<PresenceFilter>('any')
+  const [hasSocials, setHasSocials] = useState<PresenceFilter>('any')
+  const [hasOfficialId, setHasOfficialId] = useState<PresenceFilter>('any')
   const [sortField, setSortField] = useState<ColumnField>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
 
@@ -87,11 +106,46 @@ export function HexQueryTable() {
       ),
     [places.results.data, buildings.results.data, addresses.results.data],
   )
-  const categories = useMemo(() => observedValues(merged, 'category'), [merged])
-  const buildingsSeen = useMemo(() => observedValues(merged, 'building'), [merged])
+  const categoryOptions = useMemo(() => observedValues(merged, 'category'), [merged])
+  const mainCategoryOptions = useMemo(() => observedValues(merged, 'main_category'), [merged])
+  const snapshotDateOptions = useMemo(() => observedValues(merged, 'snapshot_date'), [merged])
+  const statusOptions = useMemo(() => observedValues(merged, 'operating_status'), [merged])
+  const classOptions = useMemo(() => observedValues(merged, 'building_class'), [merged])
   const filtered = useMemo(
-    () => filterFeatureRows(merged, kind, search, category || undefined, building || undefined),
-    [merged, kind, search, category, building],
+    () =>
+      filterFeatureRows(merged, {
+        kind,
+        search,
+        categories,
+        mainCategories,
+        snapshotDates,
+        statuses,
+        buildingClasses,
+        confidenceMin,
+        confidenceMax,
+        underground,
+        hasPhone,
+        hasEmail,
+        hasSocials,
+        hasOfficialId,
+      }),
+    [
+      merged,
+      kind,
+      search,
+      categories,
+      mainCategories,
+      snapshotDates,
+      statuses,
+      buildingClasses,
+      confidenceMin,
+      confidenceMax,
+      underground,
+      hasPhone,
+      hasEmail,
+      hasSocials,
+      hasOfficialId,
+    ],
   )
   const sorted = useMemo(() => {
     const next = [...filtered]
@@ -109,66 +163,82 @@ export function HexQueryTable() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="hex-query-table">
-      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-        <select
-          aria-label="Row source"
-          className={cn(nativeSelectClass, compactSelectClass, 'w-32')}
-          value={kind}
-          onChange={(event) => {
-            setKind(event.target.value as DatasetId | 'all')
-            setPage(0)
-          }}
-        >
-          <option value="all">All rows</option>
-          {DATASET_IDS.map((id) => (
-            <option key={id} value={id}>
-              {DATASET_META[id].title}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Observed category"
-          className={cn(nativeSelectClass, compactSelectClass, 'min-w-36')}
-          value={category}
-          onChange={(event) => {
-            setCategory(event.target.value)
-            setPage(0)
-          }}
-        >
-          <option value="">Any observed category</option>
-          {categories.map((value) => (
-            <option key={value} value={value}>
-              {value.replaceAll('_', ' ')}
-            </option>
-          ))}
-        </select>
-        <select
-          aria-label="Observed building"
-          className={cn(nativeSelectClass, compactSelectClass, 'min-w-36')}
-          value={building}
-          onChange={(event) => {
-            setBuilding(event.target.value)
-            setPage(0)
-          }}
-        >
-          <option value="">Any observed building</option>
-          {buildingsSeen.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <input
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value)
-            setPage(0)
-          }}
-          placeholder="Search place, address, snapshot, sources"
-          className="h-6 min-w-36 flex-1 rounded border border-white/[0.08] bg-black/30 px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
-        />
-        <span className="text-[11px] tabular-nums text-muted-foreground">{formatCount(filtered.length)} rows</span>
-        {fetching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
+      <div className="flex shrink-0 flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <select
+            aria-label="Row source"
+            className={cn(nativeSelectClass, compactSelectClass, 'w-28')}
+            value={kind}
+            onChange={(event) => {
+              setKind(event.target.value as DatasetId | 'all')
+              setPage(0)
+            }}
+          >
+            <option value="all">All rows</option>
+            {DATASET_IDS.map((id) => (
+              <option key={id} value={id}>
+                {DATASET_META[id].title}
+              </option>
+            ))}
+          </select>
+          <MultiPick label="Category" options={categoryOptions} value={categories} onChange={setCategories} resetPage={() => setPage(0)} />
+          <MultiPick
+            label="Main category"
+            options={mainCategoryOptions}
+            value={mainCategories}
+            onChange={setMainCategories}
+            resetPage={() => setPage(0)}
+          />
+          <MultiPick
+            label="Snapshot date"
+            options={snapshotDateOptions}
+            value={snapshotDates}
+            onChange={setSnapshotDates}
+            resetPage={() => setPage(0)}
+          />
+          <MultiPick label="Status" options={statusOptions} value={statuses} onChange={setStatuses} resetPage={() => setPage(0)} />
+          <MultiPick
+            label="Building class"
+            options={classOptions}
+            value={buildingClasses}
+            onChange={setBuildingClasses}
+            resetPage={() => setPage(0)}
+          />
+          <input
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setPage(0)
+            }}
+            placeholder="Search place, address, snapshot, sources"
+            className="h-6 min-w-28 flex-1 rounded border border-white/[0.08] bg-black/30 px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
+          />
+          <span className="text-[11px] tabular-nums text-muted-foreground">{formatCount(filtered.length)} rows</span>
+          {fetching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ConfidenceSlider
+            label="Confidence ≥"
+            value={confidenceMin}
+            onChange={(next) => {
+              setConfidenceMin(next)
+              setPage(0)
+            }}
+          />
+          <ConfidenceSlider
+            label="Confidence ≤"
+            value={confidenceMax}
+            onChange={(next) => {
+              setConfidenceMax(next)
+              setPage(0)
+            }}
+          />
+          <PresencePick label="Underground" value={underground} onChange={setUnderground} resetPage={() => setPage(0)} />
+          <PresencePick label="Phone" value={hasPhone} onChange={setHasPhone} resetPage={() => setPage(0)} />
+          <PresencePick label="Email" value={hasEmail} onChange={setHasEmail} resetPage={() => setPage(0)} />
+          <PresencePick label="Socials" value={hasSocials} onChange={setHasSocials} resetPage={() => setPage(0)} />
+          <PresencePick label="Official id" value={hasOfficialId} onChange={setHasOfficialId} resetPage={() => setPage(0)} />
+        </div>
       </div>
       {invalid[0] && <p className="text-[11px] text-destructive">{invalid[0]}</p>}
       {error && <p className="text-[11px] text-destructive">{error.message}</p>}
@@ -252,6 +322,107 @@ export function HexQueryTable() {
         </PageButton>
       </div>
     </div>
+  )
+}
+
+function MultiPick({
+  label,
+  options,
+  value,
+  onChange,
+  resetPage,
+}: {
+  label: string
+  options: readonly string[]
+  value: readonly string[]
+  onChange: (next: string[]) => void
+  resetPage: () => void
+}) {
+  return (
+    <details className="relative">
+      <summary className="flex h-6 cursor-pointer list-none items-center rounded border border-white/[0.08] bg-black/30 px-2 text-[10px] text-foreground">
+        {label}
+        {value.length > 0 ? ` · ${value.length}` : ''}
+      </summary>
+      <div className="absolute top-7 left-0 z-20 max-h-48 min-w-40 overflow-auto rounded-lg border border-white/[0.08] bg-[#0a1017] p-1.5 shadow-xl">
+        {options.length === 0 && <p className="px-1.5 py-1 text-[10px] text-muted-foreground">None in these hexes</p>}
+        {options.map((option) => {
+          const checked = value.includes(option)
+          return (
+            <label key={option} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[10px] hover:bg-white/[0.04]">
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() => {
+                  onChange(checked ? value.filter((entry) => entry !== option) : [...value, option])
+                  resetPage()
+                }}
+              />
+              <span className="truncate">{option.replaceAll('_', ' ')}</span>
+            </label>
+          )
+        })}
+      </div>
+    </details>
+  )
+}
+
+function PresencePick({
+  label,
+  value,
+  onChange,
+  resetPage,
+}: {
+  label: string
+  value: PresenceFilter
+  onChange: (next: PresenceFilter) => void
+  resetPage: () => void
+}) {
+  return (
+    <select
+      aria-label={label}
+      className={cn(nativeSelectClass, compactSelectClass, 'w-32')}
+      value={value}
+      onChange={(event) => {
+        onChange(event.target.value as PresenceFilter)
+        resetPage()
+      }}
+    >
+      <option value="any">Any {label.toLowerCase()}</option>
+      <option value="yes">Has {label.toLowerCase()}</option>
+      <option value="no">No {label.toLowerCase()}</option>
+    </select>
+  )
+}
+
+function ConfidenceSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number | null
+  onChange: (next: number | null) => void
+}) {
+  return (
+    <label className="flex h-6 items-center gap-1 rounded border border-white/[0.08] bg-black/30 px-2 text-[10px] text-muted-foreground">
+      {label}
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value ?? 0}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="w-16 accent-primary"
+      />
+      <span className="w-8 tabular-nums text-foreground">{value == null ? 'any' : value.toFixed(2)}</span>
+      {value != null && (
+        <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => onChange(null)}>
+          ×
+        </button>
+      )}
+    </label>
   )
 }
 

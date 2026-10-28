@@ -1,4 +1,6 @@
 import type { GeoJsonGeometry } from './geojson'
+import { snapshotDate } from './overture-release'
+import { parseTaxonomyLabel } from './taxonomy'
 import type { DatasetId } from '../types/datasets'
 import type { ResultRow } from '../types/queries'
 
@@ -8,11 +10,14 @@ export type FeatureRow = {
   id: string
   h3: string
   snapshot: string
+  snapshot_date: string | null
   sources: string | null
   attribution: string | null
   name: string | null
   category: string | null
+  main_category: string | null
   taxonomy: string | null
+  official_id: string | null
   confidence: number | null
   operating_status: string | null
   phones: string | null
@@ -78,11 +83,11 @@ export function mergeFeatureRows(
           id: row.id,
           h3: row.h3,
           snapshot: row.release_version,
+          snapshot_date: snapshotDate(row.release_version),
           sources: nonempty(text(row.values.sources)),
           attribution: nonempty(text(row.values.attribution)),
           name: nonempty(text(row.values['names.primary'])),
-          category: nonempty(text(row.values.basic_category) || text(row.values['taxonomy.primary'])),
-          taxonomy: nonempty(text(row.values['taxonomy.hierarchy']) || text(row.values['taxonomy.primary'])),
+          ...placeCategories(row),
           confidence: numberValue(row.values.confidence),
           operating_status: nonempty(text(row.values.operating_status)),
           phones: nonempty(text(row.values.phones)),
@@ -91,6 +96,7 @@ export function mergeFeatureRows(
           emails: nonempty(text(row.values.emails)),
           brand: nonempty(text(row.values.brand_name)),
           brand_wikidata: nonempty(text(row.values.brand_wikidata)),
+          official_id: nonempty(text(row.values.brand_wikidata)),
           place_addresses: nonempty(text(row.values.place_addresses)),
           extra: nonempty(text(row.values.phones) || text(row.values.brand_name)),
           building_id: row.building_id ?? nonempty(text(row.values.building_id)),
@@ -117,11 +123,14 @@ export function mergeFeatureRows(
           id: row.id,
           h3: row.h3,
           snapshot: row.release_version,
+          snapshot_date: snapshotDate(row.release_version),
           sources: nonempty(text(row.values.sources)),
           attribution: nonempty(text(row.values.attribution)),
           name: null,
           category: null,
+          main_category: null,
           taxonomy: null,
+          official_id: null,
           confidence: null,
           operating_status: null,
           phones: null,
@@ -157,11 +166,14 @@ export function mergeFeatureRows(
           id: row.id,
           h3: row.h3,
           snapshot: row.release_version,
+          snapshot_date: snapshotDate(row.release_version),
           sources: nonempty(text(row.values.sources)),
           attribution: nonempty(text(row.values.attribution)),
           name: null,
           category: nonempty(text(row.values.subtype) || text(row.values.class)),
+          main_category: nonempty(text(row.values.subtype)),
           taxonomy: nonempty(text(row.values.subtype)),
+          official_id: null,
           confidence: null,
           operating_status: null,
           phones: null,
@@ -188,25 +200,51 @@ export function mergeFeatureRows(
   return rows
 }
 
-export function filterFeatureRows(
-  rows: readonly FeatureRow[],
-  kind: DatasetId | 'all',
-  search: string,
-  category?: string,
-  building?: string,
-): FeatureRow[] {
-  const query = search.trim().toLowerCase()
+export type PresenceFilter = 'any' | 'yes' | 'no'
+
+export type InspectFilters = {
+  kind: DatasetId | 'all'
+  search: string
+  categories: readonly string[]
+  mainCategories: readonly string[]
+  snapshotDates: readonly string[]
+  statuses: readonly string[]
+  buildingClasses: readonly string[]
+  confidenceMin: number | null
+  confidenceMax: number | null
+  underground: PresenceFilter
+  hasPhone: PresenceFilter
+  hasEmail: PresenceFilter
+  hasSocials: PresenceFilter
+  hasOfficialId: PresenceFilter
+}
+
+export function filterFeatureRows(rows: readonly FeatureRow[], filters: InspectFilters): FeatureRow[] {
+  const query = filters.search.trim().toLowerCase()
   return rows.filter((row) => {
-    if (kind !== 'all' && row.kind !== kind) return false
-    if (category && row.category !== category) return false
-    if (building && row.building !== building) return false
+    if (filters.kind !== 'all' && row.kind !== filters.kind) return false
+    if (filters.categories.length > 0 && !includes(filters.categories, row.category)) return false
+    if (filters.mainCategories.length > 0 && !includes(filters.mainCategories, row.main_category)) return false
+    if (filters.snapshotDates.length > 0 && !includes(filters.snapshotDates, row.snapshot_date)) return false
+    if (filters.statuses.length > 0 && !includes(filters.statuses, row.operating_status)) return false
+    if (filters.buildingClasses.length > 0 && !includes(filters.buildingClasses, row.building_class)) return false
+    if (filters.confidenceMin != null && (row.confidence == null || row.confidence < filters.confidenceMin)) return false
+    if (filters.confidenceMax != null && (row.confidence == null || row.confidence > filters.confidenceMax)) return false
+    if (!matchesPresence(filters.underground, row.is_underground === 'true')) return false
+    if (!matchesPresence(filters.hasPhone, Boolean(row.phones))) return false
+    if (!matchesPresence(filters.hasEmail, Boolean(row.emails))) return false
+    if (!matchesPresence(filters.hasSocials, Boolean(row.socials))) return false
+    if (!matchesPresence(filters.hasOfficialId, Boolean(row.official_id))) return false
     if (!query) return true
     return searchText(row).includes(query)
   })
 }
 
 /** Distinct non-empty values seen in the loaded rows. Not a preset list. */
-export function observedValues(rows: readonly FeatureRow[], field: 'category' | 'building'): string[] {
+export function observedValues(
+  rows: readonly FeatureRow[],
+  field: 'category' | 'main_category' | 'building' | 'building_class' | 'operating_status' | 'snapshot_date',
+): string[] {
   return sortUnique(rows.map((row) => row[field]))
 }
 
@@ -283,7 +321,10 @@ function searchText(row: FeatureRow): string {
   return [
     row.name,
     row.category,
+    row.main_category,
     row.taxonomy,
+    row.snapshot_date,
+    row.official_id,
     row.address,
     row.building,
     row.extra,
@@ -316,6 +357,25 @@ function sortUnique(values: readonly (string | null | undefined)[]): string[] {
     if (value) next.add(value)
   }
   return [...next].sort((left, right) => left.localeCompare(right))
+}
+
+function placeCategories(row: ResultRow): { category: string | null; main_category: string | null; taxonomy: string | null } {
+  const tax = parseTaxonomyLabel(text(row.values['taxonomy.primary']) || text(row.values['taxonomy.hierarchy']))
+  const basic = nonempty(text(row.values.basic_category))
+  return {
+    taxonomy: tax.raw,
+    main_category: tax.main,
+    category: tax.category || basic,
+  }
+}
+
+function includes(values: readonly string[], value: string | null): boolean {
+  return value != null && values.includes(value)
+}
+
+function matchesPresence(filter: PresenceFilter, present: boolean): boolean {
+  if (filter === 'any') return true
+  return filter === 'yes' ? present : !present
 }
 
 function buildingName(row: ResultRow): string | null {

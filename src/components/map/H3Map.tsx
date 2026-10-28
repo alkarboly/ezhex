@@ -634,6 +634,10 @@ export function H3Map({
       const display = latLngToCell(event.lngLat.lat, event.lngLat.lng, displayResRef.current)
       if (!drawnRef.current.has(cell) && !drawnRef.current.has(display)) return
       const shift = event.originalEvent.shiftKey || touchRef.current
+      if (inspectOpenRef.current) {
+        actionRef.current?.(cell, coverageRef.current?.get(cell)?.status === 'ready' ? 'query' : 'process')
+        return
+      }
       if (!shift && coverageRef.current?.get(cell)?.status === 'ready') {
         actionRef.current?.(cell, 'query')
         return

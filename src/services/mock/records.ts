@@ -1,6 +1,8 @@
 import type { PlaceAddressLabel } from '../../lib/associate'
 import { asGeometry, type GeoJsonGeometry } from '../../lib/geojson'
+import { snapshotDate } from '../../lib/overture-release'
 import { formatAttribution, formatSources, type OvertureSource } from '../../lib/overture-sources'
+import { parseTaxonomyLabel } from '../../lib/taxonomy'
 import type { BuildingSubtype } from '../../types/datasets'
 import type { OperatingStatus } from '../../types/place-presets'
 import type { DatasetId } from '../../types/datasets'
@@ -114,6 +116,8 @@ function readPlace(record: PlaceRecord, field: string): string | number | null {
       return record.brand_wikidata
     case 'taxonomy.hierarchy':
       return record.taxonomy.hierarchy.join(' > ')
+    case 'main_category':
+      return parseTaxonomyLabel(record.taxonomy.primary || record.taxonomy.hierarchy.join(' < ')).main
     case 'place_addresses':
       return formatPlaceAddresses(record.place_addresses)
     case 'building_id':
@@ -122,6 +126,8 @@ function readPlace(record: PlaceRecord, field: string): string | number | null {
       return record.address_id
     case 'release_version':
       return record.release_version
+    case 'snapshot_date':
+      return snapshotDate(record.release_version)
     case 'sources':
       return formatSources(record.sources)
     case 'attribution':
@@ -173,6 +179,8 @@ function readBuilding(record: BuildingRecord, field: string): string | number | 
       return record.address_id
     case 'release_version':
       return record.release_version
+    case 'snapshot_date':
+      return snapshotDate(record.release_version)
     case 'sources':
       return formatSources(record.sources)
     case 'attribution':
@@ -208,6 +216,8 @@ function readAddress(record: AddressRecord, field: string): string | number | nu
       return record.building_id
     case 'release_version':
       return record.release_version
+    case 'snapshot_date':
+      return snapshotDate(record.release_version)
     case 'sources':
       return formatSources(record.sources)
     case 'attribution':
@@ -305,6 +315,7 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
         basic_category: readField(dataset, place, 'basic_category'),
         'taxonomy.primary': readField(dataset, place, 'taxonomy.primary'),
         'taxonomy.hierarchy': readField(dataset, place, 'taxonomy.hierarchy'),
+        main_category: readField(dataset, place, 'main_category'),
         confidence: readField(dataset, place, 'confidence'),
         operating_status: readField(dataset, place, 'operating_status'),
         phones: readField(dataset, place, 'phones'),
@@ -317,6 +328,7 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
         building_id: place.building_id,
         address_id: place.address_id,
         release_version: place.release_version,
+        snapshot_date: readField(dataset, place, 'snapshot_date'),
         sources: readField(dataset, place, 'sources'),
         attribution: readField(dataset, place, 'attribution'),
       },
@@ -352,6 +364,7 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
         roof_color: readField(dataset, building, 'roof_color'),
         address_id: building.address_id,
         release_version: building.release_version,
+        snapshot_date: readField(dataset, building, 'snapshot_date'),
         sources: readField(dataset, building, 'sources'),
         attribution: readField(dataset, building, 'attribution'),
       },
@@ -378,6 +391,7 @@ export function toResultRow(dataset: DatasetId, record: AnyRecord): ResultRow {
       country: readField(dataset, address, 'country'),
       building_id: address.building_id,
       release_version: address.release_version,
+      snapshot_date: readField(dataset, address, 'snapshot_date'),
       sources: readField(dataset, address, 'sources'),
       attribution: readField(dataset, address, 'attribution'),
     },

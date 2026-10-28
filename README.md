@@ -109,7 +109,7 @@ render deploys create SERVICE_ID --wait --confirm
 
 - MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
 - H3 cells for the current view, from `h3-js` boundaries. City zoom uses resolution 8. Zooming out steps to coarser hexes down to resolution 4. The opening load hides the basemap. Resolution-1 hexes fall onto a dark sphere, north first. The dive punches into the Austin hex and splits it into the city grid. Hover lifts that city hex off the map. City zoom stays still until you touch a cell. Zoom swaps fade the last grid out so the hexes do not pop. Parent hexes stay empty; only the exact processed resolution-8 cells take color. Zooming out past that floor eases into a globe you can scroll, with no hex mesh. Empty hexes stay unfilled. Green is the current Overture snapshot. Yellow is an older snapshot. **Map layers** switches between lens, grid, or hidden.
-- Hex-first explorer: click a ready hex to inspect, or use Query and Process on the selection dock. There is no hover card. Workflows and Jobs stay in the side nav
+- Hex-first explorer: click a ready hex to inspect. Further clicks add hexes to that query. Process stays on the selection dock. There is no Query button and no hover card. Workflows and Jobs stay in the side nav
 - Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase. Logs stay collapsed until opened.
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
 - Release snapshots stay as metadata (`GET /api/releases`). Process keeps older cuts. Query with `release_version` for a historical slice
@@ -117,7 +117,7 @@ render deploys create SERVICE_ID --wait --confirm
 - Optional Supabase accounts in Settings: create, sign in, sign out, delete account. The public map does not require a login
 - Hard caps on hex count, bbox area, and row counts
 
-Click a ready hex, or use Query on the dock, to pin a scrollable table. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. The table includes snapshot, sources, attribution, contact fields, building extras, and address extras. Building name, subtype, height, and floors show when Overture has them — names and heights are often empty. Category and building dropdowns list values seen in that table. Missing hexes have to be processed first. Process pulls real Overture rows.
+Click a ready hex to pin a fitted table. Click another ready hex to add it to the same query. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. Taxonomy `primary < category` splits into main category and category. Snapshot stays the release id; snapshot date is the date prefix. Filters cover category, main category, snapshot date, status, building class, confidence, underground, phone, email, socials, and official id. The table also includes sources, attribution, contact fields, building extras, and address extras. Building name, subtype, height, and floors show when Overture has them — names and heights are often empty. Missing hexes have to be processed first. Process pulls real Overture rows.
 
 ## Not in this slice
 

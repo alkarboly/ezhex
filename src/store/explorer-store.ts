@@ -116,7 +116,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   fit: { nonce: 0, zoomIn: true },
   notice: null,
   inspectOpen: false,
-  inspectPosition: { x: 24, y: 72 },
+  inspectPosition: { x: 420, y: 72 },
   setDataset: (dataset) => {
     const sort = defaultSort(dataset)
     set({

@@ -8,6 +8,12 @@ export function assertOvertureRelease(release: string): string {
   return value
 }
 
+/** Date prefix of an Overture id `YYYY-MM-DD.N`. */
+export function snapshotDate(release: string | null | undefined): string | null {
+  const match = release?.trim().match(/^(\d{4}-\d{2}-\d{2})/)
+  return match?.[1] ?? null
+}
+
 /** Overture ids are `YYYY-MM-DD.N`, so lexical order matches recency. */
 export function compareOvertureRelease(left: string, right: string): number {
   if (left === right) return 0

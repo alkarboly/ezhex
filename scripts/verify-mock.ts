@@ -20,7 +20,9 @@ import {
 } from '../src/lib/hex-drop.ts'
 import { HEX_LIFT_HEIGHT_M, hexLiftElevation } from '../src/lib/hex-lift.ts'
 import { appearDelayMs, appearIsQuiet, appearKind, introDelayMs, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
-import { mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
+import { filterFeatureRows, mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
+import { snapshotDate } from '../src/lib/overture-release.ts'
+import { parseTaxonomyLabel } from '../src/lib/taxonomy.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION } from '../src/lib/limits.ts'
@@ -156,8 +158,67 @@ assert(
   'query rows dropped attribution',
 )
 assert(
-  merged.every((row) => row.snapshot.length > 0 && row.sources && row.attribution),
+  merged.every((row) => row.snapshot.length > 0 && row.sources && row.attribution && row.snapshot_date),
   'inspect merge dropped snapshot, sources, or attribution',
+)
+assert(snapshotDate('2026-10-21.0') === '2026-10-21', 'snapshot date was not extracted from the release id')
+assert(parseTaxonomyLabel('eat_and_drink < restaurant').main === 'eat_and_drink', 'taxonomy main category is not left of <')
+assert(parseTaxonomyLabel('eat_and_drink < restaurant').category === 'restaurant', 'taxonomy category is not right of <')
+const splitTaxonomy = mergeFeatureRows(
+  [
+    {
+      id: 'p-tax',
+      h3: capitol,
+      lat: 30.2672,
+      lng: -97.7431,
+      geometry: pointGeometry(-97.7431, 30.2672),
+      release_version: '2026-10-21.0',
+      values: { 'names.primary': 'Split Cafe', basic_category: 'cafe', 'taxonomy.primary': 'eat_and_drink < cafe' },
+    },
+  ],
+  [],
+  [],
+)
+assert(splitTaxonomy[0]?.main_category === 'eat_and_drink', 'inspect merge dropped main category')
+assert(splitTaxonomy[0]?.category === 'cafe', 'inspect merge dropped taxonomy category')
+assert(splitTaxonomy[0]?.snapshot_date === '2026-10-21', 'inspect merge dropped snapshot date')
+assert(
+  filterFeatureRows(splitTaxonomy, {
+    kind: 'all',
+    search: '',
+    categories: ['cafe'],
+    mainCategories: ['eat_and_drink'],
+    snapshotDates: ['2026-10-21'],
+    statuses: [],
+    buildingClasses: [],
+    confidenceMin: null,
+    confidenceMax: null,
+    underground: 'any',
+    hasPhone: 'any',
+    hasEmail: 'any',
+    hasSocials: 'any',
+    hasOfficialId: 'any',
+  }).length === 1,
+  'inspect filters dropped a matching taxonomy row',
+)
+assert(
+  filterFeatureRows(splitTaxonomy, {
+    kind: 'all',
+    search: '',
+    categories: ['restaurant'],
+    mainCategories: [],
+    snapshotDates: [],
+    statuses: [],
+    buildingClasses: [],
+    confidenceMin: null,
+    confidenceMax: null,
+    underground: 'any',
+    hasPhone: 'any',
+    hasEmail: 'any',
+    hasSocials: 'any',
+    hasOfficialId: 'any',
+  }).length === 0,
+  'inspect category filter leaked a non-matching row',
 )
 const unmatchedPlace = {
   id: 'p-orphan',
@@ -412,6 +473,8 @@ assert(
   isRecord(placesSchema) &&
     Array.isArray(placesSchema.fields) &&
     placesSchema.fields.some((field) => isRecord(field) && field.field === 'release_version') &&
+    placesSchema.fields.some((field) => isRecord(field) && field.field === 'snapshot_date') &&
+    placesSchema.fields.some((field) => isRecord(field) && field.field === 'main_category') &&
     placesSchema.fields.some((field) => isRecord(field) && field.field === 'sources') &&
     placesSchema.fields.some((field) => isRecord(field) && field.field === 'attribution'),
   'places schema is missing snapshot, sources, or attribution',

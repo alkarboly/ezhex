@@ -103,14 +103,20 @@ export function ExplorerPage() {
   }, [notice, dismissNotice])
 
   const openHexAction = (h3: string, mode: HexAction) => {
-    const cells = selected.includes(h3) ? selected : [h3]
     if (mode === 'query') {
-      if (!selected.includes(h3)) toggleCell(h3, selected.length > 0)
-      openQuery(cells)
+      if (statusMap.get(h3) !== 'ready') {
+        setNotice('Process this hex first. The table unlocks when data is ready.')
+        if (!selected.includes(h3)) toggleCell(h3, true)
+        setAction({ mode: 'process', cells: [h3] })
+        return
+      }
+      if (!selected.includes(h3)) toggleCell(h3, true)
+      setAction(null)
+      setInspectOpen(true)
       return
     }
-    if (!selected.includes(h3)) toggleCell(h3, selected.length > 0)
-    openAction(mode, cells)
+    if (!selected.includes(h3)) toggleCell(h3, inspectOpen || selected.length > 0)
+    openAction(mode, selected.includes(h3) || inspectOpen ? [...new Set([...selected, h3])] : [h3])
   }
 
   const openQuery = (next: readonly string[]) => {
@@ -288,7 +294,6 @@ function SelectionDock({
   onClear: () => void
   onAction: (mode: HexAction) => void
 }) {
-  const ready = selected.length > 0 && selected.every((cell) => coverage.get(cell) === 'ready')
   const processing = selected.some((cell) => coverage.get(cell) === 'processing')
   return (
     <div className="glass flex flex-wrap items-center justify-center gap-1.5 rounded-full px-2 py-1">
@@ -302,14 +307,6 @@ function SelectionDock({
         className="rounded-full px-3 py-1 text-xs text-foreground/85 transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
       >
         Clear
-      </button>
-      <button
-        type="button"
-        disabled={selected.length === 0 || !ready}
-        onClick={() => onAction('query')}
-        className="rounded-full px-3 py-1 text-xs text-foreground/85 transition-colors hover:bg-primary/15 hover:text-primary disabled:opacity-40"
-      >
-        Query
       </button>
       <button
         type="button"
