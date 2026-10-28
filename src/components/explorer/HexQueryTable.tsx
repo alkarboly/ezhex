@@ -5,15 +5,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useThemeQuery } from '../../hooks/useCompiledQuery'
 import { downloadCsv, featureRowsToCsv } from '../../lib/csv'
-import {
-  defaultInspectFilters,
-  filterFeatureRows,
-  mergeFeatureRows,
-  observedValues,
-  type FeatureRow,
-  type InspectFilters,
-  type PresenceFilter,
-} from '../../lib/feature-rows'
+import { filterFeatureRows, mergeFeatureRows, observedValues, type FeatureRow, type PresenceFilter } from '../../lib/feature-rows'
 import { formatCount } from '../../lib/format'
 import { compileInspectSql, validateInspectSql } from '../../lib/inspect-sql'
 import { MAX_QUERY_WORKFLOWS } from '../../lib/limits'
@@ -110,21 +102,24 @@ export function HexQueryTable() {
   const limit = useExplorer((state) => state.limit)
   const focusCell = useExplorer((state) => state.focusCell)
   const focusH3 = useExplorer((state) => state.focus?.h3 ?? null)
-  const [kind, setKind] = useState<DatasetId | 'all'>(defaultInspectFilters.kind)
-  const [search, setSearch] = useState(defaultInspectFilters.search)
-  const [categories, setCategories] = useState<string[]>([])
-  const [mainCategories, setMainCategories] = useState<string[]>([])
-  const [snapshotDates, setSnapshotDates] = useState<string[]>([])
-  const [statuses, setStatuses] = useState<string[]>([])
-  const [buildingClasses, setBuildingClasses] = useState<string[]>([])
-  const [confidenceMin, setConfidenceMin] = useState<number | null>(null)
-  const [confidenceMax, setConfidenceMax] = useState<number | null>(null)
-  const [confidencePresence, setConfidencePresence] = useState<PresenceFilter>('any')
-  const [underground, setUnderground] = useState<PresenceFilter>('any')
-  const [hasPhone, setHasPhone] = useState<PresenceFilter>('any')
-  const [hasEmail, setHasEmail] = useState<PresenceFilter>('any')
-  const [hasSocials, setHasSocials] = useState<PresenceFilter>('any')
-  const [hasOfficialId, setHasOfficialId] = useState<PresenceFilter>('any')
+  const inspectFilters = useExplorer((state) => state.inspectFilters)
+  const setInspectFilters = useExplorer((state) => state.setInspectFilters)
+  const patchInspectFilters = useExplorer((state) => state.patchInspectFilters)
+  const kind = inspectFilters.kind
+  const search = inspectFilters.search
+  const categories = inspectFilters.categories
+  const mainCategories = inspectFilters.mainCategories
+  const snapshotDates = inspectFilters.snapshotDates
+  const statuses = inspectFilters.statuses
+  const buildingClasses = inspectFilters.buildingClasses
+  const confidenceMin = inspectFilters.confidenceMin
+  const confidenceMax = inspectFilters.confidenceMax
+  const confidencePresence = inspectFilters.confidencePresence
+  const underground = inspectFilters.underground
+  const hasPhone = inspectFilters.hasPhone
+  const hasEmail = inspectFilters.hasEmail
+  const hasSocials = inspectFilters.hasSocials
+  const hasOfficialId = inspectFilters.hasOfficialId
   const [sortField, setSortField] = useState<ColumnField>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [customSql, setCustomSql] = useState<string | null>(null)
@@ -159,44 +154,7 @@ export function HexQueryTable() {
   const snapshotDateOptions = useMemo(() => observedValues(merged, 'snapshot_date'), [merged])
   const statusOptions = useMemo(() => observedValues(merged, 'operating_status'), [merged])
   const classOptions = useMemo(() => observedValues(merged, 'building_class'), [merged])
-  const filtered = useMemo(
-    () =>
-      filterFeatureRows(merged, {
-        kind,
-        search,
-        categories,
-        mainCategories,
-        snapshotDates,
-        statuses,
-        buildingClasses,
-        confidenceMin,
-        confidenceMax,
-        confidencePresence,
-        underground,
-        hasPhone,
-        hasEmail,
-        hasSocials,
-        hasOfficialId,
-      }),
-    [
-      merged,
-      kind,
-      search,
-      categories,
-      mainCategories,
-      snapshotDates,
-      statuses,
-      buildingClasses,
-      confidenceMin,
-      confidenceMax,
-      confidencePresence,
-      underground,
-      hasPhone,
-      hasEmail,
-      hasSocials,
-      hasOfficialId,
-    ],
-  )
+  const filtered = useMemo(() => filterFeatureRows(merged, inspectFilters), [merged, inspectFilters])
   const sorted = useMemo(() => {
     const next = [...filtered]
     next.sort((left, right) => compareFeature(left, right, sortField, sortDirection))
@@ -210,42 +168,6 @@ export function HexQueryTable() {
   const loading = (places.results.isLoading || buildings.results.isLoading || addresses.results.isLoading) && merged.length === 0
   const error = places.results.error ?? buildings.results.error ?? addresses.results.error
   const invalid = [...places.compiled.errors, ...buildings.compiled.errors, ...addresses.compiled.errors]
-  const inspectFilters = useMemo<InspectFilters>(
-    () => ({
-      kind,
-      search,
-      categories,
-      mainCategories,
-      snapshotDates,
-      statuses,
-      buildingClasses,
-      confidenceMin,
-      confidenceMax,
-      confidencePresence,
-      underground,
-      hasPhone,
-      hasEmail,
-      hasSocials,
-      hasOfficialId,
-    }),
-    [
-      kind,
-      search,
-      categories,
-      mainCategories,
-      snapshotDates,
-      statuses,
-      buildingClasses,
-      confidenceMin,
-      confidenceMax,
-      confidencePresence,
-      underground,
-      hasPhone,
-      hasEmail,
-      hasSocials,
-      hasOfficialId,
-    ],
-  )
   const generatedSql = useMemo(
     () => compileInspectSql(selectedCells, inspectFilters, inspectRelease),
     [inspectFilters, inspectRelease, selectedCells],
@@ -255,27 +177,10 @@ export function HexQueryTable() {
 
   useEffect(() => {
     if (!inspectReplay) return
-    applyInspectFilters(inspectReplay.filters, {
-      setKind,
-      setSearch,
-      setCategories,
-      setMainCategories,
-      setSnapshotDates,
-      setStatuses,
-      setBuildingClasses,
-      setConfidenceMin,
-      setConfidenceMax,
-      setConfidencePresence,
-      setUnderground,
-      setHasPhone,
-      setHasEmail,
-      setHasSocials,
-      setHasOfficialId,
-    })
+    setInspectFilters(inspectReplay.filters)
     setCustomSql(inspectReplay.customSql ? inspectReplay.sql : null)
     setInspectRelease(inspectReplay.releaseVersion)
-    setPage(0)
-  }, [inspectReplay, setInspectRelease, setPage])
+  }, [inspectReplay, setInspectFilters, setInspectRelease])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="hex-query-table">
@@ -285,10 +190,7 @@ export function HexQueryTable() {
             aria-label="Row source"
             className={cn(nativeSelectClass, compactSelectClass, 'w-28')}
             value={kind}
-            onChange={(event) => {
-              setKind(event.target.value as DatasetId | 'all')
-              setPage(0)
-            }}
+            onChange={(event) => patchInspectFilters({ kind: event.target.value as DatasetId | 'all' })}
           >
             <option value="all">All rows</option>
             {DATASET_IDS.map((id) => (
@@ -297,12 +199,18 @@ export function HexQueryTable() {
               </option>
             ))}
           </select>
-          <MultiPick label="Category" options={categoryOptions} value={categories} onChange={setCategories} resetPage={() => setPage(0)} />
+          <MultiPick
+            label="Category"
+            options={categoryOptions}
+            value={categories}
+            onChange={(next) => patchInspectFilters({ categories: next })}
+            resetPage={() => setPage(0)}
+          />
           <MultiPick
             label="Main category"
             options={mainCategoryOptions}
             value={mainCategories}
-            onChange={setMainCategories}
+            onChange={(next) => patchInspectFilters({ mainCategories: next })}
             resetPage={() => setPage(0)}
           />
           <select
@@ -322,23 +230,26 @@ export function HexQueryTable() {
             label="Snapshot date"
             options={snapshotDateOptions}
             value={snapshotDates}
-            onChange={setSnapshotDates}
+            onChange={(next) => patchInspectFilters({ snapshotDates: next })}
             resetPage={() => setPage(0)}
           />
-          <MultiPick label="Status" options={statusOptions} value={statuses} onChange={setStatuses} resetPage={() => setPage(0)} />
+          <MultiPick
+            label="Status"
+            options={statusOptions}
+            value={statuses}
+            onChange={(next) => patchInspectFilters({ statuses: next })}
+            resetPage={() => setPage(0)}
+          />
           <MultiPick
             label="Building class"
             options={classOptions}
             value={buildingClasses}
-            onChange={setBuildingClasses}
+            onChange={(next) => patchInspectFilters({ buildingClasses: next })}
             resetPage={() => setPage(0)}
           />
           <input
             value={search}
-            onChange={(event) => {
-              setSearch(event.target.value)
-              setPage(0)
-            }}
+            onChange={(event) => patchInspectFilters({ search: event.target.value })}
             placeholder="Search place, address, snapshot, sources"
             className="h-6 min-w-28 flex-1 rounded border border-white/[0.08] bg-black/30 px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
           />
@@ -349,25 +260,49 @@ export function HexQueryTable() {
           <ConfidenceSlider
             label="Confidence ≥"
             value={confidenceMin}
-            onChange={(next) => {
-              setConfidenceMin(next)
-              setPage(0)
-            }}
+            onChange={(next) => patchInspectFilters({ confidenceMin: next })}
           />
           <ConfidenceSlider
             label="Confidence ≤"
             value={confidenceMax}
-            onChange={(next) => {
-              setConfidenceMax(next)
-              setPage(0)
-            }}
+            onChange={(next) => patchInspectFilters({ confidenceMax: next })}
           />
-          <PresencePick label="Confidence" value={confidencePresence} onChange={setConfidencePresence} resetPage={() => setPage(0)} />
-          <PresencePick label="Underground" value={underground} onChange={setUnderground} resetPage={() => setPage(0)} />
-          <PresencePick label="Phone" value={hasPhone} onChange={setHasPhone} resetPage={() => setPage(0)} />
-          <PresencePick label="Email" value={hasEmail} onChange={setHasEmail} resetPage={() => setPage(0)} />
-          <PresencePick label="Socials" value={hasSocials} onChange={setHasSocials} resetPage={() => setPage(0)} />
-          <PresencePick label="Official id" value={hasOfficialId} onChange={setHasOfficialId} resetPage={() => setPage(0)} />
+          <PresencePick
+            label="Confidence"
+            value={confidencePresence}
+            onChange={(next) => patchInspectFilters({ confidencePresence: next })}
+            resetPage={() => setPage(0)}
+          />
+          <PresencePick
+            label="Underground"
+            value={underground}
+            onChange={(next) => patchInspectFilters({ underground: next })}
+            resetPage={() => setPage(0)}
+          />
+          <PresencePick
+            label="Phone"
+            value={hasPhone}
+            onChange={(next) => patchInspectFilters({ hasPhone: next })}
+            resetPage={() => setPage(0)}
+          />
+          <PresencePick
+            label="Email"
+            value={hasEmail}
+            onChange={(next) => patchInspectFilters({ hasEmail: next })}
+            resetPage={() => setPage(0)}
+          />
+          <PresencePick
+            label="Socials"
+            value={hasSocials}
+            onChange={(next) => patchInspectFilters({ hasSocials: next })}
+            resetPage={() => setPage(0)}
+          />
+          <PresencePick
+            label="Official id"
+            value={hasOfficialId}
+            onChange={(next) => patchInspectFilters({ hasOfficialId: next })}
+            resetPage={() => setPage(0)}
+          />
         </div>
       </div>
       <SqlWorkbench
@@ -677,43 +612,6 @@ function SqlAction({
 
 function defaultWorkflowName(hexCount: number) {
   return `Inspect · ${hexCount} hexes`
-}
-
-function applyInspectFilters(
-  filters: InspectFilters,
-  setters: {
-    setKind: (next: DatasetId | 'all') => void
-    setSearch: (next: string) => void
-    setCategories: (next: string[]) => void
-    setMainCategories: (next: string[]) => void
-    setSnapshotDates: (next: string[]) => void
-    setStatuses: (next: string[]) => void
-    setBuildingClasses: (next: string[]) => void
-    setConfidenceMin: (next: number | null) => void
-    setConfidenceMax: (next: number | null) => void
-    setConfidencePresence: (next: PresenceFilter) => void
-    setUnderground: (next: PresenceFilter) => void
-    setHasPhone: (next: PresenceFilter) => void
-    setHasEmail: (next: PresenceFilter) => void
-    setHasSocials: (next: PresenceFilter) => void
-    setHasOfficialId: (next: PresenceFilter) => void
-  },
-) {
-  setters.setKind(filters.kind)
-  setters.setSearch(filters.search)
-  setters.setCategories([...filters.categories])
-  setters.setMainCategories([...filters.mainCategories])
-  setters.setSnapshotDates([...filters.snapshotDates])
-  setters.setStatuses([...filters.statuses])
-  setters.setBuildingClasses([...filters.buildingClasses])
-  setters.setConfidenceMin(filters.confidenceMin)
-  setters.setConfidenceMax(filters.confidenceMax)
-  setters.setConfidencePresence(filters.confidencePresence ?? 'any')
-  setters.setUnderground(filters.underground)
-  setters.setHasPhone(filters.hasPhone)
-  setters.setHasEmail(filters.hasEmail)
-  setters.setHasSocials(filters.hasSocials)
-  setters.setHasOfficialId(filters.hasOfficialId)
 }
 
 function MultiPick({

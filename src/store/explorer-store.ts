@@ -1,7 +1,7 @@
 import { getResolution, gridDisk, latLngToCell } from 'h3-js'
 import { create } from 'zustand'
 import { closedRing } from '../lib/enrichments'
-import type { InspectFilters } from '../lib/feature-rows'
+import { defaultInspectFilters, type InspectFilters } from '../lib/feature-rows'
 import type { GeoJsonPosition } from '../lib/geojson'
 import { AUSTIN_CENTER, type ViewportStatus } from '../lib/h3'
 import { DEFAULT_QUERY_LIMIT, H3_RESOLUTION, MAX_GEOFENCE_VERTICES, MAX_SELECTED_CELLS } from '../lib/limits'
@@ -65,6 +65,7 @@ type ExplorerState = {
   fit: FitRequest
   notice: string | null
   inspectOpen: boolean
+  inspectFilters: InspectFilters
   /** Query setting: frame every included hex so the map shows coverage. */
   queryHexPreview: boolean
   inspectPosition: { x: number; y: number }
@@ -105,6 +106,8 @@ type ExplorerState = {
   dismissNotice: () => void
   setNotice: (notice: string | null) => void
   setInspectOpen: (inspectOpen: boolean) => void
+  setInspectFilters: (inspectFilters: InspectFilters) => void
+  patchInspectFilters: (patch: Partial<InspectFilters>) => void
   setQueryHexPreview: (queryHexPreview: boolean) => void
   previewQueryHexes: () => void
   exitQuery: () => void
@@ -135,7 +138,8 @@ type ExplorerState = {
 
 const initialSort = defaultSort('places')
 
-export const useExplorer = create<ExplorerState>((set, get) => ({
+function createExplorerStore() {
+  return create<ExplorerState>((set, get) => ({
   dataset: 'places',
   selectedCells: [],
   selectionMode: false,
@@ -164,6 +168,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   fit: { nonce: 0, zoomIn: true },
   notice: null,
   inspectOpen: false,
+  inspectFilters: defaultInspectFilters,
   queryHexPreview: false,
   inspectPosition: { x: 420, y: 72 },
   inspectReplay: null,
@@ -380,7 +385,14 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   dismissNotice: () => set({ notice: null }),
   setNotice: (notice) => set({ notice }),
   setInspectOpen: (inspectOpen) =>
-    set(inspectOpen ? { inspectOpen } : { inspectOpen, queryHexPreview: false }),
+    set(
+      inspectOpen
+        ? { inspectOpen }
+        : { inspectOpen, queryHexPreview: false, inspectFilters: defaultInspectFilters },
+    ),
+  setInspectFilters: (inspectFilters) => set({ inspectFilters, page: 0 }),
+  patchInspectFilters: (patch) =>
+    set((state) => ({ inspectFilters: { ...state.inspectFilters, ...patch }, page: 0 })),
   setQueryHexPreview: (queryHexPreview) => set({ queryHexPreview }),
   previewQueryHexes: () => {
     const cells = get().selectedCells
@@ -401,6 +413,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
       queryHexPreview: false,
       inspectReplay: null,
       inspectRelease: null,
+      inspectFilters: defaultInspectFilters,
     }),
   setInspectPosition: (inspectPosition) => set({ inspectPosition }),
   previewWorkflow: (input) => {
@@ -410,6 +423,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
       page: 0,
       resultsSearch: '',
       inspectOpen: true,
+      inspectFilters: input.filters,
       inspectReplay: {
         nonce: (state.inspectReplay?.nonce ?? 0) + 1,
         workflowId: input.id,
@@ -434,6 +448,7 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
       inspectOpen: false,
       queryHexPreview: false,
       inspectRelease: null,
+      inspectFilters: defaultInspectFilters,
     }),
   setInspectRelease: (inspectRelease) => set({ inspectRelease, page: 0 }),
   setDraftEnrichments: (draftEnrichments) => set({ draftEnrichments }),
@@ -471,3 +486,17 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   setEnrichOpen: (enrichOpen) => set({ enrichOpen }),
   setHailSummaries: (hailSummaries) => set({ hailSummaries }),
 }))
+}
+
+type ExplorerStoreApi = ReturnType<typeof createExplorerStore>
+
+declare global {
+  var __worldpulseExplorer: ExplorerStoreApi | undefined
+}
+
+const existing = globalThis.__worldpulseExplorer
+export const useExplorer =
+  existing && 'inspectFilters' in existing.getState() && 'patchInspectFilters' in existing.getState()
+    ? existing
+    : createExplorerStore()
+globalThis.__worldpulseExplorer = useExplorer

@@ -163,7 +163,7 @@ Primary tables:
 
 Query-workflow migration: `supabase/migrations/20261027_query_workflows.sql`
 
-- `query_workflows` (owner, inspect SQL, custom flag, nationwide hexes 1–300, inspect filters, enrichments, optional `release_version`, 5 per owner)
+- `query_workflows` (owner, inspect SQL, custom flag, nationwide hexes 1–300, inspect filters, enrichments, optional `release_version`, 5 per owner). While that query is open, the explorer map draws matching inspect rows and unfills selected hexes with none.
 
 Enrichment migration: `supabase/migrations/20261027_workflow_enrichments.sql`
 

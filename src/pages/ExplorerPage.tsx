@@ -11,6 +11,7 @@ import { H3Map, type H3MapHandle, type MapInsets } from '../components/map/H3Map
 import { useCellStats, useCompiledQuery, useInspectFeatures } from '../hooks/useCompiledQuery'
 import { useDataSource } from '../hooks/useDataSource'
 import { MOBILE_QUERY, TOUCH_QUERY, useMediaQuery } from '../hooks/useMediaQuery'
+import { filterFeatureRows } from '../lib/feature-rows'
 import { readyCellsInParents, type ViewportStatus } from '../lib/h3'
 import { H3_RESOLUTION } from '../lib/limits'
 import { getHexStatus } from '../services/workflow-ingestion'
@@ -45,6 +46,7 @@ export function ExplorerPage() {
   const setNotice = useExplorer((state) => state.setNotice)
   const setInspectOpen = useExplorer((state) => state.setInspectOpen)
   const inspectOpen = useExplorer((state) => state.inspectOpen)
+  const inspectFilters = useExplorer((state) => state.inspectFilters)
   const inspectReplay = useExplorer((state) => state.inspectReplay)
   const clearWorkflowPreview = useExplorer((state) => state.clearWorkflowPreview)
   const enrichOpen = useExplorer((state) => state.enrichOpen)
@@ -55,6 +57,26 @@ export function ExplorerPage() {
   const canQueryCells = source.data?.mode === 'mock' || (source.data?.mode === 'supabase' && configured)
   const [action, setAction] = useState<{ mode: HexAction; cells: string[] } | null>(null)
   const inspect = useInspectFeatures(inspectOpen)
+  const inspectFeatures = useMemo(
+    () => filterFeatureRows(inspect.rows, inspectFilters),
+    [inspect.rows, inspectFilters],
+  )
+  const inspectSettled =
+    inspectOpen &&
+    selected.length > 0 &&
+    inspect.places.results.isFetched &&
+    inspect.buildings.results.isFetched &&
+    inspect.addresses.results.isFetched &&
+    !inspect.places.results.isFetching &&
+    !inspect.buildings.results.isFetching &&
+    !inspect.addresses.results.isFetching
+  const inspectHits = useMemo(() => {
+    if (!inspectSettled) return null
+    const hits = new Map<string, number>()
+    for (const cell of selected) hits.set(cell, 0)
+    for (const row of inspectFeatures) hits.set(row.h3, (hits.get(row.h3) ?? 0) + 1)
+    return hits
+  }, [inspectFeatures, inspectSettled, selected])
 
   const queryCells = useMemo(
     () => cells.filter((cell) => getResolution(cell) === H3_RESOLUTION),
@@ -196,7 +218,8 @@ export function ExplorerPage() {
         onCenterCell={setCenterCell}
         cellCoverage={coverageByCell}
         onHexAction={openHexAction}
-        inspectFeatures={inspect.rows}
+        inspectFeatures={inspectOpen ? inspectFeatures : []}
+        inspectHits={inspectHits}
       />
       <HexInspectWindow cells={selected} />
       <EnrichPanel />

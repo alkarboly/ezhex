@@ -76,6 +76,8 @@ type H3MapProps = {
   cellCoverage?: ReadonlyMap<string, HexCoverage>
   onHexAction?: (h3: string, action: HexAction) => void
   inspectFeatures?: readonly FeatureRow[]
+  /** After inspect settles, selected hexes with 0 matching rows paint as empty. */
+  inspectHits?: ReadonlyMap<string, number> | null
 }
 
 type Point = { x: number; y: number }
@@ -110,6 +112,7 @@ export function H3Map({
   cellCoverage,
   onHexAction,
   inspectFeatures = [],
+  inspectHits = null,
 }: H3MapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -173,16 +176,28 @@ export function H3Map({
     for (const cell of selected) all.add(cell)
     return [...all]
   }, [cells, selected])
+  const snapshots = useMemo(() => {
+    const next = new Map<string, HexCoverage['snapshot'] | null>()
+    for (const cell of drawn) {
+      const snapshot = cellCoverage?.get(cell)?.snapshot ?? null
+      if (inspectHits && selectedSet.has(cell) && (inspectHits.get(cell) ?? 0) === 0) {
+        next.set(cell, null)
+      } else {
+        next.set(cell, snapshot)
+      }
+    }
+    return next
+  }, [cellCoverage, drawn, inspectHits, selectedSet])
   const collection = useMemo(
     () =>
       buildH3Collection({
         cells: drawn,
         counts: countMap,
-        snapshots: new Map([...drawn].map((cell) => [cell, cellCoverage?.get(cell)?.snapshot ?? null])),
+        snapshots,
         selected: selectedSet,
         focusedH3,
       }),
-    [drawn, countMap, cellCoverage, selectedSet, focusedH3],
+    [drawn, countMap, snapshots, selectedSet, focusedH3],
   )
 
   useEffect(() => {
@@ -732,13 +747,13 @@ export function H3Map({
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !styleReady || !map.isStyleLoaded()) return
+    if (!map || !styleReady) return
     ensureInspectLayers(map)
     const source = map.getSource('inspect-features')
     if (source?.type === 'geojson') {
-      ;(source as GeoJSONSource).setData(featuresToCollection(inspectOpen ? inspectFeatures : []))
+      ;(source as GeoJSONSource).setData(featuresToCollection(inspectFeatures))
     }
-  }, [inspectFeatures, inspectOpen, styleReady])
+  }, [inspectFeatures, styleReady])
 
   useEffect(() => {
     const map = mapRef.current
