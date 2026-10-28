@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getResolution } from 'h3-js'
 import { LocateFixed } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { EnrichPanel } from '../components/explorer/EnrichPanel'
 import { HexActionDialog } from '../components/explorer/HexActionDialog'
 import { HexInspectWindow } from '../components/explorer/HexInspectWindow'
 import { LayersButton, MapControls } from '../components/explorer/MapControls'
@@ -46,6 +47,9 @@ export function ExplorerPage() {
   const inspectOpen = useExplorer((state) => state.inspectOpen)
   const inspectReplay = useExplorer((state) => state.inspectReplay)
   const clearWorkflowPreview = useExplorer((state) => state.clearWorkflowPreview)
+  const enrichOpen = useExplorer((state) => state.enrichOpen)
+  const setEnrichOpen = useExplorer((state) => state.setEnrichOpen)
+  const drawMode = useExplorer((state) => state.drawMode)
   const configured = Boolean(source.data?.supabase?.urlConfigured && source.data?.supabase?.anonKeyConfigured)
   const queryUnavailable = source.data?.mode === 'supabase' && !configured
   const canQueryCells = source.data?.mode === 'mock' || (source.data?.mode === 'supabase' && configured)
@@ -169,6 +173,7 @@ export function ExplorerPage() {
       coverage={statusMap}
       onClear={clearSelection}
       onAction={(mode) => openAction(mode, selected)}
+      onEnrich={() => setEnrichOpen(!enrichOpen)}
     />
   )
 
@@ -194,6 +199,7 @@ export function ExplorerPage() {
         inspectFeatures={inspect.rows}
       />
       <HexInspectWindow cells={selected} />
+      <EnrichPanel />
 
       {mobile ? (
         <>
@@ -266,6 +272,11 @@ export function ExplorerPage() {
               <WorkflowPreviewBanner name={inspectReplay.workflowName} count={selected.length} onClear={clearWorkflowPreview} />
             </div>
           )}
+          {drawMode === 'geofence' && (
+            <div className="pointer-events-none absolute top-24 left-1/2 z-20 -translate-x-1/2">
+              <div className="glass rounded-full px-3.5 py-1.5 text-[11px] text-primary">Click the map to draw a fence</div>
+            </div>
+          )}
           {queryUnavailable && (
             <div
               role="status"
@@ -305,11 +316,13 @@ function SelectionDock({
   coverage,
   onClear,
   onAction,
+  onEnrich,
 }: {
   selected: readonly string[]
   coverage: ReadonlyMap<string, HexDataStatus>
   onClear: () => void
   onAction: (mode: HexAction) => void
+  onEnrich: () => void
 }) {
   const processing = selected.some((cell) => coverage.get(cell) === 'processing')
   return (
@@ -332,6 +345,14 @@ function SelectionDock({
         className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
       >
         Process
+      </button>
+      <button
+        type="button"
+        disabled={selected.length === 0}
+        onClick={onEnrich}
+        className="rounded-full bg-primary/15 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/25 disabled:opacity-40"
+      >
+        Enrich
       </button>
     </div>
   )

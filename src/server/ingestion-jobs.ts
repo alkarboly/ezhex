@@ -4,7 +4,7 @@ import { MAX_VIEWPORT_CELLS } from '../lib/limits'
 import { readDataMode } from '../lib/server-env'
 import { compareOvertureRelease, defaultOvertureRelease } from '../lib/overture'
 import { ingestMockCellsNow } from '../services/mock-provider'
-import { supabaseHexReleases } from '../services/supabase-provider'
+import { newestHexReleases, recordProcessedSnapshots } from './hex-snapshots'
 import { ingestOverturePlan } from './overture-ingest'
 import type {
   HexCoverage,
@@ -78,6 +78,7 @@ export function createIngestionJob(body: unknown): IngestionJob {
   )
   appendLog(job, 'info', `Hexes ${job.h3_cells.join(', ')}`)
   if (ready) {
+    recordProcessedSnapshots(job.h3_cells, job.release_version)
     appendLog(job, 'info', 'These hexes already have mock coverage. Marked ready.')
   }
   remember(job)
@@ -100,6 +101,7 @@ export function runIngestionJob(id: string): IngestionJob {
   job.note = 'Processing selected hexes.'
   appendLog(job, 'info', `Mock ingest started for ${job.h3_cells.length} hexes.`)
   const result = ingestMockCellsNow(job.h3_cells, job.release_version)
+  recordProcessedSnapshots(job.h3_cells, job.release_version)
   const finished = new Date().toISOString()
   job.status = 'succeeded'
   job.finished_at = finished
@@ -125,11 +127,7 @@ export async function hexCoverageFor(cells: readonly string[]): Promise<HexCover
   }
   const unique = [...new Set(cells)]
   const currentRelease = defaultOvertureRelease()
-  const ready = mockReadyCells()
-  const releases =
-    readDataMode().resolved === 'supabase'
-      ? await supabaseHexReleases(unique)
-      : new Map(unique.filter((cell) => ready.has(cell)).map((cell) => [cell, currentRelease] as const))
+  const releases = await newestHexReleases(unique)
   const listed = unique.map((h3) => coverageForCell(h3, releases, currentRelease))
   return {
     cells: listed,

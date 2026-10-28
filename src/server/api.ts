@@ -19,6 +19,8 @@ import {
   workflowIngestionLimits,
 } from './workflow-ingestion'
 import { routeAuth } from './auth'
+import { enrichHail } from './hail-mesh'
+import { checkHexSnapshotsRequest } from './hex-snapshots'
 import { routeQueryWorkflows } from './query-workflows'
 
 export type ApiContext = {
@@ -40,6 +42,12 @@ export async function routeApi(
 
   const workflows = await routeQueryWorkflows(method, pathname, body, context.cookies)
   if (workflows) return workflows
+
+  if (method === 'POST' && pathname === '/api/enrichments/hail') {
+    const result = await enrichHail(body, context.cookies)
+    if ('error' in result) return { status: result.status, body: { error: result.error } }
+    return { status: 200, body: result }
+  }
 
   if (method === 'GET' && pathname === '/api/health') {
     return { status: 200, body: { ok: true } }
@@ -134,6 +142,12 @@ export async function routeApi(
     const request = asJobCreateRequest(body)
     if (!request) return invalid('Request body must include release_version and h3_cells.')
     return call(async () => createIngestionJob(request))
+  }
+
+  if (method === 'POST' && pathname === '/api/hex-snapshots/check') {
+    const result = await checkHexSnapshotsRequest(body)
+    if ('error' in result) return { status: result.status, body: { error: result.error } }
+    return { status: 200, body: result }
   }
 
   if (method === 'POST' && pathname === '/api/hex-status') {

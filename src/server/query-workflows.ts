@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { getResolution, isValidCell } from 'h3-js'
+import { asEnrichments } from '../lib/enrichments'
 import { defaultInspectFilters } from '../lib/feature-rows'
 import { MAX_QUERY_WORKFLOWS, MAX_SELECTED_CELLS } from '../lib/limits'
+import { OVERTURE_RELEASE_RE } from '../lib/overture-release'
 import { asInspectFilters, validateInspectSql } from '../lib/inspect-sql'
 import { readDataMode } from '../lib/server-env'
 import { ACCESS_COOKIE } from '../lib/auth-cookies'
@@ -37,8 +39,17 @@ export async function routeQueryWorkflows(
   const rest = pathname.slice('/api/query-workflows/'.length)
   const [id, action] = rest.split('/')
   if (!id) return { status: 400, body: { error: 'Workflow id is required.' } }
+  if (method === 'POST' && action === 'run') {
+    const { runQueryWorkflow } = await import('./workflow-runs')
+    return respond(await runQueryWorkflow(id, cookies))
+  }
+  if (method === 'GET' && action === 'runs') {
+    const { listQueryWorkflowRuns } = await import('./workflow-runs')
+    return respond(await listQueryWorkflowRuns(id, cookies))
+  }
   if (action) return { status: 404, body: { error: 'No such API route.' } }
   if (method === 'GET') return respond(await getQueryWorkflow(id, cookies))
+  if (method === 'PATCH') return respond(await patchQueryWorkflow(id, body, cookies))
   if (method === 'DELETE') return respond(await deleteQueryWorkflow(id, cookies))
   return { status: 404, body: { error: 'No such API route.' } }
 }
@@ -135,13 +146,27 @@ function parseCreate(body: unknown): Omit<QueryWorkflow, 'id' | 'owner_user_id' 
   const cells = parseCells(body.h3_cells)
   if ('error' in cells) return cells
   const filters = asInspectFilters(body.filters) ?? defaultInspectFilters
+  const enrichments = asEnrichments(body.enrichments ?? [])
+  if (!enrichments) return { error: 'Enrichments must be a geofence or hail_history list.', status: 400 }
+  const release = parseReleasePin(body.release_version)
+  if (release && typeof release === 'object') return release
   return {
     name,
     sql: body.sql.trim(),
     custom_sql: body.custom_sql,
     h3_cells: cells,
     filters,
+    enrichments,
+    release_version: typeof release === 'string' ? release : null,
   }
+}
+
+function parseReleasePin(value: unknown): string | null | ApiError {
+  if (value == null || value === '') return null
+  if (typeof value !== 'string' || !OVERTURE_RELEASE_RE.test(value.trim())) {
+    return { error: 'release_version is not a valid Overture release id.', status: 400 }
+  }
+  return value.trim()
 }
 
 function parseCells(value: unknown): string[] | ApiError {
@@ -223,6 +248,8 @@ async function supabaseCreate(
       custom_sql: parsed.custom_sql,
       h3_cells: parsed.h3_cells,
       filters: parsed.filters,
+      enrichments: parsed.enrichments,
+      release_version: parsed.release_version,
     })
     .select('*')
     .single()
@@ -242,6 +269,8 @@ function mapRow(value: unknown): QueryWorkflow | null {
   if (typeof value.custom_sql !== 'boolean' || !Array.isArray(value.h3_cells)) return null
   if (!value.h3_cells.every((cell) => typeof cell === 'string')) return null
   const filters = asInspectFilters(value.filters) ?? defaultInspectFilters
+  const enrichments = asEnrichments(value.enrichments ?? [])
+  if (!enrichments) return null
   return {
     id: value.id,
     owner_user_id: typeof value.owner_user_id === 'string' ? value.owner_user_id : null,
@@ -250,9 +279,58 @@ function mapRow(value: unknown): QueryWorkflow | null {
     custom_sql: value.custom_sql,
     h3_cells: value.h3_cells,
     filters,
+    enrichments,
+    release_version: typeof value.release_version === 'string' ? value.release_version : null,
     created_at: typeof value.created_at === 'string' ? value.created_at : new Date().toISOString(),
     updated_at: typeof value.updated_at === 'string' ? value.updated_at : new Date().toISOString(),
   }
+}
+
+export async function requireWorkflowOwner(
+  cookies: Record<string, string>,
+): Promise<{ ownerId: string; accessToken: string } | { error: string; status: number }> {
+  const session = await sessionOwner(cookies)
+  if (session.error) return session.error
+  if (session.signInRequired) return { error: 'Sign in to use a private workflow.', status: 401 }
+  return { ownerId: session.ownerId, accessToken: session.accessToken }
+}
+
+export async function patchQueryWorkflow(
+  id: string,
+  body: unknown,
+  cookies: Record<string, string>,
+): Promise<import('../types/query-workflows').QueryWorkflow | ApiError> {
+  const existing = await getQueryWorkflow(id, cookies)
+  if ('error' in existing) return existing
+  if (!isRecord(body)) return { error: 'Request body must include enrichments or release_version.', status: 400 }
+  const enrichments = body.enrichments === undefined ? existing.enrichments : asEnrichments(body.enrichments)
+  if (!enrichments) return { error: 'Enrichments must be a geofence or hail_history list.', status: 400 }
+  const release = body.release_version === undefined ? existing.release_version : parseReleasePin(body.release_version)
+  if (release && typeof release === 'object' && 'error' in release) return release
+  const session = await requireWorkflowOwner(cookies)
+  if ('error' in session) return session
+  const next = {
+    ...existing,
+    enrichments,
+    release_version: typeof release === 'string' || release === null ? release : existing.release_version,
+    updated_at: new Date().toISOString(),
+  }
+  if (readDataMode().resolved === 'mock') {
+    mockStore.set(id, next)
+    return next
+  }
+  const client = userClient(session.accessToken)
+  if (!client) return { error: 'Set SUPABASE_URL and SUPABASE_ANON_KEY on the server to save workflows.', status: 503 }
+  const { data, error } = await client
+    .from('query_workflows')
+    .update({ enrichments: next.enrichments, release_version: next.release_version })
+    .eq('id', id)
+    .select('*')
+    .single()
+  if (error) return supabaseError(error.message)
+  const mapped = mapRow(data)
+  if (!mapped) return { error: 'The workflow was saved but could not be read back.', status: 500 }
+  return mapped
 }
 
 function userClient(accessToken: string) {
@@ -261,7 +339,11 @@ function userClient(accessToken: string) {
 
 function supabaseError(message: string): ApiError {
   if (/does not exist|relation|schema cache/i.test(message)) {
-    return { error: 'Run supabase/migrations/20261027_query_workflows.sql in the Supabase SQL editor.', status: 400 }
+    return {
+      error:
+        'Run supabase/migrations/20261027_query_workflows.sql, supabase/migrations/20261027_workflow_enrichments.sql, and supabase/migrations/20261027_hex_snapshot_history.sql in the Supabase SQL editor.',
+      status: 400,
+    }
   }
   return { error: message.length > 0 && message.length < 180 ? message : 'The workflow request failed.', status: 400 }
 }

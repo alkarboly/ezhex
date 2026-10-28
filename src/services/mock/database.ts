@@ -96,9 +96,10 @@ export function buildMockDatabase(): MockDatabase {
   const addresses = new Map<string, AddressRecord[]>()
   const totals: Record<DatasetId, number> = { places: 0, buildings: 0, addresses: 0 }
 
-  for (const cell of cells) addCell(places, buildings, addresses, totals, cell, DEFAULT_OVERTURE_RELEASE)
+  const db: MockDatabase = { cells, places, buildings, addresses, totals }
+  for (const cell of cells) writeCell(db, cell, generateCell(cell, DEFAULT_OVERTURE_RELEASE))
 
-  return { cells, places, buildings, addresses, totals }
+  return db
 }
 
 /** Generate mock rows for hexes that are not in the Austin seed coverage. */
@@ -112,7 +113,7 @@ export function ingestMockCells(
   for (const cell of cells) {
     const already = db.places.has(cell) && db.buildings.has(cell) && db.addresses.has(cell)
     if (!already) {
-      addCell(db.places, db.buildings, db.addresses, db.totals, cell, release)
+      writeCell(db, cell, generateCell(cell, release))
       if (!db.cells.includes(cell)) db.cells.push(cell)
       added.push(cell)
     }
@@ -124,29 +125,51 @@ export function ingestMockCells(
   return { rows, added }
 }
 
-function addCell(
-  places: Map<string, PlaceRecord[]>,
-  buildings: Map<string, BuildingRecord[]>,
-  addresses: Map<string, AddressRecord[]>,
-  totals: Record<DatasetId, number>,
-  cell: string,
+/** Append a newer release onto an already-processed hex. Never invents history before first process. */
+export function historizeMockCells(
+  db: MockDatabase,
+  cells: readonly string[],
   release: string,
-) {
+): { hexes: string[]; rows: number } {
+  const hexes: string[] = []
+  let rows = 0
+  for (const cell of cells) {
+    const places = db.places.get(cell) ?? []
+    if (places.length === 0) continue
+    if (places.some((row) => row.release_version === release)) continue
+    const next = generateCell(cell, release)
+    db.places.set(cell, [...places, ...next.places])
+    db.buildings.set(cell, [...(db.buildings.get(cell) ?? []), ...next.buildings])
+    db.addresses.set(cell, [...(db.addresses.get(cell) ?? []), ...next.addresses])
+    db.totals.places += next.places.length
+    db.totals.buildings += next.buildings.length
+    db.totals.addresses += next.addresses.length
+    hexes.push(cell)
+    rows += next.places.length + next.buildings.length + next.addresses.length
+  }
+  return { hexes, rows }
+}
+
+function generateCell(cell: string, release: string) {
   const center = cellCenter(cell)
   if (latLngToCell(center.lat, center.lng, H3_RESOLUTION) !== cell) {
     throw new Error(`Cell center fell outside ${cell}.`)
   }
   const boost = downtownBoost(center.lat, center.lng)
-  const placeRows = buildPlaces(cell, center, boost, release)
-  const buildingRows = buildBuildings(cell, center, boost, release)
-  const addressRows = buildAddresses(cell, center, boost, release)
-  locateAndLink(placeRows, buildingRows, addressRows, center)
-  places.set(cell, placeRows)
-  buildings.set(cell, buildingRows)
-  addresses.set(cell, addressRows)
-  totals.places += placeRows.length
-  totals.buildings += buildingRows.length
-  totals.addresses += addressRows.length
+  const places = buildPlaces(cell, center, boost, release)
+  const buildings = buildBuildings(cell, center, boost, release)
+  const addresses = buildAddresses(cell, center, boost, release)
+  locateAndLink(places, buildings, addresses, center)
+  return { places, buildings, addresses }
+}
+
+function writeCell(db: MockDatabase, cell: string, generated: ReturnType<typeof generateCell>) {
+  db.places.set(cell, generated.places)
+  db.buildings.set(cell, generated.buildings)
+  db.addresses.set(cell, generated.addresses)
+  db.totals.places += generated.places.length
+  db.totals.buildings += generated.buildings.length
+  db.totals.addresses += generated.addresses.length
 }
 
 function buildPlaces(

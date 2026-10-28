@@ -44,9 +44,16 @@ UI / API caller
   -> Supabase stores workflow, runs, subscriptions, and metrics
      (Node jobs are not written here yet)
   -> Inspect SQL + Create a workflow
-     GET/POST/DELETE /api/query-workflows
+     GET/POST/PATCH/DELETE /api/query-workflows
      owner RLS, 5 per account, nationwide hexes
-     selecting a workflow previews every hex on the map
+     enrichments stay on the workflow and are private
+     POST /api/query-workflows/:id/run checks overture_hex_snapshots, historizes latest if needed, then query then enrichments
+  -> Enrich
+     POST /api/enrichments/hail
+     geofence keep inside|outside a drawn polygon
+     hail_history from NOAA MRMS MESH_Max_1440min 12Z only, clamped to first process
+  -> POST /api/hex-snapshots/check
+     processed | first_release_version | latest_release_version | has_current
 ```
 
 ## API contract
@@ -97,7 +104,27 @@ Lists `overture_release_snapshots` (or the mock catalog). Each row is one proces
 
 The explorer selection dock and `/jobs` create jobs from selected hexes. There is no hover card and no Query button. Process always loads places, buildings, and addresses. `/jobs` keeps a live log pane per job, including association match rates, collapsed until Logs is pressed, and polls while a job is queued or running. Opening `/jobs` also processes any queued mock jobs. `/workflows` lists saved query workflows (inspect SQL + hexes, 5 per account). Selecting one previews every hex on the map, including nationwide disconnected sets. The same page still builds and downloads ingest plan JSON. Inspect opens a fitted panel from a ready hex click, fetches all three themes unfiltered, and shows one joined table with snapshot, snapshot date, sources, attribution, split taxonomy, and the stored theme fields. The inspect query is shown as SQL. Copy SQL and download CSV are available. Create a workflow stores that SQL and the selected hexes. Further hex clicks add cells to that query. Browser filters cover category, main category, snapshot date, status, building class, confidence, and presence flags. Nulls stay when a link is missing. Building height and floors appear when the Overture row has them.
 
-`GET /api/query-workflows` lists the signed-in owner's query workflows (`limit` 5, `remaining`). `POST /api/query-workflows` saves `{ name, sql, custom_sql, h3_cells, filters }`. Custom SQL must be a single SELECT on `overture_places`, `overture_buildings`, and `overture_addresses`. Execution still uses `/api/query` plus the stored inspect filters. `GET` / `DELETE /api/query-workflows/:id` are owner-only. Ingest connectedness and the 20-hex / 220 km2 caps do not apply to query workflows. Mock mode keeps the same list in memory without an account.
+`GET /api/query-workflows` lists the signed-in owner's query workflows (`limit` 5, `remaining`). `POST /api/query-workflows` saves `{ name, sql, custom_sql, h3_cells, filters, enrichments, release_version }`. `release_version` null or omitted means latest. `PATCH /api/query-workflows/:id` updates enrichments or the pin. Custom SQL must be a single SELECT on `overture_places`, `overture_buildings`, and `overture_addresses`. `POST /api/query-workflows/:id/run` checks `overture_hex_snapshots`, historizes missing current snapshots for already-processed hexes, loads the inspect rows (or the pinned cut), then applies enrichments in order, and stores a private run. Unprocessed hexes fail. `GET` / `DELETE /api/query-workflows/:id` are owner-only. Ingest connectedness and the 20-hex / 220 km2 caps do not apply to query workflows. Mock mode keeps the same list in memory without an account.
+
+`POST /api/hex-snapshots/check` `{ h3_cells }` reads `overture_hex_snapshots` and returns per-hex `processed`, `first_release_version`, `latest_release_version`, `has_current`, and `releases`. Hex-status uses the same table.
+
+Workflows, enrichments, runs, and hail extracts are private (`auth.uid() = owner_user_id`). Anon cannot read them.
+
+### Enrichments
+
+A workflow is a query plus an ordered enrichment list (max 4, at most one `hail_history`).
+
+**geofence.** `{ id, kind: "geofence", keep: "inside" | "outside", polygon }`. After the query, rows whose `lng`/`lat` fail the keep test are dropped. Draw the polygon on the map (Enrich → Draw fence) or save it onto the workflow.
+
+**hail_history.** `{ id, kind: "hail_history", start_date, end_date }`. NOAA MRMS `MESH_Max_1440min` (24h max estimated hail size, mm). Public S3, anonymous:
+
+`s3://noaa-mrms-pds/CONUS/MESH_Max_1440min_00.50/YYYYMMDD/MRMS_MESH_Max_1440min_00.50_YYYYMMDD-HHMMSS.grib2.gz`
+
+Use only the `120000` (12Z) file per day. Never sum overlapping files. Data from `2020-11-01`. Lon 0-360 is converted to -180..180. Values: `>0` hail mm, `0` none, `-1` missing, `-3` no coverage. Range cap is 366 days.
+
+`POST /api/enrichments/hail` `{ h3_cells, start_date, end_date }` processes selected hexes and returns per-hex `{ hail_mm_max, hail_days, hail_last_date }`. The Explorer **Enrich** button opens that path.
+
+Live decode uses `pipelines/hail/extract_mesh.py` (xarray+cfgrib). Node writes a temp job JSON with hex bboxes, runs the script, keeps only hex-day mm, and deletes the GRIB. Supabase stores `hail_hex_stats` per owner. Full grids are not retained. Mock mode synthesizes deterministic MESH for verify.
 
 `POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
 
@@ -136,7 +163,18 @@ Primary tables:
 
 Query-workflow migration: `supabase/migrations/20261027_query_workflows.sql`
 
-- `query_workflows` (owner, inspect SQL, custom flag, nationwide hexes 1–300, inspect filters, 5 per owner)
+- `query_workflows` (owner, inspect SQL, custom flag, nationwide hexes 1–300, inspect filters, enrichments, optional `release_version`, 5 per owner)
+
+Enrichment migration: `supabase/migrations/20261027_workflow_enrichments.sql`
+
+- `query_workflows.enrichments` (jsonb array, max 4)
+- `query_workflow_runs` (private run results)
+- `hail_hex_stats` (owner, hex, day, mesh_mm_max only)
+
+Snapshot-history migration: `supabase/migrations/20261027_hex_snapshot_history.sql`
+
+- `query_workflows.release_version` (null = latest)
+- `query_workflow_runs.release_version`, `snapshot_status` (`current` | `stale` | `historical`), `historized_hexes`
 
 All workflow tables are protected with owner-based RLS using `auth.uid() = owner_user_id`. Snapshot tables are readable by anon. `profiles` and `delete_own_account()` come from `supabase/migrations/20261027_auth.sql`. Accounts are optional for the public map. Saving a query workflow requires a session when Supabase is configured. The ingest `workflows*` tables stay the 20-hex connected scaffold. Query workflows are the user-facing saved inspect queries.
 

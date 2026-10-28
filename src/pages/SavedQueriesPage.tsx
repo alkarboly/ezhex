@@ -9,7 +9,7 @@ import { formatCount } from '../lib/format'
 import { MAX_QUERY_WORKFLOWS } from '../lib/limits'
 import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
 import { cn } from '../lib/utils'
-import { deleteQueryWorkflow, listQueryWorkflows } from '../services/query-workflows'
+import { deleteQueryWorkflow, listQueryWorkflows, patchQueryWorkflow, runQueryWorkflow } from '../services/query-workflows'
 import {
   createWorkflowIngestionPlan,
   getQuerySchemas,
@@ -36,6 +36,22 @@ export function SavedQueriesPage() {
     mutationFn: deleteQueryWorkflow,
     onSuccess: () => client.invalidateQueries({ queryKey: ['query-workflows'] }),
   })
+  const run = useMutation({
+    mutationFn: runQueryWorkflow,
+    onSuccess: (result) => {
+      void client.invalidateQueries({ queryKey: ['query-workflows'] })
+      useExplorer.getState().setNotice(
+        result.status === 'succeeded'
+          ? `Workflow ran · ${result.row_count} rows after enrichments`
+          : result.error_message ?? 'Workflow run failed.',
+      )
+    },
+  })
+  const draftEnrichments = useExplorer((state) => state.draftEnrichments)
+  const saveDraft = useMutation({
+    mutationFn: (id: string) => patchQueryWorkflow(id, { enrichments: draftEnrichments }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['query-workflows'] }),
+  })
 
   const workflows = saved.data?.workflows ?? []
   const remaining = saved.data?.remaining ?? Math.max(0, MAX_QUERY_WORKFLOWS - workflows.length)
@@ -48,8 +64,10 @@ export function SavedQueriesPage() {
           <p className="font-mono text-[10px] tracking-[0.22em] text-primary uppercase">Query workflows</p>
           <h1 className="mt-1 text-xl font-semibold">Saved inspect SQL</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            A workflow is an inspect query: the SQL plus every selected hex. Hexes can sit across the country.
-            Selecting one paints them all on the map. {MAX_QUERY_WORKFLOWS} per account.
+            A workflow is a private inspect query plus optional enrichments. Geofence keeps rows inside or outside a
+            custom polygon. Hail history attaches NOAA MESH stats. History starts at first Process; a run checks
+            overture_hex_snapshots for the latest cut and can pin an older one.{' '}
+            {MAX_QUERY_WORKFLOWS} per account.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
             <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 font-mono text-primary">
@@ -81,8 +99,11 @@ export function SavedQueriesPage() {
                 previewWorkflow(workflow)
                 navigate('/')
               }}
+              onRun={() => run.mutate(workflow.id)}
+              onSaveEnrichments={() => saveDraft.mutate(workflow.id)}
               onDelete={() => remove.mutate(workflow.id)}
               deleting={remove.isPending && remove.variables === workflow.id}
+              running={run.isPending && run.variables === workflow.id}
             />
           ))}
           {Array.from({ length: remaining }, (_, index) => (
@@ -105,14 +126,20 @@ function WorkflowCard({
   workflow,
   active,
   onOpen,
+  onRun,
+  onSaveEnrichments,
   onDelete,
   deleting,
+  running,
 }: {
   workflow: QueryWorkflow
   active: boolean
   onOpen: () => void
+  onRun: () => void
+  onSaveEnrichments: () => void
   onDelete: () => void
   deleting: boolean
+  running: boolean
 }) {
   const preview = workflow.sql
     .split(/\r?\n/)
@@ -134,6 +161,8 @@ function WorkflowCard({
               <MapPinned className="size-3 text-primary" />
               {formatCount(workflow.h3_cells.length)} hexes
               {workflow.custom_sql ? ' · custom SQL' : ' · generated SQL'}
+              {workflow.release_version ? ` · ${workflow.release_version}` : ' · latest snapshot'}
+              {workflow.enrichments.length > 0 ? ` · ${workflow.enrichments.map((step) => step.kind.replace('_', ' ')).join(' · ')}` : ''}
             </p>
           </div>
           <span className="grid size-9 place-items-center rounded-lg bg-primary/10 text-primary">
@@ -155,6 +184,21 @@ function WorkflowCard({
           className="rounded-full bg-primary/15 px-3 py-1 text-[11px] font-medium text-primary hover:bg-primary/25"
         >
           Preview on map
+        </button>
+        <button
+          type="button"
+          disabled={running}
+          onClick={onRun}
+          className="rounded-full bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+        >
+          {running ? 'Running…' : 'Run query'}
+        </button>
+        <button
+          type="button"
+          onClick={onSaveEnrichments}
+          className="rounded-full px-3 py-1 text-[11px] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
+        >
+          Save enrichments
         </button>
         <button
           type="button"

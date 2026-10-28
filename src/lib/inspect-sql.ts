@@ -9,7 +9,11 @@ const FORBIDDEN =
 export const INSPECT_SQL_TABLES = ['overture_places', 'overture_buildings', 'overture_addresses'] as const
 
 /** Readable SELECT that describes the inspect join and filters. */
-export function compileInspectSql(cells: readonly string[], filters: InspectFilters = defaultInspectFilters): string {
+export function compileInspectSql(
+  cells: readonly string[],
+  filters: InspectFilters = defaultInspectFilters,
+  releaseVersion?: string | null,
+): string {
   const hexes = [...new Set(cells)]
   const lines = [
     '-- WorldPulse inspect',
@@ -44,7 +48,7 @@ export function compileInspectSql(cells: readonly string[], filters: InspectFilt
     ' AND buildings.release_version = places.release_version',
   ]
 
-  const where = compileWhere(hexes, filters)
+  const where = compileWhere(hexes, filters, releaseVersion)
   if (where.length > 0) {
     lines.push('WHERE')
     where.forEach((clause, index) => {
@@ -108,12 +112,15 @@ export function asInspectFilters(value: unknown): InspectFilters | null {
   }
 }
 
-function compileWhere(cells: readonly string[], filters: InspectFilters): string[] {
+function compileWhere(cells: readonly string[], filters: InspectFilters, releaseVersion?: string | null): string[] {
   const clauses: string[] = []
   if (cells.length === 0) {
     clauses.push('false')
   } else {
     clauses.push(`places.h3_res8 IN (\n    ${cells.map(sqlString).join(',\n    ')}\n  )`)
+  }
+  if (releaseVersion) {
+    clauses.push(`places.release_version = ${sqlString(releaseVersion)}`)
   }
   if (filters.kind !== 'all') {
     if (filters.kind === 'places') clauses.push('places.id IS NOT NULL')

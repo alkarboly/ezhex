@@ -1,8 +1,11 @@
 import { getResolution, gridDisk, latLngToCell } from 'h3-js'
 import { create } from 'zustand'
+import { closedRing } from '../lib/enrichments'
 import type { InspectFilters } from '../lib/feature-rows'
+import type { GeoJsonPosition } from '../lib/geojson'
 import { AUSTIN_CENTER, type ViewportStatus } from '../lib/h3'
-import { DEFAULT_QUERY_LIMIT, H3_RESOLUTION, MAX_SELECTED_CELLS } from '../lib/limits'
+import { DEFAULT_QUERY_LIMIT, H3_RESOLUTION, MAX_GEOFENCE_VERTICES, MAX_SELECTED_CELLS } from '../lib/limits'
+import type { GeofenceKeep, HailHexSummary, WorkflowEnrichment } from '../types/enrichments'
 import { defaultSort, type DatasetId } from '../types/datasets'
 import {
   defaultAddressesForm,
@@ -20,6 +23,7 @@ export type HexMode = 'lens' | 'grid' | 'off'
 export type SheetSnap = 'peek' | 'half' | 'full'
 export type FitRequest = { nonce: number; zoomIn: boolean }
 export type MobileTab = 'query' | 'results'
+export type DrawMode = 'off' | 'geofence'
 export type InspectReplay = {
   nonce: number
   workflowId: string | null
@@ -27,6 +31,7 @@ export type InspectReplay = {
   filters: InspectFilters
   sql: string
   customSql: boolean
+  releaseVersion: string | null
 }
 
 type ExplorerState = {
@@ -62,6 +67,12 @@ type ExplorerState = {
   inspectOpen: boolean
   inspectPosition: { x: number; y: number }
   inspectReplay: InspectReplay | null
+  draftEnrichments: WorkflowEnrichment[]
+  drawMode: DrawMode
+  geofenceDraft: GeoJsonPosition[]
+  enrichOpen: boolean
+  hailSummaries: HailHexSummary[]
+  inspectRelease: string | null
   setDataset: (dataset: DatasetId) => void
   toggleCell: (h3: string, shiftKey: boolean) => void
   clearSelection: () => void
@@ -100,8 +111,21 @@ type ExplorerState = {
     filters: InspectFilters
     sql: string
     custom_sql: boolean
+    enrichments?: WorkflowEnrichment[]
+    release_version?: string | null
   }) => void
+  setInspectRelease: (inspectRelease: string | null) => void
   clearWorkflowPreview: () => void
+  setDraftEnrichments: (draftEnrichments: WorkflowEnrichment[]) => void
+  upsertDraftEnrichment: (enrichment: WorkflowEnrichment) => void
+  removeDraftEnrichment: (id: string) => void
+  setDrawMode: (drawMode: DrawMode) => void
+  addGeofenceVertex: (lng: number, lat: number) => void
+  undoGeofenceVertex: () => void
+  closeGeofence: (keep: GeofenceKeep) => void
+  clearGeofenceDraft: () => void
+  setEnrichOpen: (enrichOpen: boolean) => void
+  setHailSummaries: (hailSummaries: HailHexSummary[]) => void
 }
 
 const initialSort = defaultSort('places')
@@ -137,6 +161,12 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
   inspectOpen: false,
   inspectPosition: { x: 420, y: 72 },
   inspectReplay: null,
+  draftEnrichments: [],
+  drawMode: 'off',
+  geofenceDraft: [],
+  enrichOpen: false,
+  hailSummaries: [],
+  inspectRelease: null,
   setDataset: (dataset) => {
     const sort = defaultSort(dataset)
     set({
@@ -359,7 +389,10 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
         filters: input.filters,
         sql: input.sql,
         customSql: input.custom_sql,
+        releaseVersion: input.release_version ?? null,
       },
+      inspectRelease: input.release_version ?? null,
+      draftEnrichments: input.enrichments ?? state.draftEnrichments,
       fit: cells.length > 0 ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
       notice:
         cells.length === 0
@@ -371,5 +404,41 @@ export const useExplorer = create<ExplorerState>((set, get) => ({
     set({
       inspectReplay: null,
       inspectOpen: false,
+      inspectRelease: null,
     }),
+  setInspectRelease: (inspectRelease) => set({ inspectRelease, page: 0 }),
+  setDraftEnrichments: (draftEnrichments) => set({ draftEnrichments }),
+  upsertDraftEnrichment: (enrichment) =>
+    set((state) => {
+      const withoutSameKind = state.draftEnrichments.filter((step) => step.kind !== enrichment.kind)
+      return { draftEnrichments: [...withoutSameKind, enrichment] }
+    }),
+  removeDraftEnrichment: (id) =>
+    set((state) => ({ draftEnrichments: state.draftEnrichments.filter((step) => step.id !== id) })),
+  setDrawMode: (drawMode) => set({ drawMode, geofenceDraft: drawMode === 'geofence' ? [] : get().geofenceDraft }),
+  addGeofenceVertex: (lng, lat) =>
+    set((state) => {
+      if (state.geofenceDraft.length >= MAX_GEOFENCE_VERTICES) {
+        return { notice: `A fence can have ${MAX_GEOFENCE_VERTICES} vertices.` }
+      }
+      return { geofenceDraft: [...state.geofenceDraft, [lng, lat]], notice: null }
+    }),
+  undoGeofenceVertex: () => set((state) => ({ geofenceDraft: state.geofenceDraft.slice(0, -1) })),
+  closeGeofence: (keep) => {
+    const ring = closedRing(get().geofenceDraft)
+    if (!ring) {
+      set({ notice: 'A fence needs at least three points.' })
+      return
+    }
+    get().upsertDraftEnrichment({
+      id: 'geofence',
+      kind: 'geofence',
+      keep,
+      polygon: { type: 'Polygon', coordinates: [ring] },
+    })
+    set({ drawMode: 'off', geofenceDraft: [], notice: `Geofence saved · keep ${keep}` })
+  },
+  clearGeofenceDraft: () => set({ geofenceDraft: [], drawMode: 'off' }),
+  setEnrichOpen: (enrichOpen) => set({ enrichOpen }),
+  setHailSummaries: (hailSummaries) => set({ hailSummaries }),
 }))

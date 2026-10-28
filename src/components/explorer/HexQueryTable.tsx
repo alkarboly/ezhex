@@ -18,7 +18,7 @@ import { formatCount } from '../../lib/format'
 import { compileInspectSql, validateInspectSql } from '../../lib/inspect-sql'
 import { MAX_QUERY_WORKFLOWS } from '../../lib/limits'
 import { cn } from '../../lib/utils'
-import { createQueryWorkflow, listQueryWorkflows } from '../../services/query-workflows'
+import { checkHexSnapshots, createQueryWorkflow, listQueryWorkflows } from '../../services/query-workflows'
 import { useExplorer } from '../../store/explorer-store'
 import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
 import { nativeSelectClass } from '../ui/input'
@@ -71,6 +71,9 @@ const COLUMNS = [
   { field: 'address_id', label: 'Address id', numeric: false },
   { field: 'id', label: 'Id', numeric: false },
   { field: 'h3', label: 'H3', numeric: false },
+  { field: 'hail_mm_max', label: 'Hail mm max', numeric: true },
+  { field: 'hail_days', label: 'Hail days', numeric: true },
+  { field: 'hail_last_date', label: 'Hail last date', numeric: false },
   { field: 'lat', label: 'Lat', numeric: true },
   { field: 'lng', label: 'Lng', numeric: true },
 ] as const
@@ -84,6 +87,21 @@ export function HexQueryTable() {
   const selectedCells = useExplorer((state) => state.selectedCells)
   const inspectReplay = useExplorer((state) => state.inspectReplay)
   const previewWorkflow = useExplorer((state) => state.previewWorkflow)
+  const draftEnrichments = useExplorer((state) => state.draftEnrichments)
+  const inspectRelease = useExplorer((state) => state.inspectRelease)
+  const setInspectRelease = useExplorer((state) => state.setInspectRelease)
+  const snapshots = useQuery({
+    queryKey: ['hex-snapshots', selectedCells],
+    queryFn: () => checkHexSnapshots(selectedCells),
+    enabled: inspectOpen && selectedCells.length > 0,
+  })
+  const storedReleases = useMemo(() => {
+    const found = new Set<string>()
+    for (const cell of snapshots.data?.cells ?? []) {
+      for (const release of cell.releases) found.add(release)
+    }
+    return [...found].sort()
+  }, [snapshots.data])
   const places = useThemeQuery('places', inspectOpen)
   const buildings = useThemeQuery('buildings', inspectOpen)
   const addresses = useThemeQuery('addresses', inspectOpen)
@@ -223,7 +241,10 @@ export function HexQueryTable() {
       hasOfficialId,
     ],
   )
-  const generatedSql = useMemo(() => compileInspectSql(selectedCells, inspectFilters), [inspectFilters, selectedCells])
+  const generatedSql = useMemo(
+    () => compileInspectSql(selectedCells, inspectFilters, inspectRelease),
+    [inspectFilters, inspectRelease, selectedCells],
+  )
   const sql = customSql ?? generatedSql
   const sqlError = customSql ? validateInspectSql(customSql) : null
 
@@ -246,8 +267,9 @@ export function HexQueryTable() {
       setHasOfficialId,
     })
     setCustomSql(inspectReplay.customSql ? inspectReplay.sql : null)
+    setInspectRelease(inspectReplay.releaseVersion)
     setPage(0)
-  }, [inspectReplay, setPage])
+  }, [inspectReplay, setInspectRelease, setPage])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="hex-query-table">
@@ -277,6 +299,19 @@ export function HexQueryTable() {
             onChange={setMainCategories}
             resetPage={() => setPage(0)}
           />
+          <select
+            aria-label="Snapshot"
+            className={cn(nativeSelectClass, compactSelectClass, 'min-w-36')}
+            value={inspectRelease ?? ''}
+            onChange={(event) => setInspectRelease(event.target.value || null)}
+          >
+            <option value="">Latest snapshot</option>
+            {storedReleases.map((release) => (
+              <option key={release} value={release}>
+                {release}
+              </option>
+            ))}
+          </select>
           <MultiPick
             label="Snapshot date"
             options={snapshotDateOptions}
@@ -369,6 +404,8 @@ export function HexQueryTable() {
             custom_sql: customSql != null,
             h3_cells: selectedCells,
             filters: inspectFilters,
+            enrichments: draftEnrichments,
+            release_version: inspectRelease,
           })
         }}
         creating={create.isPending}

@@ -11,3 +11,9 @@ export const PAGE_SIZES = [25, 50, 100, 250] as const
 /** Saved inspect / query workflows per account. Nationwide hexes are allowed. */
 export const MAX_QUERY_WORKFLOWS = 5
 export const MAX_INSPECT_SQL_LENGTH = 20_000
+export const MAX_ENRICHMENTS = 4
+export const MAX_GEOFENCE_VERTICES = 64
+/** NOAA MRMS MESH_Max_1440min is usable from this day on. */
+export const HAIL_MESH_START = '2020-11-01'
+/** One 12Z file per day. Cap the range so Render does not pull a multi-year grid. */
+export const MAX_HAIL_DAYS = 366

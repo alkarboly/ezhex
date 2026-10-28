@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, `supabase/migrations/20261027_auth.sql`, and `supabase/migrations/20261027_query_workflows.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table as SQL; you do not pick a theme. Settings creates and deletes accounts. Saving a workflow needs a sign-in when Supabase is configured. The map does not require a login.
+Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, `supabase/migrations/20261027_auth.sql`, `supabase/migrations/20261027_query_workflows.sql`, `supabase/migrations/20261027_workflow_enrichments.sql`, and `supabase/migrations/20261027_hex_snapshot_history.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table as SQL; you do not pick a theme. Settings creates and deletes accounts. Saving a workflow needs a sign-in when Supabase is configured. The map does not require a login.
 
 ```bash
 npm run build
@@ -52,13 +52,18 @@ The server includes segmented-ingestion planning and job routes:
 - `GET /api/query-workflows`
 - `POST /api/query-workflows`
 - `GET /api/query-workflows/:id`
+- `PATCH /api/query-workflows/:id`
 - `DELETE /api/query-workflows/:id`
+- `POST /api/query-workflows/:id/run`
+- `GET /api/query-workflows/:id/runs`
+- `POST /api/enrichments/hail`
 - `GET /api/workflow-ingestion/limits`
 - `POST /api/workflow-ingestion/plan`
 - `POST /api/workflow-ingestion/jobs`
 - `GET /api/workflow-ingestion/jobs`
 - `GET /api/workflow-ingestion/jobs/:id`
 - `POST /api/workflow-ingestion/jobs/:id/run`
+- `POST /api/hex-snapshots/check`
 - `POST /api/hex-status`
 
 The plan route enforces:
@@ -116,11 +121,12 @@ render deploys create SERVICE_ID --wait --confirm
 - Hex-first explorer: click a ready hex to inspect. Further clicks add hexes to that query. Process stays on the selection dock. There is no Query button and no hover card. Workflows and Jobs stay in the side nav
 - Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase. Logs stay collapsed until opened.
 - Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
-- Release snapshots stay as metadata (`GET /api/releases`). Process keeps older cuts. Query with `release_version` for a historical slice
+- Release snapshots stay as metadata (`GET /api/releases`, `POST /api/hex-snapshots/check`). Process writes the first hex snapshot. A workflow run checks that table and historizes the latest cut. Query with `release_version` for a historical slice stored after first process
 - `/licenses` credits OpenStreetMap, Overture, Foursquare, NAD, OpenFreeMap, and Esri
 - Optional Supabase accounts in Settings: create, sign in, sign out, delete account. The public map does not require a login
 - Inspect is SQL: generated from hexes and filters, editable custom SELECT, copy SQL, download CSV
-- Query workflows (5 per account) save that inspect SQL and hex set. Selecting one previews every hex on the map, including nationwide selections
+- Query workflows (5 per account) save that inspect SQL, hex set, and private enrichments. Selecting one previews every hex on the map, including nationwide selections
+- Enrich adds a geofence (keep inside or outside a drawn polygon) and hail history from NOAA MRMS MESH 12Z files. Only hex-day mm is retained
 - Hard caps on hex count, bbox area, and row counts for ingest. Query workflows allow up to 300 disconnected hexes
 
 Click a ready hex to pin a fitted table. Click another ready hex to add it to the same query. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. Taxonomy `primary < category` splits into main category and category. Snapshot stays the release id; snapshot date is the date prefix. Filters cover category, main category, snapshot date, status, building class, confidence, underground, phone, email, socials, and official id. The table also includes sources, attribution, contact fields, building extras, and address extras. Building name, subtype, height, and floors show when Overture has them — names and heights are often empty. Missing hexes have to be processed first. Process pulls real Overture rows.

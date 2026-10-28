@@ -53,6 +53,9 @@ export type FeatureRow = {
   roof_color: string | null
   building_id: string | null
   address_id: string | null
+  hail_mm_max: number | null
+  hail_days: number | null
+  hail_last_date: string | null
   lat: number
   lng: number
   geometry: GeoJsonGeometry | null
@@ -301,6 +304,9 @@ function withLinks(
     | 'roof_shape'
     | 'roof_direction'
     | 'roof_color'
+    | 'hail_mm_max'
+    | 'hail_days'
+    | 'hail_last_date'
   >,
   address: ResultRow | undefined,
   building: ResultRow | undefined,
@@ -308,6 +314,9 @@ function withLinks(
 ): FeatureRow {
   return {
     ...base,
+    hail_mm_max: null,
+    hail_days: null,
+    hail_last_date: null,
     address: address ? formatLinkedAddress(address) : fallbackAddress,
     unit: address ? nonempty(text(address.values.unit)) : null,
     postal_city: address ? nonempty(text(address.values.postal_city)) : null,

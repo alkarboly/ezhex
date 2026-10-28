@@ -26,3 +26,23 @@ export type HexReleaseSnapshot = {
   source_datasets: string[]
   ingested_at: string
 }
+
+export type HexSnapshotCheckCell = {
+  h3: string
+  processed: boolean
+  first_release_version: string | null
+  latest_release_version: string | null
+  has_current: boolean
+  releases: string[]
+}
+
+export type HexSnapshotCheck = {
+  current_release_version: string
+  cells: HexSnapshotCheckCell[]
+  processed_count: number
+  missing_count: number
+  stale_count: number
+  current_count: number
+}
+
+export type QuerySnapshotStatus = 'current' | 'stale' | 'historical'

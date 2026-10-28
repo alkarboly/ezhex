@@ -98,6 +98,7 @@ export function useInspectFeatures(enabled: boolean) {
 
 export function useThemeQuery(dataset: DatasetId, enabled: boolean) {
   const selectedCells = useExplorer((state) => state.selectedCells)
+  const inspectRelease = useExplorer((state) => state.inspectRelease)
   const compiled = useMemo(
     () =>
       buildQuerySpec({
@@ -111,8 +112,9 @@ export function useThemeQuery(dataset: DatasetId, enabled: boolean) {
         limit: MAX_QUERY_LIMIT,
         page: 0,
         resultsSearch: '',
+        releaseVersion: inspectRelease ?? undefined,
       }),
-    [dataset, selectedCells],
+    [dataset, inspectRelease, selectedCells],
   )
   const results = useQuery({
     queryKey: ['hex-features', compiled.spec],

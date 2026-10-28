@@ -151,11 +151,29 @@ export async function supabaseReleaseCatalog(): Promise<ReleaseCatalog> {
   }
 }
 
-/** Newest `release_version` stored for each hex across the Overture feature tables. */
+/** Newest `release_version` stored for each hex. Snapshot table first, then feature rows. */
 export async function supabaseHexReleases(cells: readonly string[]): Promise<Map<string, string>> {
   const client = requireClient()
   const newest = new Map<string, string>()
   if (cells.length === 0) return newest
+  for (const part of chunk(cells, 80)) {
+    const { data, error } = await client
+      .from('overture_hex_snapshots')
+      .select('h3_res8, release_version')
+      .in('h3_res8', part)
+    if (error) {
+      if (/does not exist|schema cache/i.test(error.message)) break
+      throw new Error(error.message)
+    }
+    for (const row of data ?? []) {
+      if (!row || typeof row.h3_res8 !== 'string' || typeof row.release_version !== 'string') continue
+      const previous = newest.get(row.h3_res8)
+      if (!previous || compareOvertureRelease(row.release_version, previous) > 0) {
+        newest.set(row.h3_res8, row.release_version)
+      }
+    }
+  }
+  if (newest.size === cells.length) return newest
   for (const table of Object.values(TABLES)) {
     for (const part of chunk(cells, 80)) {
       const { data, error } = await client.from(table).select('h3_res8, release_version').in('h3_res8', part)

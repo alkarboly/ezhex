@@ -1,6 +1,8 @@
-import type { QueryWorkflow, QueryWorkflowCreate, QueryWorkflowList } from '../types/query-workflows'
+import type { HailEnrichRequest, HailEnrichResponse, QueryWorkflowRun } from '../types/enrichments'
+import type { HexSnapshotCheck } from '../types/releases'
+import type { QueryWorkflow, QueryWorkflowCreate, QueryWorkflowList, QueryWorkflowPatch } from '../types/query-workflows'
 
-async function request<T>(path: string, method: 'GET' | 'POST' | 'DELETE', body?: unknown): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' | 'DELETE' | 'PATCH', body?: unknown): Promise<T> {
   const response = await fetch(path, {
     method,
     credentials: 'same-origin',
@@ -34,4 +36,24 @@ export function getQueryWorkflow(id: string) {
 
 export function deleteQueryWorkflow(id: string) {
   return request<{ ok: true }>(`/api/query-workflows/${id}`, 'DELETE')
+}
+
+export function patchQueryWorkflow(id: string, body: QueryWorkflowPatch) {
+  return request<QueryWorkflow>(`/api/query-workflows/${id}`, 'PATCH', body)
+}
+
+export function runQueryWorkflow(id: string) {
+  return request<QueryWorkflowRun>(`/api/query-workflows/${id}/run`, 'POST', {})
+}
+
+export function listQueryWorkflowRuns(id: string) {
+  return request<Omit<QueryWorkflowRun, 'rows'>[]>(`/api/query-workflows/${id}/runs`, 'GET')
+}
+
+export function enrichHail(body: HailEnrichRequest) {
+  return request<HailEnrichResponse>('/api/enrichments/hail', 'POST', body)
+}
+
+export function checkHexSnapshots(h3_cells: readonly string[]) {
+  return request<HexSnapshotCheck>('/api/hex-snapshots/check', 'POST', { h3_cells })
 }

@@ -20,7 +20,9 @@ import {
 } from '../src/lib/hex-drop.ts'
 import { HEX_LIFT_HEIGHT_M, hexLiftElevation } from '../src/lib/hex-lift.ts'
 import { appearDelayMs, appearIsQuiet, appearKind, introDelayMs, shouldFadeOutgoing } from '../src/lib/hex-appear.ts'
+import { applyGeofence, applyEnrichments } from '../src/lib/enrichments.ts'
 import { defaultInspectFilters, filterFeatureRows, mergeFeatureRows, observedValues } from '../src/lib/feature-rows.ts'
+import { hailSummariesByHex, mockHailStats, summarizeHail } from '../src/lib/hail-mesh.ts'
 import { compileInspectSql, validateInspectSql } from '../src/lib/inspect-sql.ts'
 import { featureRowsToCsv } from '../src/lib/csv.ts'
 import { snapshotDate } from '../src/lib/overture-release.ts'
@@ -680,6 +682,118 @@ assert(
   afterDelete.status === 200 && isRecord(afterDelete.body) && Array.isArray(afterDelete.body.workflows) && afterDelete.body.workflows.length === 4,
   'deleted workflow is still listed',
 )
+
+const fence = squarePolygon(AUSTIN_CENTER.lng, AUSTIN_CENTER.lat, 0.02)
+assert(fence.type === 'Polygon', 'geofence fixture is not a polygon')
+const insideRow = splitTaxonomy[0]
+assert(insideRow, 'taxonomy fixture missing')
+const fencedOut = applyGeofence([insideRow], {
+  id: 'geofence',
+  kind: 'geofence',
+  keep: 'outside',
+  polygon: fence,
+})
+assert(fencedOut.length === 0, 'geofence keep-outside leaked an inside point')
+const fencedIn = applyGeofence([insideRow], {
+  id: 'geofence',
+  kind: 'geofence',
+  keep: 'inside',
+  polygon: fence,
+})
+assert(fencedIn.length === 1, 'geofence keep-inside dropped an inside point')
+const hailStats = mockHailStats([capitol], '2024-05-01', '2024-05-03')
+assert(hailStats.length === 3, 'mock hail did not emit one 12Z day row per day')
+assert(hailStats.every((row) => row.source_key?.includes('120000')), 'mock hail used a non-12Z key')
+const hailSummary = summarizeHail(hailStats)
+assert(hailSummary[0]?.h3 === capitol, 'hail summary dropped the hex')
+const hailed = applyEnrichments(splitTaxonomy, [{ id: 'hail_history', kind: 'hail_history', start_date: '2024-05-01', end_date: '2024-05-03' }], hailSummariesByHex(hailSummary))
+assert(hailed[0] && typeof hailed[0].hail_days === 'number', 'hail enrichment did not attach hail_days')
+
+const hailApi = await routeApi('POST', '/api/enrichments/hail', {
+  h3_cells: [capitol],
+  start_date: '2026-10-21',
+  end_date: '2026-10-23',
+})
+assert(hailApi.status === 200 && isRecord(hailApi.body) && Array.isArray(hailApi.body.cells), 'hail enrich API failed')
+assert(hailApi.body.source === 'NOAA MRMS MESH_Max_1440min', 'hail enrich API lost the MESH source')
+assert(hailApi.body.days === 3, 'hail enrich API did not keep one file per day')
+
+const remaining = afterDelete.body.workflows[0]
+assert(isRecord(remaining) && typeof remaining.id === 'string', 'remaining workflow is missing')
+const patched = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, {
+  enrichments: [
+    { id: 'geofence', kind: 'geofence', keep: 'inside', polygon: fence },
+    { id: 'hail_history', kind: 'hail_history', start_date: '2024-05-01', end_date: '2024-05-03' },
+  ],
+})
+assert(patched.status === 200 && isRecord(patched.body) && Array.isArray(patched.body.enrichments) && patched.body.enrichments.length === 2, 'workflow enrichments did not save')
+const ran = await routeApi('POST', `/api/query-workflows/${remaining.id}/run`, {})
+assert(ran.status === 200 && isRecord(ran.body) && ran.body.status === 'succeeded', 'workflow run failed')
+assert(typeof ran.body.row_count === 'number', 'workflow run dropped the row count')
+assert(ran.body.snapshot_status === 'current', 'capitol workflow should already have the latest snapshot')
+
+const capitolCheck = await routeApi('POST', '/api/hex-snapshots/check', { h3_cells: [capitol] })
+assert(capitolCheck.status === 200 && isRecord(capitolCheck.body), 'hex snapshot check failed')
+assert(capitolCheck.body.processed_count === 1 && capitolCheck.body.current_count === 1, 'capitol snapshot check lost first process')
+assert(
+  Array.isArray(capitolCheck.body.cells) &&
+    isRecord(capitolCheck.body.cells[0]) &&
+    capitolCheck.body.cells[0].first_release_version === hexStatus.body.current_release_version,
+  'capitol first snapshot is not the seed release',
+)
+const outsideCheck = await routeApi('POST', '/api/hex-snapshots/check', { h3_cells: [outside] })
+assert(outsideCheck.status === 200 && isRecord(outsideCheck.body) && outsideCheck.body.stale_count === 1, 'outside hex should be stale before a workflow run')
+const fresh = latLngToCell(40.7128, -74.006, H3_RESOLUTION)
+const freshCheck = await routeApi('POST', '/api/hex-snapshots/check', { h3_cells: [fresh] })
+assert(freshCheck.status === 200 && isRecord(freshCheck.body) && freshCheck.body.missing_count === 1, 'unprocessed hex should have no snapshot')
+
+const staleWorkflow = await routeApi('POST', '/api/query-workflows', {
+  name: 'Historize outside',
+  sql: generatedSql,
+  custom_sql: false,
+  h3_cells: [outside],
+  filters: defaultInspectFilters,
+})
+assert(staleWorkflow.status === 200 && isRecord(staleWorkflow.body) && typeof staleWorkflow.body.id === 'string', 'stale hex workflow failed to save')
+const historized = await routeApi('POST', `/api/query-workflows/${staleWorkflow.body.id}/run`, {})
+assert(historized.status === 200 && isRecord(historized.body) && historized.body.status === 'succeeded', 'historize run failed')
+assert(historized.body.snapshot_status === 'current', 'workflow run did not save the latest snapshot')
+assert(Array.isArray(historized.body.historized_hexes) && historized.body.historized_hexes.includes(outside), 'workflow run did not historize the processed hex')
+const outsideAfter = await routeApi('POST', '/api/hex-snapshots/check', { h3_cells: [outside] })
+assert(outsideAfter.status === 200 && isRecord(outsideAfter.body) && outsideAfter.body.current_count === 1, 'historize did not record the latest snapshot')
+const historicalStill = await routeApi('POST', '/api/query', {
+  dataset: 'places',
+  h3_cells: [outside],
+  filters: [],
+  sort: { field: 'names.primary', direction: 'asc' },
+  limit: 10,
+  offset: 0,
+  release_version: '2026-09-24.0',
+})
+assert(historicalStill.status === 200 && isRecord(historicalStill.body) && historicalStill.body.total > 0, 'historize overwrote the first snapshot')
+
+const pinned = await routeApi('PATCH', `/api/query-workflows/${staleWorkflow.body.id}`, { release_version: '2026-09-24.0' })
+assert(pinned.status === 200 && isRecord(pinned.body) && pinned.body.release_version === '2026-09-24.0', 'historical pin did not save')
+const historicalRun = await routeApi('POST', `/api/query-workflows/${staleWorkflow.body.id}/run`, {})
+assert(historicalRun.status === 200 && isRecord(historicalRun.body) && historicalRun.body.snapshot_status === 'historical', 'historical workflow run missed the pin')
+
+const tooOld = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, { release_version: '2026-09-24.0' })
+assert(tooOld.status === 200, 'capitol historical pin failed to save')
+const tooOldRun = await routeApi('POST', `/api/query-workflows/${remaining.id}/run`, {})
+assert(tooOldRun.status === 400 && isRecord(tooOldRun.body), 'capitol accepted a snapshot from before first process')
+
+await routeApi('DELETE', `/api/query-workflows/${staleWorkflow.body.id}`, undefined)
+const unprocessedWorkflow = await routeApi('POST', '/api/query-workflows', {
+  name: 'Unprocessed hex',
+  sql: generatedSql,
+  custom_sql: false,
+  h3_cells: [fresh],
+  filters: defaultInspectFilters,
+})
+assert(unprocessedWorkflow.status === 200 && isRecord(unprocessedWorkflow.body), 'unprocessed hex workflow failed to save')
+const unprocessedRun = await routeApi('POST', `/api/query-workflows/${unprocessedWorkflow.body.id}/run`, {})
+assert(unprocessedRun.status === 400 && isRecord(unprocessedRun.body), 'unprocessed hex workflow run should fail')
+assert(String(unprocessedRun.body.error).includes('Process'), 'unprocessed hex error did not ask to process first')
 
 console.log(
   `verify ok · ${first.cells.length} cells · ${first.totals.places} places · ${first.totals.buildings} buildings · ${first.totals.addresses} addresses`,

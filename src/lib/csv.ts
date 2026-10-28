@@ -49,6 +49,9 @@ export const FEATURE_CSV_COLUMNS = [
   { field: 'address_id', label: 'Address id' },
   { field: 'id', label: 'Id' },
   { field: 'h3', label: 'H3' },
+  { field: 'hail_mm_max', label: 'Hail mm max' },
+  { field: 'hail_days', label: 'Hail days' },
+  { field: 'hail_last_date', label: 'Hail last date' },
   { field: 'lat', label: 'Lat' },
   { field: 'lng', label: 'Lng' },
 ] as const satisfies readonly { field: keyof FeatureRow; label: string }[]

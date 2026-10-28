@@ -141,6 +141,14 @@ export function H3Map({
   const inspectOpen = useExplorer((state) => state.inspectOpen)
   const inspectOpenRef = useRef(inspectOpen)
   inspectOpenRef.current = inspectOpen
+  const drawMode = useExplorer((state) => state.drawMode)
+  const drawModeRef = useRef(drawMode)
+  drawModeRef.current = drawMode
+  const addGeofenceVertex = useExplorer((state) => state.addGeofenceVertex)
+  const addGeofenceVertexRef = useRef(addGeofenceVertex)
+  addGeofenceVertexRef.current = addGeofenceVertex
+  const geofenceDraft = useExplorer((state) => state.geofenceDraft)
+  const draftEnrichments = useExplorer((state) => state.draftEnrichments)
   const ignoreClickUntilRef = useRef(0)
   const displayResRef = useRef(H3_RESOLUTION)
 
@@ -570,6 +578,7 @@ export function H3Map({
       window.clearTimeout(slowTimer)
       ensureH3Layers(map, modeRef.current)
       ensureInspectLayers(map)
+      ensureGeofenceLayers(map)
       if (!map.getLayer(HEX_LIFT_LAYER_ID)) map.addLayer(liftLayer)
       showGlobe(map)
       applied = new Map()
@@ -628,6 +637,10 @@ export function H3Map({
       if (!inspectOpenRef.current) fadeTo(0, 320)
     })
     map.on('click', (event) => {
+      if (drawModeRef.current === 'geofence') {
+        addGeofenceVertexRef.current(event.lngLat.lng, event.lngLat.lat)
+        return
+      }
       if (modeRef.current === 'off' || viewModeRef.current === 'earth') return
       if (performance.now() < ignoreClickUntilRef.current) return
       const cell = latLngToCell(event.lngLat.lat, event.lngLat.lng, H3_RESOLUTION)
@@ -726,6 +739,16 @@ export function H3Map({
       ;(source as GeoJSONSource).setData(featuresToCollection(inspectOpen ? inspectFeatures : []))
     }
   }, [inspectFeatures, inspectOpen, styleReady])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !styleReady || !map.isStyleLoaded()) return
+    ensureGeofenceLayers(map)
+    const source = map.getSource('geofence')
+    if (source?.type === 'geojson') {
+      ;(source as GeoJSONSource).setData(geofenceCollection(geofenceDraft, draftEnrichments))
+    }
+  }, [draftEnrichments, geofenceDraft, styleReady])
 
   useEffect(() => {
     touchRef.current = touch
@@ -1199,6 +1222,69 @@ function featuresToCollection(rows: readonly FeatureRow[]): GeoJSON.FeatureColle
         },
       ]
     }),
+  }
+}
+
+function geofenceCollection(
+  draft: readonly [number, number][],
+  enrichments: readonly { kind: string; polygon?: { type: string; coordinates: [number, number][][] } }[],
+): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = []
+  const saved = enrichments.find((step) => step.kind === 'geofence' && step.polygon)
+  if (saved?.polygon) {
+    features.push({
+      type: 'Feature',
+      properties: { role: 'saved' },
+      geometry: saved.polygon as GeoJSON.Polygon,
+    })
+  }
+  if (draft.length >= 2) {
+    features.push({
+      type: 'Feature',
+      properties: { role: 'draft' },
+      geometry: { type: 'LineString', coordinates: [...draft] },
+    })
+  }
+  for (const point of draft) {
+    features.push({
+      type: 'Feature',
+      properties: { role: 'vertex' },
+      geometry: { type: 'Point', coordinates: point },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+function ensureGeofenceLayers(map: MapLibreMap) {
+  if (!map.getSource('geofence')) {
+    map.addSource('geofence', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+  }
+  if (!map.getLayer('geofence-fill')) {
+    map.addLayer({
+      id: 'geofence-fill',
+      type: 'fill',
+      source: 'geofence',
+      filter: ['==', ['get', 'role'], 'saved'],
+      paint: { 'fill-color': '#2ee6a6', 'fill-opacity': 0.12 },
+    })
+  }
+  if (!map.getLayer('geofence-line')) {
+    map.addLayer({
+      id: 'geofence-line',
+      type: 'line',
+      source: 'geofence',
+      filter: ['in', ['get', 'role'], ['literal', ['saved', 'draft']]],
+      paint: { 'line-color': '#2ee6a6', 'line-width': 1.6, 'line-dasharray': [2, 1] },
+    })
+  }
+  if (!map.getLayer('geofence-vertex')) {
+    map.addLayer({
+      id: 'geofence-vertex',
+      type: 'circle',
+      source: 'geofence',
+      filter: ['==', ['get', 'role'], 'vertex'],
+      paint: { 'circle-radius': 4, 'circle-color': '#2ee6a6', 'circle-stroke-width': 1, 'circle-stroke-color': '#04110d' },
+    })
   }
 }
 

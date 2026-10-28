@@ -34,12 +34,12 @@ export async function handleNodeRequest(req: IncomingMessage, res: ServerRespons
 
 async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: string) {
   const method = req.method ?? 'GET'
-  if (method !== 'GET' && method !== 'POST') {
+  if (method !== 'GET' && method !== 'POST' && method !== 'PATCH' && method !== 'DELETE') {
     sendJson(res, 405, { error: 'Method not allowed.' })
     return
   }
   let body: unknown
-  if (method === 'POST') {
+  if (method === 'POST' || method === 'PATCH') {
     const type = req.headers['content-type'] ?? ''
     if (!type.includes('application/json')) {
       sendJson(res, 415, { error: 'Content-Type must be application/json.' })

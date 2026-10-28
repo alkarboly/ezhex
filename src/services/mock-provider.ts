@@ -8,7 +8,7 @@ import type { DatasetId } from '../types/datasets'
 import type { CellCount, QueryResult, QuerySpec } from '../types/queries'
 import type { ReleaseCatalog, ReleaseSnapshot } from '../types/releases'
 import type { DataProvider } from './data-provider'
-import { buildMockDatabase, ingestMockCells, type MockDatabase } from './mock/database'
+import { buildMockDatabase, historizeMockCells, ingestMockCells, type MockDatabase } from './mock/database'
 import { compareField, matchesFilters, toResultRow, type AnyRecord } from './mock/records'
 
 let database: MockDatabase | null = null
@@ -151,6 +151,15 @@ export function ingestMockCellsNow(cells: readonly string[], release?: string) {
   return ingestMockCells(database, cells, release)
 }
 
+export async function peekMockDatabase() {
+  return loadDatabase()
+}
+
+export function historizeMockCellsNow(cells: readonly string[], release: string) {
+  if (!database) database = buildMockDatabase()
+  return historizeMockCells(database, cells, release)
+}
+
 export async function mockReleaseCatalog(): Promise<ReleaseCatalog> {
   const db = await loadDatabase()
   return {
@@ -171,9 +180,20 @@ function mockSnapshots(db: MockDatabase): ReleaseSnapshot[] {
     bucket[theme] += count
     buckets.set(release, bucket)
   }
-  for (const [cell, rows] of db.places) add(rows[0]?.release_version ?? current, cell, 'places', rows.length)
-  for (const [cell, rows] of db.buildings) add(rows[0]?.release_version ?? current, cell, 'buildings', rows.length)
-  for (const [cell, rows] of db.addresses) add(rows[0]?.release_version ?? current, cell, 'addresses', rows.length)
+  const addRows = (
+    rows: Iterable<{ release_version: string }>,
+    cell: string,
+    theme: 'places' | 'buildings' | 'addresses',
+  ) => {
+    const byRelease = new Map<string, number>()
+    for (const row of rows) {
+      byRelease.set(row.release_version, (byRelease.get(row.release_version) ?? 0) + 1)
+    }
+    for (const [release, count] of byRelease) add(release, cell, theme, count)
+  }
+  for (const [cell, rows] of db.places) addRows(rows, cell, 'places')
+  for (const [cell, rows] of db.buildings) addRows(rows, cell, 'buildings')
+  for (const [cell, rows] of db.addresses) addRows(rows, cell, 'addresses')
   return [...buckets.entries()]
     .sort(([left], [right]) => compareOvertureRelease(right, left))
     .map(([release, bucket]) => ({
