@@ -373,7 +373,7 @@ export function ExplorerPage() {
               Set SUPABASE_URL and SUPABASE_ANON_KEY on the server, then process hexes to pull Overture.
             </div>
           )}
-          <div className="absolute top-3 right-3 z-20">
+          <div className="pointer-events-none absolute top-3 right-3 z-20">
             <MapControls mapRef={mapRef} touch={touch} />
           </div>
           <div

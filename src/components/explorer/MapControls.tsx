@@ -114,7 +114,7 @@ export function LayersPanel({ touch }: { touch: boolean }) {
 
 export function MapControls({ mapRef, touch }: { mapRef: RefObject<H3MapHandle | null>; touch: boolean }) {
   return (
-    <div className="glass flex flex-col overflow-hidden rounded-xl">
+    <div className="glass pointer-events-auto flex flex-col overflow-hidden rounded-xl" data-testid="map-controls">
       <ControlButton label="Zoom in" onClick={() => mapRef.current?.zoomIn()}>
         <Plus />
       </ControlButton>
