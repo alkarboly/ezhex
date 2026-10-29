@@ -210,6 +210,8 @@ export type PresenceFilter = 'any' | 'yes' | 'no' | 'null'
 
 /** Multi-select token that matches a missing field. */
 export const INSPECT_NULL = 'null'
+/** Column filter token that keeps every non-empty value (Power Query remove blanks). */
+export const INSPECT_NOT_NULL = 'not_null'
 
 export type InspectFilters = {
   kind: DatasetId | 'all'
@@ -219,6 +221,8 @@ export type InspectFilters = {
   snapshotDates: readonly string[]
   statuses: readonly string[]
   buildingClasses: readonly string[]
+  /** Extra per-column picks. Empty list means no filter. `not_null` drops blanks. */
+  columnFilters?: Readonly<Record<string, readonly string[]>>
   confidenceMin: number | null
   confidenceMax: number | null
   confidencePresence: PresenceFilter
@@ -237,6 +241,7 @@ export const defaultInspectFilters: InspectFilters = {
   snapshotDates: [],
   statuses: [],
   buildingClasses: [],
+  columnFilters: {},
   confidenceMin: null,
   confidenceMax: null,
   confidencePresence: 'any',
@@ -245,6 +250,47 @@ export const defaultInspectFilters: InspectFilters = {
   hasEmail: 'any',
   hasSocials: 'any',
   hasOfficialId: 'any',
+}
+
+const NAMED_COLUMN_FILTERS = {
+  category: 'categories',
+  main_category: 'mainCategories',
+  snapshot_date: 'snapshotDates',
+  operating_status: 'statuses',
+  building_class: 'buildingClasses',
+} as const
+
+export function columnFilterValues(filters: InspectFilters, field: string): readonly string[] {
+  if (field === 'kind') return filters.kind === 'all' ? (filters.columnFilters?.kind ?? []) : [filters.kind]
+  const named = NAMED_COLUMN_FILTERS[field as keyof typeof NAMED_COLUMN_FILTERS]
+  if (named) return filters[named]
+  return filters.columnFilters?.[field] ?? []
+}
+
+export function withColumnFilter(
+  filters: InspectFilters,
+  field: string,
+  values: readonly string[],
+): Partial<InspectFilters> {
+  if (field === 'kind') {
+    if (values.length === 1 && (values[0] === 'places' || values[0] === 'buildings' || values[0] === 'addresses')) {
+      const rest = { ...filters.columnFilters }
+      delete rest.kind
+      return { kind: values[0], columnFilters: rest }
+    }
+    if (values.length === 0) {
+      const rest = { ...filters.columnFilters }
+      delete rest.kind
+      return { kind: 'all', columnFilters: rest }
+    }
+    return { kind: 'all', columnFilters: { ...filters.columnFilters, kind: [...values] } }
+  }
+  const named = NAMED_COLUMN_FILTERS[field as keyof typeof NAMED_COLUMN_FILTERS]
+  if (named) return { [named]: [...values] }
+  const next = { ...filters.columnFilters }
+  if (values.length === 0) delete next[field]
+  else next[field] = [...values]
+  return { columnFilters: next }
 }
 
 export function filterFeatureRows(rows: readonly FeatureRow[], filters: InspectFilters): FeatureRow[] {
@@ -262,9 +308,26 @@ export function filterFeatureRows(rows: readonly FeatureRow[], filters: InspectF
     if (!matchesPresence(filters.hasEmail, row.emails)) return false
     if (!matchesPresence(filters.hasSocials, row.socials)) return false
     if (!matchesPresence(filters.hasOfficialId, row.official_id)) return false
+    for (const [field, values] of Object.entries(filters.columnFilters ?? {})) {
+      if (field === 'kind' && filters.kind !== 'all') continue
+      if (!matchesChoice(values, cellFilterValue(row, field))) return false
+    }
     if (!query) return true
     return searchText(row).includes(query)
   })
+}
+
+/** Display / filter token for one table cell. Empty cells are null. */
+export function cellFilterValue(row: FeatureRow, field: string): string | null {
+  if (field.startsWith('ai:')) {
+    const value = row.ai_columns[field.slice(3)]
+    if (value == null || value === '') return null
+    return String(value)
+  }
+  const value = row[field as keyof FeatureRow]
+  if (value == null || value === '') return null
+  if (typeof value === 'object') return null
+  return String(value)
 }
 
 /** Distinct values seen in the loaded rows, plus `null` so empty rows can be kept. */
@@ -272,7 +335,12 @@ export function observedValues(
   rows: readonly FeatureRow[],
   field: 'category' | 'main_category' | 'building' | 'building_class' | 'operating_status' | 'snapshot_date',
 ): string[] {
-  return [INSPECT_NULL, ...sortUnique(rows.map((row) => row[field]))]
+  return observedColumnValues(rows, field)
+}
+
+/** Distinct values in any inspect column, plus `null` for blanks. */
+export function observedColumnValues(rows: readonly FeatureRow[], field: string): string[] {
+  return [INSPECT_NULL, ...sortUnique(rows.map((row) => cellFilterValue(row, field)))]
 }
 
 /** Distinct non-empty field values from raw theme rows. Not a preset list. */
@@ -407,7 +475,8 @@ function placeCategories(row: ResultRow): { category: string | null; main_catego
 
 function matchesChoice(values: readonly string[], value: string | null): boolean {
   if (values.length === 0) return true
-  if (value == null) return values.includes(INSPECT_NULL)
+  if (values.length === 1 && values[0] === INSPECT_NOT_NULL) return value != null && value !== ''
+  if (value == null || value === '') return values.includes(INSPECT_NULL)
   return values.includes(value)
 }
 

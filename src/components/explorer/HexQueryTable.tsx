@@ -1,14 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Copy, Download, LoaderCircle, Workflow } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Copy, Download, Filter, LoaderCircle, Workflow } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useThemeQuery } from '../../hooks/useCompiledQuery'
 import { downloadCsv, featureRowsToCsv } from '../../lib/csv'
 import {
+  columnFilterValues,
   filterFeatureRows,
+  INSPECT_NOT_NULL,
+  INSPECT_NULL,
   mergeFeatureRows,
+  observedColumnValues,
   observedValues,
+  withColumnFilter,
   type FeatureRow,
   type InspectFilters,
   type PresenceFilter,
@@ -21,6 +26,7 @@ import { checkHexSnapshots, createQueryWorkflow, listQueryWorkflows, patchQueryW
 import { useExplorer } from '../../store/explorer-store'
 import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
 import { nativeSelectClass } from '../ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { PageButton } from '../results/ResultsPanel'
 
 const STATIC_COLUMNS = [
@@ -426,20 +432,32 @@ export function HexQueryTable() {
                       column.numeric && 'text-right',
                     )}
                   >
-                    <button
-                      type="button"
-                      className={cn('inline-flex items-center gap-1 hover:text-foreground', sortedCol && 'text-primary')}
-                      onClick={() => {
-                        if (sortField === column.field) setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
-                        else {
-                          setSortField(column.field)
-                          setSortDirection('asc')
-                        }
-                      }}
-                    >
-                      {column.label}
-                      {sortedCol && (sortDirection === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
-                    </button>
+                    <div className={cn('flex items-center gap-0.5', column.numeric && 'justify-end')}>
+                      <button
+                        type="button"
+                        className={cn('inline-flex items-center gap-1 hover:text-foreground', sortedCol && 'text-primary')}
+                        onClick={() => {
+                          if (sortField === column.field) setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+                          else {
+                            setSortField(column.field)
+                            setSortDirection('asc')
+                          }
+                        }}
+                      >
+                        {column.label}
+                        {sortedCol && (sortDirection === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
+                      </button>
+                      <ColumnFilter
+                        field={column.field}
+                        label={column.label}
+                        options={observedColumnValues(merged, column.field)}
+                        value={columnFilterValues(inspectFilters, column.field)}
+                        onChange={(next) => {
+                          patchInspectFilters(withColumnFilter(inspectFilters, column.field, next))
+                          setPage(0)
+                        }}
+                      />
+                    </div>
                   </th>
                 )
               })}
@@ -697,6 +715,124 @@ function SqlAction({
 
 function defaultWorkflowName(hexCount: number) {
   return `Inspect · ${hexCount} hexes`
+}
+
+function ColumnFilter({
+  field,
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  field: string
+  label: string
+  options: readonly string[]
+  value: readonly string[]
+  onChange: (next: string[]) => void
+}) {
+  const [query, setQuery] = useState('')
+  const hideNullOnly = value.length === 1 && value[0] === INSPECT_NOT_NULL
+  const active = value.length > 0
+  const listed = options.filter((option) => option !== INSPECT_NULL)
+  const shown = listed.filter((option) => option.toLowerCase().includes(query.trim().toLowerCase()))
+  const selectedValues = hideNullOnly
+    ? listed
+    : value.length === 0
+      ? listed
+      : listed.filter((option) => value.includes(option))
+  const blankOn = !hideNullOnly && (value.length === 0 || value.includes(INSPECT_NULL))
+
+  const commit = (nextBlank: boolean, nextValues: readonly string[]) => {
+    if (nextBlank && nextValues.length === listed.length) {
+      onChange([])
+      return
+    }
+    if (!nextBlank && nextValues.length === listed.length) {
+      onChange([INSPECT_NOT_NULL])
+      return
+    }
+    onChange(nextBlank ? [...nextValues, INSPECT_NULL] : [...nextValues])
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          data-testid={`inspect-col-filter-${field}`}
+          aria-label={`Filter ${label}`}
+          className={cn(
+            'grid size-4 place-items-center rounded hover:bg-white/[0.08] hover:text-foreground',
+            active && 'text-primary',
+          )}
+        >
+          <Filter className="size-2.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="w-56 rounded-xl p-2"
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <p className="px-1 pb-1.5 font-mono text-[9px] tracking-[0.16em] text-muted-foreground uppercase">{label}</p>
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search values"
+          className="mb-1.5 h-7 w-full rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:outline-none"
+        />
+        <div className="mb-1.5 flex flex-wrap gap-1">
+          <button
+            type="button"
+            data-testid={`inspect-col-remove-blanks-${field}`}
+            onClick={() => onChange([INSPECT_NOT_NULL])}
+            className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] hover:bg-primary/15 hover:text-primary"
+          >
+            Remove blanks
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[10px] hover:bg-primary/15 hover:text-primary"
+          >
+            Select all
+          </button>
+        </div>
+        <div className="max-h-52 overflow-auto">
+          <label className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[10px] hover:bg-white/[0.04]">
+            <input
+              type="checkbox"
+              checked={blankOn}
+              onChange={() => commit(!blankOn, selectedValues)}
+            />
+            <span className="text-muted-foreground">(Blank)</span>
+          </label>
+          {shown.length === 0 && (
+            <p className="px-1.5 py-1 text-[10px] text-muted-foreground">None in these hexes</p>
+          )}
+          {shown.map((option) => {
+            const checked = selectedValues.includes(option)
+            return (
+              <label key={option} className="flex items-center gap-1.5 rounded px-1.5 py-1 text-[10px] hover:bg-white/[0.04]">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() =>
+                    commit(
+                      blankOn,
+                      checked ? selectedValues.filter((entry) => entry !== option) : [...selectedValues, option],
+                    )
+                  }
+                />
+                <span className="truncate">{option.replaceAll('_', ' ')}</span>
+              </label>
+            )
+          })}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
 }
 
 function MultiPick({

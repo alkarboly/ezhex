@@ -237,6 +237,18 @@ assert(
   'inspect null category filter kept a labeled row',
 )
 assert(
+  filterFeatureRows(splitTaxonomy, { ...defaultInspectFilters, columnFilters: { name: ['not_null'] } }).every(
+    (row) => row.name != null && row.name !== '',
+  ),
+  'inspect column remove-blanks kept an empty name',
+)
+assert(
+  filterFeatureRows(splitTaxonomy, { ...defaultInspectFilters, columnFilters: { category: ['cafe'] } }).every(
+    (row) => row.category === 'cafe',
+  ),
+  'inspect column value filter leaked a non-matching row',
+)
+assert(
   filterFeatureRows(
     [{ ...splitTaxonomy[0]!, confidence: null }, { ...splitTaxonomy[0]!, id: 'scored', confidence: 0.8 }],
     { ...defaultInspectFilters, confidenceMin: 0.5 },

@@ -1,5 +1,5 @@
 import { MAX_INSPECT_SQL_LENGTH, MAX_QUERY_LIMIT } from './limits'
-import { defaultInspectFilters, INSPECT_NULL, type InspectFilters, type PresenceFilter } from './feature-rows'
+import { defaultInspectFilters, INSPECT_NOT_NULL, INSPECT_NULL, type InspectFilters, type PresenceFilter } from './feature-rows'
 import { DATASET_IDS, type DatasetId } from '../types/datasets'
 
 const ALLOWED_TABLES = new Set(['overture_places', 'overture_buildings', 'overture_addresses'])
@@ -94,6 +94,8 @@ export function asInspectFilters(value: unknown): InspectFilters | null {
   if (!isNullableNumber(value.confidenceMin) || !isNullableNumber(value.confidenceMax)) return null
   if (!isPresence(value.underground) || !isPresence(value.hasPhone) || !isPresence(value.hasEmail)) return null
   if (!isPresence(value.hasSocials) || !isPresence(value.hasOfficialId)) return null
+  const columnFilters = value.columnFilters === undefined ? {} : asColumnFilters(value.columnFilters)
+  if (!columnFilters) return null
   return {
     kind: kind as DatasetId | 'all',
     search: value.search,
@@ -102,6 +104,7 @@ export function asInspectFilters(value: unknown): InspectFilters | null {
     snapshotDates: value.snapshotDates,
     statuses: value.statuses,
     buildingClasses: value.buildingClasses,
+    columnFilters,
     confidenceMin: value.confidenceMin,
     confidenceMax: value.confidenceMax,
     confidencePresence: isPresence(value.confidencePresence) ? value.confidencePresence : 'any',
@@ -111,6 +114,16 @@ export function asInspectFilters(value: unknown): InspectFilters | null {
     hasSocials: value.hasSocials,
     hasOfficialId: value.hasOfficialId,
   }
+}
+
+function asColumnFilters(value: unknown): Record<string, string[]> | null {
+  if (!isRecord(value)) return null
+  const next: Record<string, string[]> = {}
+  for (const [field, values] of Object.entries(value)) {
+    if (!isStringArray(values)) return null
+    if (values.length > 0) next[field] = values
+  }
+  return next
 }
 
 function compileWhere(cells: readonly string[], filters: InspectFilters, releaseVersion?: string | null): string[] {
@@ -157,11 +170,56 @@ function compileWhere(cells: readonly string[], filters: InspectFilters, release
       `(places.names_primary ILIKE ${like} OR places.basic_category ILIKE ${like} OR places.taxonomy_primary ILIKE ${like} OR places.sources ILIKE ${like} OR addresses.street ILIKE ${like})`,
     )
   }
+  for (const [field, values] of Object.entries(filters.columnFilters ?? {})) {
+    if (NAMED_SQL_COLUMNS.has(field)) continue
+    const column = COLUMN_SQL[field]
+    if (!column) continue
+    const clause = inOrNull(column, values)
+    if (clause) clauses.push(clause)
+  }
   return clauses
+}
+
+const NAMED_SQL_COLUMNS = new Set(['category', 'main_category', 'snapshot_date', 'operating_status', 'building_class', 'kind'])
+
+const COLUMN_SQL: Record<string, string> = {
+  snapshot: 'places.release_version',
+  name: 'places.names_primary',
+  taxonomy: 'places.taxonomy_primary',
+  phones: 'places.phones',
+  emails: 'places.emails',
+  socials: 'places.socials',
+  websites: 'places.websites',
+  brand: 'places.brand_name',
+  official_id: 'places.brand_wikidata',
+  brand_wikidata: 'places.brand_wikidata',
+  sources: 'places.sources',
+  id: 'places.id',
+  h3: 'places.h3_res8',
+  building: 'buildings.names_primary',
+  building_class: 'buildings.class',
+  height: 'CAST(buildings.height AS text)',
+  floors: 'CAST(buildings.num_floors AS text)',
+  is_underground: 'CAST(buildings.is_underground AS text)',
+  has_parts: 'CAST(buildings.has_parts AS text)',
+  facade_material: 'buildings.facade_material',
+  facade_color: 'buildings.facade_color',
+  roof_shape: 'buildings.roof_shape',
+  roof_material: 'buildings.roof_material',
+  roof_color: 'buildings.roof_color',
+  unit: 'addresses.unit',
+  locality: 'addresses.locality',
+  region: 'addresses.region',
+  postcode: 'addresses.postcode',
+  postal_city: 'addresses.postal_city',
+  country: 'addresses.country',
 }
 
 function inOrNull(column: string, values: readonly string[]): string | null {
   if (values.length === 0) return null
+  if (values.length === 1 && values[0] === INSPECT_NOT_NULL) {
+    return `(${column} IS NOT NULL AND CAST(${column} AS text) <> '')`
+  }
   const listed = values.filter((value) => value !== INSPECT_NULL)
   const allowNull = values.includes(INSPECT_NULL)
   const parts: string[] = []
