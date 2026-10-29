@@ -2,6 +2,7 @@ import { ArrowUp, ClipboardPaste, Cloud, Hexagon, MapPin, Paperclip, PenLine, Sh
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import { AGENT_SUGGESTIONS } from '../../lib/agent-capabilities'
 import { closedRing } from '../../lib/enrichments'
 import { extractHexCells } from '../../lib/hex-ids'
 import { parsePolygonText } from '../../lib/polygon-input'
@@ -11,11 +12,7 @@ import { useExplorer } from '../../store/explorer-store'
 import type { GeofencePolygon } from '../../types/enrichments'
 import { attachAgentPolygon, runAgent, stopAgent } from './agent-runner'
 
-const PLACEHOLDERS = [
-  'Help me search for commercial properties in the Westgate neighborhood in Austin TX…',
-  'Help me find coffee shops along South Lamar…',
-  'Help me find commercial properties along I-35 between Austin and Buda, Texas…',
-]
+const PLACEHOLDERS = AGENT_SUGGESTIONS.map((suggestion) => `${suggestion}…`)
 
 export function AgentComposer({ busy, mobile }: { busy: boolean; mobile: boolean }) {
   const [text, setText] = useState('')

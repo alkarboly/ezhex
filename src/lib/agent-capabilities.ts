@@ -43,9 +43,9 @@ export const AGENT_CAPABILITIES = [
 ] as const
 
 export const AGENT_SUGGESTIONS = [
-  'Help me search for commercial properties in the Westgate neighborhood in Austin TX',
   'Help me find coffee shops along South Lamar',
-  'Help me find commercial properties along I-35 between Austin and Buda, Texas',
+  'Help me find commercial properties with confirmed phone numbers along South Lamar in Austin TX',
+  'A hail storm just passed through North Austin. Identify residential addresses for a door-flyer marketing campaign for roof repair',
 ] as const
 
 export const AGENT_PRESENCE_LABELS: Record<AgentPresenceField, string> = {
