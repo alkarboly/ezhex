@@ -67,12 +67,8 @@ export async function draftAgentAssist(
       notes.push('Added a geofence from the selected hex bounds.')
     }
   }
-  const filters = {
-    ...defaultInspectFilters,
-    kind: 'places' as const,
-    confidenceMin: 0.5,
-  }
-  notes.unshift('Configured the inspect query for places with confidence at least 0.5.')
+  const filters = { ...defaultInspectFilters }
+  notes.unshift('Configured the inspect query for all rows.')
   if (parsed.prompt) {
     const plan = await planFromPrompt(parsed.prompt)
     if (plan) {
@@ -289,12 +285,8 @@ function applyPromptPlan(
   filters: InspectFilters,
   enrichments: WorkflowEnrichment[],
 ) {
-  if (plan.kind) filters.kind = plan.kind
-  if (filters.kind === 'places') {
-    filters.confidenceMin = plan.confidence_min ?? 0.5
-  } else {
-    filters.confidenceMin = null
-  }
+  filters.kind = 'all'
+  if (plan.confidence_min != null) filters.confidenceMin = plan.confidence_min
 
   if (plan.geofence_keep) {
     const index = enrichments.findIndex((step) => step.kind === 'geofence')

@@ -554,13 +554,14 @@ function createExplorerStore() {
   setHailSummaries: (hailSummaries) => set({ hailSummaries }),
   applyAgentQuery: (input) => {
     const cells = [...new Set(input.h3_cells)].slice(0, MAX_SELECTED_CELLS)
+    const filters = { ...input.filters, kind: 'all' as const }
     set((state) => ({
       selectedCells: cells,
       page: 0,
       inspectOpen: input.openInspect ?? true,
       enrichOpen: input.openEnrich ?? true,
       queryHexPreview: false,
-      inspectFilters: input.filters,
+      inspectFilters: filters,
       draftEnrichments: input.enrichments,
       inspectRelease: null,
       inspectReplay: {
@@ -568,7 +569,7 @@ function createExplorerStore() {
         workflowId: input.workflowId ?? null,
         workflowName: input.workflowName ?? 'Agent query',
         agentTurnId: input.agentTurnId ?? null,
-        filters: input.filters,
+        filters,
         sql: input.sql,
         customSql: input.customSql === true,
         releaseVersion: null,

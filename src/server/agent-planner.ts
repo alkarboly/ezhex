@@ -254,7 +254,7 @@ export async function buildAgentQuery(body: unknown, cookies: Record<string, str
 
   const [rows, check] = await Promise.all([loadInspectRows(cells, null), checkHexSnapshots(cells)])
   const notes: string[] = []
-  const filters: InspectFilters = { ...defaultInspectFilters, kind: intent.dataset }
+  const filters: InspectFilters = { ...defaultInspectFilters }
   let categories: AgentCategoryPick[] = []
   let usedModel = false
   const placeRows = rows.filter((row) => row.kind === 'places')
@@ -274,7 +274,6 @@ export async function buildAgentQuery(body: unknown, cookies: Record<string, str
     } else {
       const choice = await chooseCategories(prompt, intent.category_terms, categoryCounts)
       usedModel = choice.used_model
-      filters.kind = 'places'
       if (choice.values.length > 0) {
         categories = choice.values.map((value) => ({ value, count: categoryCounts.get(value) ?? 0 }))
         filters.categories = choice.values
@@ -451,7 +450,7 @@ function parsePrevious(value: unknown): AgentPrevious | null {
 function emptyIntent(): AgentIntent {
   return {
     region: { kind: 'selection', place: null, radius_km: null },
-    dataset: 'places',
+    dataset: 'all',
     category_terms: [],
     search: null,
     confidence_min: null,
@@ -566,7 +565,6 @@ function heuristicIntent(input: PlanInput): AgentIntent {
   const terms = detectCategoryTerms(head)
   if (terms.length > 0) {
     intent.category_terms = terms
-    if (!dataset && intent.dataset === 'all') intent.dataset = 'places'
   }
   const search = detectSearch(text)
   if (search) intent.search = search
@@ -832,7 +830,7 @@ function planSystemPrompt(): string {
     '- reply: one or two short first-person sentences that say what you will build. No markdown.',
     '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, highway, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at only when the user did not name another city. If they name a city, keep that city in place and do not use the map coordinates. Austin, Dallas, and Houston are known metros and must stay in that city. "along X street/highway" is still kind place; the server highlights a corridor along the road. "X between A and B" highlights that span (a road corridor when a highway is named, otherwise a loose polygon); put a short searchable name in place (not the whole between-phrase). Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
     '- For follow-ups, start from context.previous.intent and change only what the user asks.',
-    '- dataset: buildings for commercial properties, real estate, roofs, or structures; places for businesses or points of interest; addresses for address points; all when the user wants everything.',
+    '- dataset: used to match category vs building class. Inspect row source always stays all rows. buildings for commercial properties, real estate, roofs, or structures; places for businesses or points of interest; addresses for address points; all is the default.',
     '- category_terms: short lowercase singular words for the kinds of places wanted, for example ["coffee", "cafe"]. Empty when no kind is named.',
     `- hail_days: optional weather add-on. Set only when the user asks for hail, storms, weather, or hail risk, or when context.weather_toggle is true (default ${AGENT_DEFAULT_HAIL_DAYS}). Leave null otherwise. Do not add hail by default.`,
     '- ai_column: set only when the user asks to score, rank, rate, classify, label, flag, or assess rows. Use a snake_case column. Write the prompt as an instruction for one row.',

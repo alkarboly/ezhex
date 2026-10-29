@@ -803,7 +803,7 @@ const assistDraft = await routeApi('POST', '/api/agent-assist/draft', {
 })
 assert(assistDraft.status === 200 && isRecord(assistDraft.body), 'agent assist draft failed')
 assert(Array.isArray(assistDraft.body.enrichments) && assistDraft.body.enrichments.length >= 3, 'agent assist did not populate enrichments')
-assert(isRecord(assistDraft.body.filters) && assistDraft.body.filters.kind === 'buildings', 'agent assist prompt did not configure dataset')
+assert(isRecord(assistDraft.body.filters) && assistDraft.body.filters.kind === 'all', 'agent assist query did not default to all rows')
 assert(typeof assistDraft.body.sql === 'string' && assistDraft.body.sql.includes('SELECT'), 'agent assist did not build inspect SQL')
 const promptGeofence = Array.isArray(assistDraft.body.enrichments)
   ? assistDraft.body.enrichments.find((step) => isRecord(step) && step.kind === 'geofence')
@@ -1063,7 +1063,7 @@ assert(extractSpan('I-35 between Austin and Buda, Texas')?.from === 'Austin', 's
 assert(extractSpan('I-35 between Austin and Buda, Texas')?.to === 'Buda, Texas', 'span parser missed Buda')
 assert(extractSpan('score each as a lead from 0 to 100') == null, 'span parser treated a score range as a place')
 assert(AGENT_SUGGESTIONS.length === 3, 'agent examples must stay at 3')
-assert(AGENT_SUGGESTIONS[0].includes('coffee shops along South Lamar'), 'first example should be coffee along South Lamar')
+assert(AGENT_SUGGESTIONS[0].includes('restaurants with contact information in North Austin'), 'first example should be restaurants with contact info in North Austin')
 assert(AGENT_SUGGESTIONS[1].includes('confirmed phone numbers along South Lamar'), 'second example should be commercial properties with phones along South Lamar')
 assert(AGENT_SUGGESTIONS[2].includes('hail storm') && AGENT_SUGGESTIONS[2].includes('North Austin'), 'third example should be a North Austin hail campaign')
 assert(extractSpan('between Austin and Buda')?.road == null, 'span parser invented a road for a loose area')
@@ -1174,6 +1174,7 @@ const agentQueryRes = await routeApi('POST', '/api/agent/query', {
 })
 assert(agentQueryRes.status === 200 && isRecord(agentQueryRes.body), `agent query failed: ${JSON.stringify(agentQueryRes.body)}`)
 const coffeeQuery = agentQueryRes.body as unknown as AgentQueryResponse
+assert(coffeeQuery.filters.kind === 'all', 'agent query did not default to all rows')
 assert(
   coffeeQuery.categories.some((pick) => pick.value === 'cafe' && pick.count > 0),
   `agent query did not pick the cafe category: ${JSON.stringify({ terms: coffeePlan.intent.category_terms, picked: coffeeQuery.categories, notes: coffeeQuery.notes, filters: coffeeQuery.filters })}`,

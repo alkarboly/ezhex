@@ -43,7 +43,7 @@ export const AGENT_CAPABILITIES = [
 ] as const
 
 export const AGENT_SUGGESTIONS = [
-  'Help me find coffee shops along South Lamar',
+  'Help me find restaurants with contact information in North Austin',
   'Help me find commercial properties with confirmed phone numbers along South Lamar in Austin TX',
   'A hail storm just passed through North Austin. Identify residential addresses for a door-flyer marketing campaign for roof repair',
 ] as const
