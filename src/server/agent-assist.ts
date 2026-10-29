@@ -144,12 +144,12 @@ function parseRequest(body: unknown): ParsedRequest | { error: string; status: n
   return { h3_cells: cells, enrichments, release_version, estimated_rows, prompt }
 }
 
-async function assistOwner(
+export async function assistOwner(
   cookies: Record<string, string>,
 ): Promise<{ ownerId: string } | { error: string; status: number }> {
   if (readDataMode().resolved === 'mock' || !getSupabaseClient()) return { ownerId: MOCK_OWNER }
   const resolved = await resolveUser(cookies)
-  if (!resolved.user) return { error: 'Sign in to use agent assist.', status: 401 }
+  if (!resolved.user) return { error: 'Sign in to use the agent.', status: 401 }
   return { ownerId: resolved.user.id }
 }
 

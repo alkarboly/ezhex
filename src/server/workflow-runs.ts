@@ -97,12 +97,7 @@ export async function runQueryWorkflow(
     created.ledger_debit_id = debit.debit_entry_id
     log('info', `ledger debit ${quote.total_usd_cents}c · ${debit.debit_entry_id}`)
     if (debit.tip_total_usd_cents > 0) log('info', `agent tips ${debit.tip_total_usd_cents}c credited`)
-    const [places, buildings, addresses] = await Promise.all(
-      DATASET_IDS.map((dataset) =>
-        provider().runQuery(themeSpec(dataset, workflow.h3_cells, prepared.release_version)),
-      ),
-    )
-    const merged = filterFeatureRows(mergeFeatureRows(places.rows, buildings.rows, addresses.rows), workflow.filters)
+    const merged = filterFeatureRows(await loadInspectRows(workflow.h3_cells, prepared.release_version), workflow.filters)
     let rows = merged
     let hailMap: ReadonlyMap<string, HailHexSummary> = new Map()
     for (const step of workflow.enrichments) {
@@ -228,6 +223,16 @@ async function hailForWorkflow(
   if (floor && floor > hail.end_date) return []
   const start = floor && floor > hail.start_date ? floor : hail.start_date
   return hailSummariesFor(ownerId, accessToken, cells, start, hail.end_date)
+}
+
+const INSPECT_THEMES = ['places', 'buildings', 'addresses'] as const
+
+/** Every theme for the hexes, joined into inspect rows (unfiltered). */
+export async function loadInspectRows(cells: readonly string[], release: string | null) {
+  const [places, buildings, addresses] = await Promise.all(
+    INSPECT_THEMES.map((dataset) => provider().runQuery(themeSpec(dataset, cells, release))),
+  )
+  return mergeFeatureRows(places.rows, buildings.rows, addresses.rows)
 }
 
 function themeSpec(

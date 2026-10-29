@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { dayCount } from '../lib/enrichments'
+import { connectedHexBatches } from '../lib/hex-batches'
+import { MAX_AGENT_HEX_BATCH } from '../lib/limits'
 import { serverEnv } from '../lib/server-env'
 import type {
   AgentLedgerResponse,
@@ -10,7 +12,7 @@ import type {
 } from '../types/agents'
 import type { AiColumnEnrichment, WorkflowEnrichment } from '../types/enrichments'
 
-export const MAX_AGENT_HEX_BATCH = 9
+export { MAX_AGENT_HEX_BATCH }
 export const AI_COLUMN_ROW_CAP = 200
 
 type QuoteInput = {
@@ -135,13 +137,9 @@ export function listAgentLedger(ownerId: string): AgentLedgerResponse {
   }
 }
 
+/** Connected groups of at most `batchSize`, because one ingest job takes one connected hex group. */
 export function chunkHexesForAgent(cells: readonly string[], batchSize = MAX_AGENT_HEX_BATCH): string[][] {
-  const unique = [...new Set(cells.map((cell) => cell.trim()).filter((cell) => cell.length > 0))]
-  const batches: string[][] = []
-  for (let index = 0; index < unique.length; index += Math.max(1, batchSize)) {
-    batches.push(unique.slice(index, index + Math.max(1, batchSize)))
-  }
-  return batches
+  return connectedHexBatches(cells, batchSize)
 }
 
 export function quoteLineText(line: AgentQuoteLine): string {
@@ -235,6 +233,9 @@ function clampQuote(agent: AgentName, value: number, input: QuoteInput, priceBoo
   return Math.min(clean, rows * priceBook.ai_row_cents[ai.value_type])
 }
 
+const QUOTE_CACHE_MS = 5 * 60_000
+const quoteCache = new Map<string, { at: number; lines: Map<AgentName, number> | null }>()
+
 async function modelQuoteLines(input: QuoteInput, deterministic: readonly AgentQuoteLine[]): Promise<Map<AgentName, number> | null> {
   const key = serverEnv('OPENAI_QUOTE_API_KEY') || serverEnv('OPENAI_API_KEY')
   if (!key) return null
@@ -246,9 +247,20 @@ async function modelQuoteLines(input: QuoteInput, deterministic: readonly AgentQ
     enrichments: input.enrichments.map((step) => step.kind),
     deterministic_lines: deterministic.map((line) => ({ agent: line.agent, usd_cents: line.usd_cents, reason: line.reason })),
   }
+  const cacheKey = JSON.stringify(payload)
+  const cached = quoteCache.get(cacheKey)
+  if (cached && Date.now() - cached.at < QUOTE_CACHE_MS) return cached.lines
+  const lines = await requestModelQuote(key, payload)
+  if (quoteCache.size > 200) quoteCache.clear()
+  quoteCache.set(cacheKey, { at: Date.now(), lines })
+  return lines
+}
+
+async function requestModelQuote(key: string, payload: Record<string, unknown>): Promise<Map<AgentName, number> | null> {
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
+      signal: AbortSignal.timeout(12_000),
       headers: {
         authorization: `Bearer ${key}`,
         'content-type': 'application/json',

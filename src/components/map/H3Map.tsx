@@ -52,10 +52,18 @@ setWorkerUrl(maplibreWorkerUrl)
 
 export type MapInsets = { top: number; right: number; bottom: number; left: number }
 
+export type H3MapView = {
+  center: { lat: number; lng: number }
+  bounds: { west: number; south: number; east: number; north: number }
+  zoom: number
+}
+
 export type H3MapHandle = {
   zoomIn: () => void
   zoomOut: () => void
   resetView: () => void
+  /** Center and bounds of the area not covered by panels. */
+  getView: () => H3MapView | null
 }
 
 type H3MapProps = {
@@ -78,6 +86,8 @@ type H3MapProps = {
   inspectFeatures?: readonly FeatureRow[]
   /** After inspect settles, selected hexes with 0 matching rows paint as empty. */
   inspectHits?: ReadonlyMap<string, number> | null
+  /** Hexes with a running ingest job. They pulse amber. */
+  processing?: ReadonlySet<string>
 }
 
 type Point = { x: number; y: number }
@@ -113,6 +123,7 @@ export function H3Map({
   onHexAction,
   inspectFeatures = [],
   inspectHits = null,
+  processing,
 }: H3MapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -196,8 +207,9 @@ export function H3Map({
         snapshots,
         selected: selectedSet,
         focusedH3,
+        processing,
       }),
-    [drawn, countMap, snapshots, selectedSet, focusedH3],
+    [drawn, countMap, snapshots, selectedSet, focusedH3, processing],
   )
 
   useEffect(() => {
@@ -777,7 +789,7 @@ export function H3Map({
     if (fit.nonce === 0 || arrivingRef.current) return
     const map = mapRef.current
     const container = containerRef.current
-    const bounds = boundsForCells([...selectedRef.current])
+    const bounds = boundsForCells([...(fit.cells ?? selectedRef.current)])
     if (!map || !container || !bounds) return
     runLockedCamera(map, cameraLockRef, viewModeRef, () => {
       viewModeRef.current = 'hex'
@@ -789,6 +801,27 @@ export function H3Map({
       })
     })
   }, [fit])
+
+  const pulsing = processing && processing.size > 0 ? [...processing].sort().join(',') : ''
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !pulsing) return
+    const cells = pulsing.split(',')
+    const paint = (value: number) => {
+      if (!map.getSource('h3')) return
+      for (const cell of cells) map.setFeatureState({ source: 'h3', id: cell }, { pulse: value })
+    }
+    if (reducedMotion()) {
+      paint(0.62)
+      return
+    }
+    const started = performance.now()
+    const timer = window.setInterval(() => {
+      const phase = (Math.sin(((performance.now() - started) / 1400) * Math.PI * 2) + 1) / 2
+      paint(0.28 + phase * 0.6)
+    }, 70)
+    return () => window.clearInterval(timer)
+  }, [pulsing, styleReady])
 
   useEffect(() => {
     if (focusNonce === 0 || !focusRef.current || arrivingRef.current) return
@@ -855,6 +888,35 @@ export function H3Map({
             easing: easeInOutCubic,
           })
         })
+      },
+      getView: () => {
+        const map = mapRef.current
+        const container = containerRef.current
+        if (!map || !container) return null
+        const inset = insetsRef.current
+        const width = container.clientWidth
+        const height = container.clientHeight
+        const left = Math.min(inset.left, width - 1)
+        const top = Math.min(inset.top, height - 1)
+        const right = Math.max(left + 1, width - inset.right)
+        const bottom = Math.max(top + 1, height - inset.bottom)
+        const center = map.unproject([(left + right) / 2, (top + bottom) / 2])
+        const corners = [
+          map.unproject([left, top]),
+          map.unproject([right, top]),
+          map.unproject([left, bottom]),
+          map.unproject([right, bottom]),
+        ]
+        return {
+          center: { lat: center.lat, lng: center.lng },
+          bounds: {
+            west: Math.min(...corners.map((point) => point.lng)),
+            south: Math.min(...corners.map((point) => point.lat)),
+            east: Math.max(...corners.map((point) => point.lng)),
+            north: Math.max(...corners.map((point) => point.lat)),
+          },
+          zoom: map.getZoom(),
+        }
       },
     }),
     [],
@@ -1081,6 +1143,9 @@ const APPEAR: Expression = ['number', ['feature-state', 'appear'], 0]
 const SELECTED: Expression = ['==', ['get', 'selected'], 1]
 const FOCUSED: Expression = ['==', ['get', 'focused'], 1]
 const EMPTY: Expression = ['==', ['get', 'snapshot'], 'none']
+const PROCESSING: Expression = ['==', ['get', 'processing'], 1]
+const PULSE: Expression = ['number', ['feature-state', 'pulse'], 0.62]
+const PROCESSING_COLOR = '#f4c25b'
 
 function withAppear(opacity: Expression): Expression {
   return ['*', APPEAR, opacity]
@@ -1100,19 +1165,22 @@ function fillOpacity(mode: HexMode): Expression {
 function lineOpacity(mode: HexMode): Expression {
   if (mode === 'off') return ['literal', 0]
   const empty: Expression | number = mode === 'grid' ? 0.16 : (['*', LENS, 0.22] as Expression)
-  const rim: Expression = ['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, empty, 0.78]
-  return zoomPaint(withAppear(rim), withAppear(['case', HOVER, 1, FOCUSED, 1, SELECTED, 1, EMPTY, empty, 0.92]))
+  const rim: Expression = ['case', HOVER, 1, PROCESSING, 1, FOCUSED, 1, SELECTED, 1, EMPTY, empty, 0.78]
+  return zoomPaint(withAppear(rim), withAppear(['case', HOVER, 1, PROCESSING, 1, FOCUSED, 1, SELECTED, 1, EMPTY, empty, 0.92]))
 }
 
 function glowOpacity(): Expression {
-  const bloom: Expression = ['case', EMPTY, 0, HOVER, 0.48, FOCUSED, 0.55, SELECTED, 0.38, 0.16]
-  return zoomPaint(withAppear(bloom), withAppear(['case', EMPTY, 0, HOVER, 0.5, FOCUSED, 0.58, SELECTED, 0.42, 0.36]))
+  const bloom: Expression = ['case', PROCESSING, PULSE, EMPTY, 0, HOVER, 0.48, FOCUSED, 0.55, SELECTED, 0.38, 0.16]
+  return zoomPaint(
+    withAppear(bloom),
+    withAppear(['case', PROCESSING, PULSE, EMPTY, 0, HOVER, 0.5, FOCUSED, 0.58, SELECTED, 0.42, 0.36]),
+  )
 }
 
 function lineWidth(): Expression {
   return zoomPaint(
-    ['case', HOVER, 1.5, FOCUSED, 1.7, SELECTED, 1.4, EMPTY, 0.45, 0.85],
-    ['case', HOVER, 2.2, FOCUSED, 2.4, SELECTED, 2, EMPTY, 0.75, 1.6],
+    ['case', HOVER, 1.5, PROCESSING, 2, FOCUSED, 1.7, SELECTED, 1.4, EMPTY, 0.45, 0.85],
+    ['case', HOVER, 2.2, PROCESSING, 2.8, FOCUSED, 2.4, SELECTED, 2, EMPTY, 0.75, 1.6],
   )
 }
 
@@ -1121,7 +1189,10 @@ function lineBlur(): Expression {
 }
 
 function glowWidth(): Expression {
-  return zoomPaint(['case', HOVER, 6, FOCUSED, 7, SELECTED, 6, 4.5], ['case', HOVER, 14, FOCUSED, 16, SELECTED, 13, 12])
+  return zoomPaint(
+    ['case', HOVER, 6, PROCESSING, 9, FOCUSED, 7, SELECTED, 6, 4.5],
+    ['case', HOVER, 14, PROCESSING, 18, FOCUSED, 16, SELECTED, 13, 12],
+  )
 }
 
 function glowBlur(): Expression {
@@ -1202,6 +1273,8 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
             'case',
             HOVER,
             '#ffffff',
+            PROCESSING,
+            PROCESSING_COLOR,
             ['==', ['get', 'snapshot'], 'stale'],
             '#f5c451',
             '#7ef0dc',
@@ -1227,6 +1300,8 @@ function ensureH3Layers(map: MapLibreMap, mode: HexMode) {
             'case',
             HOVER,
             '#ffffff',
+            PROCESSING,
+            PROCESSING_COLOR,
             FOCUSED,
             '#7ef0dc',
             SELECTED,

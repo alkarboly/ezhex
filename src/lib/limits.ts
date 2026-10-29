@@ -17,3 +17,10 @@ export const MAX_GEOFENCE_VERTICES = 64
 export const HAIL_MESH_START = '2020-11-01'
 /** One 12Z file per day. Cap the range so Render does not pull a multi-year grid. */
 export const MAX_HAIL_DAYS = 366
+/** Process-agent batch size. Each batch is one connected ingest job. */
+export const MAX_AGENT_HEX_BATCH = 9
+/** New (unprocessed) hexes one agent run may process. `AGENT_MAX_NEW_HEXES` can lower it. */
+export const AGENT_MAX_NEW_HEXES = 36
+export const AGENT_DEFAULT_RADIUS_KM = 1
+export const AGENT_MAX_RADIUS_KM = 3
+export const AGENT_DEFAULT_HAIL_DAYS = 30

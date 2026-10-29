@@ -140,12 +140,146 @@
   }
 }
 
+@keyframes wp-agent-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes wp-agent-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.12);
+  }
+}
+
+@keyframes wp-agent-open {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wp-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes wp-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@keyframes wp-blink {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes wp-hex-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.18);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes wp-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes wp-bubble-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.86);
+  }
+  70% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.04);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wp-agent-ring {
+  background: conic-gradient(from 0deg, #3ddec0, #7ef0dc 22%, #f4c25b 46%, #3ddec0 70%, #1a6f60 86%, #3ddec0);
+  animation: wp-agent-spin 7s linear infinite;
+}
+
+.wp-agent-ring[data-busy='true'] {
+  animation-duration: 1.3s;
+}
+
+.wp-agent-halo {
+  background: radial-gradient(circle, rgb(61 222 192 / 0.55), rgb(61 222 192 / 0) 68%);
+  animation: wp-agent-breathe 3.4s ease-in-out infinite;
+}
+
+.wp-agent-halo[data-busy='true'] {
+  background: radial-gradient(circle, rgb(244 194 91 / 0.55), rgb(244 194 91 / 0) 68%);
+  animation-duration: 1.5s;
+}
+
+.wp-shimmer-bar {
+  background: linear-gradient(90deg, transparent, rgb(61 222 192 / 0.9), transparent);
+  animation: wp-shimmer 1.3s ease-in-out infinite;
+}
+
+.wp-rise {
+  animation: wp-rise 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.wp-bubble-pop {
+  animation: wp-bubble-pop 520ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 1ms !important;
     transition-duration: 1ms !important;
+  }
+
+  .wp-motion,
+  .wp-agent-ring,
+  .wp-agent-halo,
+  .wp-shimmer-bar {
+    animation: none !important;
   }
 }
 

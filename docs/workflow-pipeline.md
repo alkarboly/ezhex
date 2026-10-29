@@ -47,7 +47,10 @@ UI / API caller
      GET/POST/PATCH/DELETE /api/query-workflows
      owner RLS, 5 per account, nationwide hexes
      enrichments stay on the workflow and are private
-     POST /api/agent-assist/draft configures the inspect query and enrichments for the selected hexes, and can apply a natural-language prompt (`prompt`)
+     POST /api/agent/plan turns a prompt into intent, region, hexes, and missing batches (<=9 each)
+       the Explorer agent creates one ingestion job per batch and follows its logs
+     POST /api/agent/query picks observed categories and returns filters, SQL, enrichments, counts, hail window, quote
+     POST /api/agent-assist/draft configures the inspect query and enrichments for the selected hexes (API only)
      POST /api/agent-assist/quote updates quote lines as query/enhancements change
      POST /api/query-workflows/:id/quote returns agent quote lines + simulated ledger balance
      POST /api/query-workflows/:id/run auto-processes missing hexes (<10 per batch), then checks snapshots, then query + enrichments
@@ -114,11 +117,32 @@ The explorer selection dock and `/jobs` create jobs from selected hexes. There i
 
 Workflows, enrichments, runs, hail extracts, and ledger views are private (`auth.uid() = owner_user_id`). Anon cannot read them.
 
+### Agent
+
+`POST /api/agent/plan`
+
+```json
+{
+  "prompt": "Coffee shops within 1 km of the Texas State Capitol, with 30 days of hail history",
+  "selection": [],
+  "view": { "center": { "lat": 30.2747, "lng": -97.7404 }, "bounds": null, "zoom": 14 },
+  "polygon": null,
+  "weather": false,
+  "previous": null
+}
+```
+
+Returns `{ id, reply, used_model, intent, region, h3_cells, ready, missing, processing_jobs, batches, release_version, max_new_hexes, notes }`. `region` is `{ kind, label, center, radius_km, polygon }` with `kind` one of `selection`, `view`, `place`, `point`, or `polygon`; a circle or custom polygon becomes the geofence. `h3_cells` run from the region center outward (max 300). `batches` are connected groups of `missing` hexes, at most 9 each, capped at 36 new hexes (`AGENT_MAX_NEW_HEXES` lowers it). `previous` carries the last `{ intent, region, h3_cells }` for follow-ups.
+
+`POST /api/agent/query` `{ prompt, h3_cells, intent, region }` returns `{ filters, sql, enrichments, categories, observed_categories, total_rows, matched_rows, fenced_rows, sample, workflow_name, hail_window, quote, notes, used_model }`. `filters` are inspect filters. `categories` are `{ value, count }` picks from values observed in those hexes. `enrichments` are in run order. `hail_window` is `{ start_date, end_date, floor }`, where `floor` is the first-process date the run clamps to.
+
+Neither route writes rows or debits the ledger. Both need a session when Supabase accounts are configured; otherwise they use the demo guest.
+
 ### Enrichments
 
 A workflow is a query plus an ordered enrichment list (max 4, at most one `hail_history`, at most one `ai_column`).
 
-**geofence.** `{ id, kind: "geofence", keep: "inside" | "outside", polygon }`. After the query, rows whose `lng`/`lat` fail the keep test are dropped. Draw the polygon on the map (Enrich → Draw fence) or save it onto the workflow.
+**geofence.** `{ id, kind: "geofence", keep: "inside" | "outside", polygon }`. After the query, rows whose `lng`/`lat` fail the keep test are dropped. Draw the polygon on the map (Enrich → Draw fence), attach it to the agent, or save it onto the workflow.
 
 **hail_history.** `{ id, kind: "hail_history", start_date, end_date }`. NOAA MRMS `MESH_Max_1440min` (24h max estimated hail size, mm). Public S3, anonymous:
 

@@ -251,6 +251,8 @@ export type H3FeatureProps = {
   count: number
   selected: number
   focused: number
+  /** An ingest job is running for this hex. */
+  processing: number
   snapshot: HexSnapshot | 'none'
   color: string
 }
@@ -262,6 +264,7 @@ export function buildH3Collection(input: {
   snapshots: ReadonlyMap<string, HexSnapshot | null>
   selected: ReadonlySet<string>
   focusedH3: string | null
+  processing?: ReadonlySet<string>
 }): FeatureCollection<Polygon, H3FeatureProps> {
   const features: Feature<Polygon, H3FeatureProps>[] = input.cells.map((cell) => {
     const snapshot = input.snapshots.get(cell) ?? null
@@ -272,6 +275,7 @@ export function buildH3Collection(input: {
         count: input.counts.get(cell) ?? 0,
         selected: input.selected.has(cell) ? 1 : 0,
         focused: input.focusedH3 === cell ? 1 : 0,
+        processing: input.processing?.has(cell) ? 1 : 0,
         snapshot: snapshot ?? 'none',
         color: snapshotColor(snapshot),
       },

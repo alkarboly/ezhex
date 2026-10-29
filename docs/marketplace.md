@@ -1,6 +1,6 @@
 # Enrichment marketplace (OpenAI + Rho)
 
-**Status: demo scaffold live.** Structured quote, process-agent batching (<10 hexes), `ai_column`, and a simulated ledger are shipped. Real Rho card debit is still target-only. This page remains the pickup contract for the remaining Rho production wiring.
+**Status: demo scaffold live.** Structured quote, process-agent batching (<10 hexes), `ai_column`, a simulated ledger, and the Explorer agent (prompt → hexes → process → query → enrichments → approve, see [architecture.md](architecture.md#agent)) are shipped. Real Rho card debit is still target-only. This page remains the pickup contract for the remaining Rho production wiring.
 
 Read first: [architecture.md](architecture.md), [workflow-pipeline.md](workflow-pipeline.md), [query-spec.md](query-spec.md). Keep field names from those docs and from `src/types/enrichments.ts`. Do not invent a second workflow type.
 
@@ -9,7 +9,7 @@ Read first: [architecture.md](architecture.md), [workflow-pipeline.md](workflow-
 A private enrichment marketplace on top of the existing query workflow.
 
 ```
-User selects hexes and inspect filters
+User selects hexes and inspect filters (or the Explorer agent derives them from a prompt)
   → Process agent (existing DuckDB Overture ingest) if hexes are missing
   → Orchestrator (OpenAI, structured quotes — not free chat)
        geofence agent     → price for a drawn / uploaded polygon
@@ -83,7 +83,7 @@ Never send card numbers to the browser. Never store PAN. Fail closed if Rho is u
 
 ## OpenAI — what it is
 
-OpenAI runs **only on Node**. It orchestrates quotes and (for `ai_column`) fills one typed column.
+OpenAI runs **only on Node**. It orchestrates quotes, parses Explorer agent prompts and picks their categories, and (for `ai_column`) fills one typed column.
 
 Env:
 
@@ -91,7 +91,9 @@ Env:
 - `OPENAI_MODEL` (global default model)
 - `OPENAI_QUOTE_MODEL` (optional, quote-only override)
 - `OPENAI_AI_COLUMN_MODEL` (optional, ai-column-only override)
-- `OPENAI_QUOTE_API_KEY` / `OPENAI_AI_COLUMN_API_KEY` (optional key overrides)
+- `OPENAI_AGENT_MODEL` (optional, Explorer agent planner override)
+- `OPENAI_QUOTE_API_KEY` / `OPENAI_AI_COLUMN_API_KEY` / `OPENAI_AGENT_API_KEY` (optional key overrides)
+- `AGENT_MAX_NEW_HEXES` (lowers the 36 new hexes one agent request may process), `AGENT_GEOCODER=off` and `AGENT_GEOCODER_URL` (place lookup, Nominatim by default)
 
 The orchestrator does **not** free-chat a price. It emits a structured quote the server validates:
 
@@ -148,7 +150,7 @@ Rules:
 | `ai_column` | Live demo | row count × `value_type` |
 | `orchestrator` | New, OpenAI + price book | sum of accepted lines |
 
-Brokering is quote → clamp → accept → debit → run. Do not implement multi-agent chat transcripts. Log one line per hop.
+Brokering is quote → clamp → accept → debit → run. The Explorer agent panel plans the build, processes hexes, and shows this quote; the debit happens only when the user presses **Approve & run**. Log one line per hop.
 
 ## Run log
 
@@ -195,7 +197,6 @@ Auth: same as workflow save. No OpenAI or Rho keys in Vite. Fail closed: missing
 ## Out of scope for v1
 
 - A Rho checking account per sign-up
-- Free-form agent chat
 - Charging the user’s personal card in the browser
 - Third-party third-party enrichments beyond these four specialists
 - Writing AI output into Overture tables

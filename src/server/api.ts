@@ -19,6 +19,7 @@ import {
   workflowIngestionLimits,
 } from './workflow-ingestion'
 import { draftAgentAssist, quoteAgentAssist } from './agent-assist'
+import { buildAgentQuery, planAgentRun } from './agent-planner'
 import { routeAuth } from './auth'
 import { enrichHail } from './hail-mesh'
 import { checkHexSnapshotsRequest } from './hex-snapshots'
@@ -61,6 +62,14 @@ export async function routeApi(
     const result = await draftAgentAssist(body, context.cookies)
     if ('error' in result) return { status: result.status, body: { error: result.error } }
     return { status: 200, body: result }
+  }
+
+  if (method === 'POST' && pathname === '/api/agent/plan') {
+    return agentCall(() => planAgentRun(body, context.cookies))
+  }
+
+  if (method === 'POST' && pathname === '/api/agent/query') {
+    return agentCall(() => buildAgentQuery(body, context.cookies))
   }
 
   if (method === 'GET' && pathname === '/api/ledger') {
@@ -217,6 +226,20 @@ function serverProvider() {
 
 function listReleases() {
   return readDataMode().resolved === 'supabase' ? supabaseReleaseCatalog() : mockReleaseCatalog()
+}
+
+async function agentCall(work: () => Promise<object | { error: string; status: number }>): Promise<ApiResult> {
+  try {
+    const result = await work()
+    if ('error' in result && 'status' in result) return { status: result.status, body: { error: result.error } }
+    return { status: 200, body: result }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'Error') {
+      return { status: 400, body: { error: error.message } }
+    }
+    console.error(error)
+    return { status: 500, body: { error: 'The agent failed.' } }
+  }
 }
 
 async function call(work: () => Promise<unknown>): Promise<ApiResult> {

@@ -1,13 +1,15 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { Sparkles } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { asGeometry, type GeoJsonPosition } from '../../lib/geojson'
 import { HAIL_MESH_START, MAX_GEOFENCE_VERTICES } from '../../lib/limits'
-import { addDay, closedRing } from '../../lib/enrichments'
+import { addDay } from '../../lib/enrichments'
 import { formatCount } from '../../lib/format'
-import { draftAgentAssist, quoteAgentAssist } from '../../services/agent-assist'
+import { parsePolygonText } from '../../lib/polygon-input'
+import { quoteAgentAssist } from '../../services/agent-assist'
 import { enrichHail } from '../../services/query-workflows'
+import { useAgent } from '../../store/agent-store'
 import { useExplorer } from '../../store/explorer-store'
-import type { GeofenceKeep, GeofencePolygon, WorkflowEnrichment } from '../../types/enrichments'
+import type { GeofenceKeep, WorkflowEnrichment } from '../../types/enrichments'
 
 export function EnrichPanel() {
   const open = useExplorer((state) => state.enrichOpen)
@@ -33,9 +35,6 @@ export function EnrichPanel() {
   const [aiFields, setAiFields] = useState('name, category, main_category, address, operating_status')
   const [aiEnumValues, setAiEnumValues] = useState('low, medium, high')
   const [aiError, setAiError] = useState<string | null>(null)
-  const [agentPrompt, setAgentPrompt] = useState(
-    'Find places likely to be broker-ready leads, use the latest 30 days of hail, and set a useful AI column.',
-  )
   const [polygonText, setPolygonText] = useState('')
   const [polygonError, setPolygonError] = useState<string | null>(null)
 
@@ -46,30 +45,12 @@ export function EnrichPanel() {
       upsert({ id: 'hail_history', kind: 'hail_history', start_date: result.start_date, end_date: result.end_date })
     },
   })
-  const assistBuild = useMutation({
-    mutationFn: (prompt?: string) =>
-      draftAgentAssist({
-        h3_cells: selected,
-        enrichments: draft,
-        estimated_rows: selected.length * 22,
-        prompt: prompt && prompt.trim().length > 0 ? prompt : undefined,
-      }),
-    onSuccess: (result) => {
-      useExplorer.getState().applyAgentQuery({
-        h3_cells: result.h3_cells,
-        filters: result.filters,
-        sql: result.sql,
-        enrichments: result.enrichments,
-        notes: result.notes,
-      })
-    },
-  })
   const draftSignature = useMemo(() => JSON.stringify(draft), [draft])
   const assistQuote = useQuery({
     queryKey: ['agent-assist-quote', selected.join(','), draftSignature],
     enabled: open && selected.length > 0,
     queryFn: () => quoteAgentAssist({ h3_cells: selected, enrichments: draft, estimated_rows: selected.length * 22 }),
-    refetchInterval: 1_500,
+    staleTime: 30_000,
   })
 
   useEffect(() => {
@@ -173,41 +154,26 @@ export function EnrichPanel() {
       </header>
       <div className="grid gap-3 overflow-y-auto px-3.5 pb-3.5">
         <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
-          <p className="text-[11px] font-medium">Agent chat</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            Describe what you want. The agent builds the inspect query and all enrichments into these controls.
-          </p>
-          <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
-            Prompt
-            <textarea
-              value={agentPrompt}
-              onChange={(event) => setAgentPrompt(event.target.value)}
-              className="min-h-16 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
-              placeholder="Example: show buildings with strict confidence and 90 days of hail, then score lead quality from 0 to 100."
-            />
-          </label>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-[11px] font-medium">Agent</p>
+              <p className="mt-0.5 text-[10px] text-muted-foreground">
+                Describe the dataset. The agent finds hexes, processes them, writes the query, and fills these
+                enrichments.
+              </p>
+            </div>
             <button
               type="button"
-              disabled={selected.length === 0 || assistBuild.isPending}
-              onClick={() => assistBuild.mutate(agentPrompt)}
-              className="h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+              onClick={() => useAgent.getState().setOpen(true)}
+              className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground"
             >
-              {assistBuild.isPending ? 'Building…' : 'Build from chat'}
+              <Sparkles className="size-3" />
+              Open agent
             </button>
-            <button
-              type="button"
-              disabled={selected.length === 0 || assistBuild.isPending}
-              onClick={() => assistBuild.mutate()}
-              className="h-7 rounded-full bg-primary/15 px-3 text-[11px] font-medium text-primary hover:bg-primary/25 disabled:opacity-40"
-            >
-              Default build
-            </button>
-            <span className="text-[10px] text-muted-foreground">
-              {assistQuote.isFetching ? 'Updating quote…' : 'Quote updates live'}
-            </span>
           </div>
-          {assistBuild.error && <p className="mt-1 text-[11px] text-destructive">{assistBuild.error.message}</p>}
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            {assistQuote.isFetching ? 'Updating quote…' : 'Quote follows these enrichments'}
+          </p>
           {assistQuote.error && <p className="mt-1 text-[11px] text-destructive">{assistQuote.error.message}</p>}
           {assistQuote.data && (
             <div className="mt-2 rounded-md border border-white/[0.08] bg-black/30 p-2">
@@ -442,82 +408,4 @@ function defaultHailRange() {
 
 function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`
-}
-
-function parsePolygonText(raw: string): GeofencePolygon | null {
-  const trimmed = raw.trim()
-  if (!trimmed) return null
-  const asJson = parsePolygonJson(trimmed)
-  if (asJson) return asJson
-  return parsePolygonWkt(trimmed)
-}
-
-function parsePolygonJson(raw: string): GeofencePolygon | null {
-  try {
-    return polygonFromValue(JSON.parse(raw) as unknown)
-  } catch {
-    return null
-  }
-}
-
-function polygonFromValue(value: unknown): GeofencePolygon | null {
-  const geometry = asGeometry(value)
-  if (geometry?.type === 'Polygon') return normalizePolygon(geometry.coordinates)
-  if (geometry?.type === 'MultiPolygon') return normalizePolygon(geometry.coordinates[0] ?? [])
-  if (!isRecord(value)) return null
-  if (value.type === 'Feature' && value.geometry) return polygonFromValue(value.geometry)
-  if (value.type === 'FeatureCollection' && Array.isArray(value.features)) {
-    for (const feature of value.features) {
-      const polygon = polygonFromValue(feature)
-      if (polygon) return polygon
-    }
-    return null
-  }
-  if (Array.isArray(value) && value.every(isPosition)) return normalizePolygon([value])
-  if (Array.isArray(value) && value.every((item) => Array.isArray(item) && item.every(isPosition))) {
-    return normalizePolygon(value as GeoJsonPosition[][])
-  }
-  return null
-}
-
-function parsePolygonWkt(raw: string): GeofencePolygon | null {
-  const normalized = raw.replace(/\s+/g, ' ').trim()
-  if (!/^polygon\s*\(\(/i.test(normalized) || !/\)\)$/.test(normalized)) return null
-  const body = normalized.replace(/^polygon\s*\(\(/i, '').replace(/\)\)\s*$/i, '')
-  const rings: GeoJsonPosition[][] = []
-  for (const ringText of body.split(/\)\s*,\s*\(/)) {
-    const ring: GeoJsonPosition[] = []
-    for (const pair of ringText.split(',')) {
-      const parts = pair.trim().split(/\s+/)
-      if (parts.length < 2) return null
-      const lng = Number(parts[0])
-      const lat = Number(parts[1])
-      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null
-      ring.push([lng, lat])
-    }
-    rings.push(ring)
-  }
-  return normalizePolygon(rings)
-}
-
-function normalizePolygon(rings: GeoJsonPosition[][]): GeofencePolygon | null {
-  if (rings.length === 0) return null
-  const closed = rings.map((ring) => closedRing(ring))
-  if (closed.some((ring) => !ring)) return null
-  return { type: 'Polygon', coordinates: closed as GeoJsonPosition[][] }
-}
-
-function isPosition(value: unknown): value is GeoJsonPosition {
-  return (
-    Array.isArray(value) &&
-    value.length >= 2 &&
-    typeof value[0] === 'number' &&
-    Number.isFinite(value[0]) &&
-    typeof value[1] === 'number' &&
-    Number.isFinite(value[1])
-  )
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

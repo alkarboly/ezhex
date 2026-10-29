@@ -1,4 +1,4 @@
-import { cellToParent, getResolution, isValidCell, latLngToCell } from 'h3-js'
+import { areNeighborCells, cellToParent, getResolution, gridDisk, isValidCell, latLngToCell } from 'h3-js'
 import {
   AUSTIN_CENTER,
   cellPolygon,
@@ -29,10 +29,13 @@ import { snapshotDate } from '../src/lib/overture-release.ts'
 import { parseTaxonomyLabel } from '../src/lib/taxonomy.ts'
 import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojson.ts'
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
-import { H3_RESOLUTION } from '../src/lib/limits.ts'
+import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../src/lib/limits.ts'
+import { balancedHexBatches, connectedHexBatches } from '../src/lib/hex-batches.ts'
+import { parsePolygonText } from '../src/lib/polygon-input.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
 import { buildMockDatabase } from '../src/services/mock/database.ts'
 import { mockProvider, resetMockDatabaseForTests } from '../src/services/mock-provider.ts'
+import type { AgentPlan, AgentQueryResponse } from '../src/types/agents.ts'
 import { defaultAddressesForm, defaultBuildingsForm, defaultPlacesForm } from '../src/types/queries.ts'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -867,6 +870,83 @@ assert(
     unprocessedRun.body.logs.some((line) => isRecord(line) && String(line.message).includes('agent run process')),
   'workflow run logs did not include process-agent lines',
 )
+
+const disk = gridDisk(capitol, 2)
+const diskBatches = balancedHexBatches(disk, MAX_AGENT_HEX_BATCH)
+assert(diskBatches.length === 3, `19 hexes should split into 3 agent batches, got ${diskBatches.length}`)
+assert(diskBatches.every((batch) => batch.length > 0 && batch.length <= MAX_AGENT_HEX_BATCH), 'agent batch exceeded the cap')
+assert(diskBatches.flat().length === disk.length && new Set(diskBatches.flat()).size === disk.length, 'agent batches lost hexes')
+assert(
+  diskBatches.every((batch) => batch.length === 1 || batch.every((cell) => batch.some((other) => areNeighborCells(cell, other)))),
+  'agent batch is not contiguous',
+)
+assert(connectedHexBatches([], MAX_AGENT_HEX_BATCH).length === 0, 'empty agent batch input produced batches')
+assert(parsePolygonText('POLYGON((-97.745 30.265, -97.735 30.265, -97.735 30.275, -97.745 30.265))')?.type === 'Polygon', 'WKT polygon did not parse')
+assert(parsePolygonText('[[-97.745,30.265],[-97.735,30.265],[-97.735,30.275]]')?.coordinates[0].length === 4, 'bare ring did not close')
+
+const savedOpenAiKeys = { OPENAI_API_KEY: process.env.OPENAI_API_KEY, OPENAI_AGENT_API_KEY: process.env.OPENAI_AGENT_API_KEY }
+process.env.OPENAI_API_KEY = ''
+process.env.OPENAI_AGENT_API_KEY = ''
+process.env.AGENT_GEOCODER = 'off'
+const cafeCells = first.cells
+  .filter((cell) => (first.places.get(cell) ?? []).some((place) => place.basic_category === 'cafe'))
+  .slice(0, 4)
+const { loadInspectRows } = await import('../src/server/workflow-runs.ts')
+const cafeRows = await loadInspectRows(cafeCells, null)
+assert(cafeRows.some((row) => row.kind === 'places' && row.category === 'cafe'), 'workflow inspect rows mixed up the themes')
+assert(cafeRows.some((row) => row.kind === 'buildings' && row.building_class !== null), 'workflow inspect rows lost building classes')
+const coffeePrompt = 'Coffee shops in my selected hexes with 30 days of hail history'
+const selectionPlan = await routeApi('POST', '/api/agent/plan', { prompt: coffeePrompt, selection: cafeCells })
+assert(selectionPlan.status === 200 && isRecord(selectionPlan.body), `agent selection plan failed: ${JSON.stringify(selectionPlan.body)}`)
+const coffeePlan = selectionPlan.body as unknown as AgentPlan
+assert(coffeePlan.region.kind === 'selection' && coffeePlan.h3_cells.length === cafeCells.length, 'agent plan drifted from the selection')
+assert(coffeePlan.intent.dataset === 'places' && coffeePlan.intent.category_terms.length > 0, 'agent plan missed the coffee ask')
+assert(coffeePlan.intent.hail_days === 30, 'agent plan missed the hail window')
+assert(coffeePlan.missing.length === 0 && coffeePlan.batches.length === 0, 'covered hexes should not need processing')
+
+const square = squarePolygon(AUSTIN_CENTER.lng, AUSTIN_CENTER.lat, 0.008)
+const polygonPlanRes = await routeApi('POST', '/api/agent/plan', { prompt: 'Restaurants inside my polygon with high confidence', polygon: square })
+assert(polygonPlanRes.status === 200 && isRecord(polygonPlanRes.body), `agent polygon plan failed: ${JSON.stringify(polygonPlanRes.body)}`)
+const polygonPlan = polygonPlanRes.body as unknown as AgentPlan
+assert(polygonPlan.region.kind === 'polygon' && polygonPlan.region.polygon, 'agent polygon plan lost the polygon')
+assert(polygonPlan.h3_cells.length > 1 && polygonPlan.h3_cells.includes(capitol), 'agent did not derive hexes from the polygon')
+assert((polygonPlan.intent.confidence_min ?? 0) >= 0.5, 'agent polygon plan missed the confidence ask')
+
+const pointPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'Hotels around the map center',
+  view: { center: { lat: 31.2, lng: -97.74 }, bounds: null, zoom: 14 },
+})
+assert(pointPlanRes.status === 200 && isRecord(pointPlanRes.body), `agent point plan failed: ${JSON.stringify(pointPlanRes.body)}`)
+const pointPlan = pointPlanRes.body as unknown as AgentPlan
+assert(pointPlan.region.kind === 'point' && pointPlan.h3_cells.length > 1, 'agent point plan did not build a circle of hexes')
+assert(pointPlan.missing.length > 0, 'hexes outside coverage should be missing')
+assert(
+  pointPlan.batches.every((batch) => batch.length <= MAX_AGENT_HEX_BATCH) && pointPlan.batches.flat().length === pointPlan.missing.length,
+  'agent point plan batches drifted from the missing hexes',
+)
+
+const agentQueryRes = await routeApi('POST', '/api/agent/query', {
+  prompt: coffeePrompt,
+  h3_cells: coffeePlan.h3_cells,
+  intent: coffeePlan.intent,
+  region: coffeePlan.region,
+})
+assert(agentQueryRes.status === 200 && isRecord(agentQueryRes.body), `agent query failed: ${JSON.stringify(agentQueryRes.body)}`)
+const coffeeQuery = agentQueryRes.body as unknown as AgentQueryResponse
+assert(
+  coffeeQuery.categories.some((pick) => pick.value === 'cafe' && pick.count > 0),
+  `agent query did not pick the cafe category: ${JSON.stringify({ terms: coffeePlan.intent.category_terms, picked: coffeeQuery.categories, notes: coffeeQuery.notes, filters: coffeeQuery.filters })}`,
+)
+assert(coffeeQuery.matched_rows > 0 && coffeeQuery.matched_rows < coffeeQuery.total_rows, 'agent query did not narrow the rows')
+assert(validateInspectSql(coffeeQuery.sql.replace(/^--.*$/gm, '').trim()) === null, 'agent query SQL is invalid')
+assert(coffeeQuery.enrichments.some((enrichment) => enrichment.kind === 'hail_history'), 'agent query dropped hail history')
+assert(coffeeQuery.hail_window !== null && coffeeQuery.quote.total_usd_cents > 0, 'agent query is missing the hail window or quote')
+const badAgentQuery = await routeApi('POST', '/api/agent/query', { prompt: 'x', h3_cells: [], intent: {}, region: {} })
+assert(badAgentQuery.status === 400, 'agent query accepted an empty request')
+for (const [name, value] of Object.entries(savedOpenAiKeys)) {
+  if (value === undefined) delete process.env[name]
+  else process.env[name] = value
+}
 
 console.log(
   `verify ok · ${first.cells.length} cells · ${first.totals.places} places · ${first.totals.buildings} buildings · ${first.totals.addresses} addresses`,

@@ -21,7 +21,8 @@ export type ExampleId = 'places-food' | 'buildings-tall' | 'addresses-postcode'
 /** lens: cells appear around the cursor (or map center on touch). grid: every cell in view. */
 export type HexMode = 'lens' | 'grid' | 'off'
 export type SheetSnap = 'peek' | 'half' | 'full'
-export type FitRequest = { nonce: number; zoomIn: boolean }
+/** `cells` frames those hexes instead of the selection. */
+export type FitRequest = { nonce: number; zoomIn: boolean; cells?: readonly string[] }
 export type MobileTab = 'query' | 'results'
 export type DrawMode = 'off' | 'geofence'
 export type InspectReplay = {
@@ -140,7 +141,15 @@ type ExplorerState = {
     sql: string
     enrichments: WorkflowEnrichment[]
     notes?: readonly string[]
+    workflowName?: string
+    openInspect?: boolean
+    openEnrich?: boolean
+    fit?: boolean
+    notice?: string | null
   }) => void
+  /** Agent selection without a notice, so the map can fill in hex by hex. */
+  revealCells: (cells: readonly string[]) => void
+  fitToCells: (cells: readonly string[]) => void
 }
 
 const initialSort = defaultSort('places')
@@ -497,8 +506,8 @@ function createExplorerStore() {
     set((state) => ({
       selectedCells: cells,
       page: 0,
-      inspectOpen: true,
-      enrichOpen: true,
+      inspectOpen: input.openInspect ?? true,
+      enrichOpen: input.openEnrich ?? true,
       queryHexPreview: false,
       inspectFilters: input.filters,
       draftEnrichments: input.enrichments,
@@ -506,15 +515,24 @@ function createExplorerStore() {
       inspectReplay: {
         nonce: (state.inspectReplay?.nonce ?? 0) + 1,
         workflowId: null,
-        workflowName: 'Agent query',
+        workflowName: input.workflowName ?? 'Agent query',
         filters: input.filters,
         sql: input.sql,
         customSql: false,
         releaseVersion: null,
       },
-      fit: cells.length > 0 ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
-      notice: input.notes?.[0] ?? `Agent query · ${cells.length} hexes. Edit the inspect controls or enrichments, then save.`,
+      fit: cells.length > 0 && input.fit !== false ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
+      notice:
+        input.notice !== undefined
+          ? input.notice
+          : (input.notes?.[0] ?? `Agent query · ${cells.length} hexes. Edit the inspect controls or enrichments, then save.`),
     }))
+  },
+  revealCells: (cells) =>
+    set({ selectedCells: [...new Set(cells)].slice(0, MAX_SELECTED_CELLS), page: 0, queryHexPreview: false }),
+  fitToCells: (cells) => {
+    if (cells.length === 0) return
+    set((state) => ({ fit: { nonce: state.fit.nonce + 1, zoomIn: true, cells: [...cells] } }))
   },
 }))
 }
@@ -530,7 +548,8 @@ export const useExplorer =
   existing &&
   'inspectFilters' in existing.getState() &&
   'patchInspectFilters' in existing.getState() &&
-  'applyAgentQuery' in existing.getState()
+  'applyAgentQuery' in existing.getState() &&
+  'revealCells' in existing.getState()
     ? existing
     : createExplorerStore()
 globalThis.__worldpulseExplorer = useExplorer

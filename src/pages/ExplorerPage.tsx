@@ -1,7 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getResolution } from 'h3-js'
 import { LocateFixed } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AgentDock } from '../components/agent/AgentDock'
+import { AgentStage } from '../components/agent/AgentStage'
+import { configureAgentRunner } from '../components/agent/agent-runner'
 import { EnrichPanel } from '../components/explorer/EnrichPanel'
 import { HexActionDialog } from '../components/explorer/HexActionDialog'
 import { HexInspectWindow } from '../components/explorer/HexInspectWindow'
@@ -14,8 +17,8 @@ import { MOBILE_QUERY, TOUCH_QUERY, useMediaQuery } from '../hooks/useMediaQuery
 import { filterFeatureRows } from '../lib/feature-rows'
 import { readyCellsInParents, type ViewportStatus } from '../lib/h3'
 import { H3_RESOLUTION } from '../lib/limits'
-import { draftAgentAssist } from '../services/agent-assist'
 import { getHexStatus } from '../services/workflow-ingestion'
+import { useAgent } from '../store/agent-store'
 import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
 import type { CellCount } from '../types/queries'
@@ -23,6 +26,8 @@ import type { HexAction, HexCoverage, HexDataStatus, IngestionJob } from '../typ
 
 const NO_COUNTS: CellCount[] = []
 const MOBILE_TOP_BAR = 72
+/** Left edge plus width of the open agent panel on desktop, plus a gap. */
+const AGENT_PANEL_INSET = 424
 
 export function ExplorerPage() {
   const mobile = useMediaQuery(MOBILE_QUERY)
@@ -30,6 +35,11 @@ export function ExplorerPage() {
   const source = useDataSource()
   const client = useQueryClient()
   const mapRef = useRef<H3MapHandle>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const mobileRef = useRef(mobile)
+  mobileRef.current = mobile
+  const agentOpen = useAgent((state) => state.open)
+  const agentProcessing = useAgent((state) => state.processingCells)
   const compiled = useCompiledQuery()
   const cells = useExplorer((state) => state.viewportCellIds)
   const viewportStatus = useExplorer((state) => state.viewportStatus)
@@ -116,14 +126,38 @@ export function ExplorerPage() {
     for (const [h3, cell] of coverageByCell) next.set(h3, cell.status)
     return next
   }, [coverageByCell])
+  const processingCells = useMemo(() => {
+    const next = new Set(agentProcessing)
+    for (const [h3, cell] of coverageByCell) if (cell.status === 'processing') next.add(h3)
+    return next
+  }, [agentProcessing, coverageByCell])
 
   const insets = useMemo<MapInsets>(
     () =>
       mobile
-        ? { top: MOBILE_TOP_BAR, right: 0, bottom: 72, left: 0 }
-        : { top: 56, right: 0, bottom: 72, left: 0 },
-    [mobile],
+        ? {
+            top: MOBILE_TOP_BAR,
+            right: 0,
+            bottom: agentOpen ? Math.round(window.innerHeight * 0.64) + 8 : 72,
+            left: 0,
+          }
+        : { top: 56, right: 0, bottom: 72, left: agentOpen ? AGENT_PANEL_INSET : 0 },
+    [mobile, agentOpen],
   )
+
+  useEffect(() => {
+    configureAgentRunner({
+      client,
+      getView: () => mapRef.current?.getView() ?? null,
+      desktop: () => !mobileRef.current,
+      panelRight: () => {
+        const panel = document.querySelector('[data-agent-panel]')
+        const root = rootRef.current
+        if (!panel || !root) return AGENT_PANEL_INSET - 16
+        return panel.getBoundingClientRect().right - root.getBoundingClientRect().left
+      },
+    })
+  }, [client])
 
   useEffect(() => {
     if (!notice) return
@@ -176,20 +210,6 @@ export function ExplorerPage() {
     setAction({ mode, cells: [...next] })
   }
 
-  const buildQuery = useMutation({
-    mutationFn: () => draftAgentAssist({ h3_cells: selected, enrichments: [], estimated_rows: selected.length * 22 }),
-    onSuccess: (draft) => {
-      useExplorer.getState().applyAgentQuery({
-        h3_cells: draft.h3_cells,
-        filters: draft.filters,
-        sql: draft.sql,
-        enrichments: draft.enrichments,
-        notes: draft.notes,
-      })
-    },
-    onError: (error) => setNotice(error instanceof Error ? error.message : 'The agent could not build this query.'),
-  })
-
   const onCreated = async (job: IngestionJob) => {
     setAction(null)
     setNotice(
@@ -211,13 +231,11 @@ export function ExplorerPage() {
       onClear={clearSelection}
       onAction={(mode) => openAction(mode, selected)}
       onEnrich={() => setEnrichOpen(!enrichOpen)}
-      onBuild={() => buildQuery.mutate()}
-      building={buildQuery.isPending}
     />
   )
 
   return (
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+    <div ref={rootRef} className="relative min-h-0 flex-1 overflow-hidden bg-background">
       <H3Map
         ref={mapRef}
         cells={mapCells}
@@ -237,9 +255,12 @@ export function ExplorerPage() {
         onHexAction={openHexAction}
         inspectFeatures={inspectOpen ? inspectFeatures : []}
         inspectHits={inspectHits}
+        processing={processingCells}
       />
       <HexInspectWindow cells={selected} />
       <EnrichPanel />
+      <AgentStage mobile={mobile} />
+      <AgentDock mobile={mobile} />
 
       {mobile ? (
         <>
@@ -328,11 +349,17 @@ export function ExplorerPage() {
           <div className="absolute top-3 right-3 z-20">
             <MapControls mapRef={mapRef} touch={touch} />
           </div>
-          <div className="pointer-events-none absolute right-3 bottom-3 left-3 z-20 flex justify-center">
+          <div
+            className="pointer-events-none absolute right-3 bottom-3 z-20 flex justify-center transition-[left] duration-300"
+            style={{ left: agentOpen ? AGENT_PANEL_INSET : 84 }}
+          >
             <div className="pointer-events-auto">{dock}</div>
           </div>
           {notice && (
-            <div className="pointer-events-none absolute right-3 bottom-20 left-3 z-30 flex justify-center">
+            <div
+              className="pointer-events-none absolute right-3 bottom-20 z-30 flex justify-center"
+              style={{ left: agentOpen ? AGENT_PANEL_INSET : 12 }}
+            >
               <Toast message={notice} onDismiss={dismissNotice} />
             </div>
           )}
@@ -357,16 +384,12 @@ function SelectionDock({
   onClear,
   onAction,
   onEnrich,
-  onBuild,
-  building,
 }: {
   selected: readonly string[]
   coverage: ReadonlyMap<string, HexDataStatus>
   onClear: () => void
   onAction: (mode: HexAction) => void
   onEnrich: () => void
-  onBuild: () => void
-  building: boolean
 }) {
   const processing = selected.some((cell) => coverage.get(cell) === 'processing')
   return (
@@ -389,14 +412,6 @@ function SelectionDock({
         className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
       >
         Process
-      </button>
-      <button
-        type="button"
-        disabled={selected.length === 0 || building}
-        onClick={onBuild}
-        className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
-      >
-        {building ? 'Building…' : 'Build query'}
       </button>
       <button
         type="button"
