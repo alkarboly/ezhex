@@ -6,8 +6,11 @@ WorldPulse is an H3 map for exploring Overture building, address, and place reco
 
 ```bash
 npm install
+pip install -r pipelines/hail/requirements.txt
 npm run dev
 ```
+
+Hail history and **Run hail enrich** decode NOAA MRMS `MESH_Max_1440min` 12Z files through `pipelines/hail/extract_mesh.py`. That needs the Python packages above (`xarray`, `cfgrib`, `eccodes`). The Render build installs the same file.
 
 Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, `supabase/migrations/20261027_auth.sql`, `supabase/migrations/20261027_query_workflows.sql`, `supabase/migrations/20261027_workflow_enrichments.sql`, `supabase/migrations/20261027_hex_snapshot_history.sql`, `supabase/migrations/20261027_query_workflow_grants.sql`, and `supabase/migrations/20261028_agentic_ledger.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table as SQL; you do not pick a theme. Settings creates and deletes accounts. Saving a workflow needs a sign-in when Supabase is configured. Create a workflow refreshes that session, then writes with the current JWT. The map does not require a login.
 

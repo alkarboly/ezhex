@@ -128,7 +128,7 @@ Use only the `120000` (12Z) file per day. Never sum overlapping files. Data from
 
 `POST /api/enrichments/hail` `{ h3_cells, start_date, end_date }` processes selected hexes and returns per-hex `{ hail_mm_max, hail_days, hail_last_date }`. The Explorer **Enrich** button opens that path.
 
-Live decode uses `pipelines/hail/extract_mesh.py` (xarray+cfgrib). Node writes a temp job JSON with hex bboxes, runs the script, keeps only hex-day mm, and deletes the GRIB. If Python hail dependencies are missing in demo deploys, Node falls back to deterministic synthetic values instead of hard-failing the run. Supabase stores `hail_hex_stats` per owner. Full grids are not retained. Mock mode synthesizes deterministic MESH for verify.
+Live decode uses `pipelines/hail/extract_mesh.py` (xarray+cfgrib). Node writes a temp job JSON with hex bboxes, runs the script, downloads only that day's 12Z GRIB from `https://noaa-mrms-pds.s3.amazonaws.com`, keeps hex-day mm, and deletes the GRIB. Supabase stores `hail_hex_stats` per owner. Full grids are not retained. The Render build installs `pipelines/hail/requirements.txt` into the same Python the server spawns (`PYTHON`, default `python`). Mock mode synthesizes deterministic MESH for verify. A missing `xarray` install returns that error; live hail is not replaced with synthetic values.
 
 **ai_column.** `{ id, kind: "ai_column", column, value_type, prompt, source_fields, enum_values? }`. Adds one typed run-only column per row (`bool` | `enum` | `number` | `text`). The pass is row-capped (default 200). OpenAI is optional and server-side only; deterministic fallback is used when the key/model is unavailable.
 

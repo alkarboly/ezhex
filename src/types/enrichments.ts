@@ -86,6 +86,6 @@ export type HailEnrichResponse = {
   cells: HailHexSummary[]
   start_date: string
   end_date: string
-  source: 'NOAA MRMS MESH_Max_1440min' | 'NOAA MRMS MESH_Max_1440min (fallback demo)'
+  source: 'NOAA MRMS MESH_Max_1440min'
   days: number
 }
