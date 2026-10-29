@@ -88,6 +88,8 @@ type H3MapProps = {
   inspectHits?: ReadonlyMap<string, number> | null
   /** Hexes with a running ingest job. They pulse amber. */
   processing?: ReadonlySet<string>
+  /** Agent confirm: click a hex to add or remove it, never open Inspect. */
+  editSelection?: boolean
 }
 
 type Point = { x: number; y: number }
@@ -124,6 +126,7 @@ export function H3Map({
   inspectFeatures = [],
   inspectHits = null,
   processing,
+  editSelection = false,
 }: H3MapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -165,6 +168,8 @@ export function H3Map({
   const draftEnrichments = useExplorer((state) => state.draftEnrichments)
   const ignoreClickUntilRef = useRef(0)
   const displayResRef = useRef(H3_RESOLUTION)
+  const editSelectionRef = useRef(editSelection)
+  editSelectionRef.current = editSelection
 
   useEffect(() => {
     if (!inspectOpen) ignoreClickUntilRef.current = performance.now() + 400
@@ -676,6 +681,10 @@ export function H3Map({
       const display = latLngToCell(event.lngLat.lat, event.lngLat.lng, displayResRef.current)
       if (!drawnRef.current.has(cell) && !drawnRef.current.has(display)) return
       const shift = event.originalEvent.shiftKey || touchRef.current
+      if (editSelectionRef.current) {
+        clickRef.current(cell, true)
+        return
+      }
       if (inspectOpenRef.current) {
         actionRef.current?.(cell, coverageRef.current?.get(cell)?.status === 'ready' ? 'query' : 'process')
         return

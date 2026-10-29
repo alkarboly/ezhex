@@ -41,6 +41,7 @@ export function ExplorerPage() {
   mobileRef.current = mobile
   const agentOpen = useAgent((state) => state.open)
   const agentProcessing = useAgent((state) => state.processingCells)
+  const confirmingHexes = useAgent((state) => state.turns[state.turns.length - 1]?.status === 'confirm')
   const compiled = useCompiledQuery()
   const cells = useExplorer((state) => state.viewportCellIds)
   const viewportStatus = useExplorer((state) => state.viewportStatus)
@@ -258,6 +259,7 @@ export function ExplorerPage() {
         onCenterCell={setCenterCell}
         cellCoverage={coverageByCell}
         onHexAction={openHexAction}
+        editSelection={confirmingHexes}
         inspectFeatures={inspectOpen ? inspectFeatures : []}
         inspectHits={inspectHits}
         processing={processingCells}
@@ -267,8 +269,8 @@ export function ExplorerPage() {
       <div
         aria-hidden={!showAgent}
         className={cn(
-          'wp-intro-fade absolute inset-0 z-40',
-          showAgent ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-3 opacity-0',
+          'wp-intro-fade pointer-events-none absolute inset-0 z-40',
+          showAgent ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0 [&_.pointer-events-auto]:pointer-events-none',
         )}
       >
         <AgentStage mobile={mobile} />
