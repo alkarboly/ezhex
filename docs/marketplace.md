@@ -30,7 +30,7 @@ Do not rebuild these. Extend them.
 | Piece | Where | Notes |
 | --- | --- | --- |
 | Process / open-source ingest | `POST /api/workflow-ingestion/jobs`, DuckDB S3, `ingest_overture_*` | This is the processor agent. Jobs already have `logs` (`at`, `level`, `message`) |
-| Query workflow | `query_workflows` | name, SQL, `custom_sql`, `h3_cells` (1–300), `filters`, `enrichments` (max 4), `release_version` |
+| Query workflow | `query_workflows` | name, SQL, `custom_sql`, `h3_cells` (1–300), `filters`, `enrichments` (max 4), `release_version`, `subscribe_new_data` |
 | Run | `POST /api/query-workflows/:id/run` | quote → optional process jobs (one hex each) → snapshot check/historize → query → enrichments |
 | `geofence` | `keep` `inside` \| `outside`, GeoJSON `Polygon` | Add-ons → Custom polygon |
 | `hail_history` | `start_date`, `end_date` | Weather add-on (hail). NOAA MRMS MESH_Max_1440min, 12Z only, from 2020-11-01. Not on by default |

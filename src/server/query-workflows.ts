@@ -7,7 +7,7 @@ import { OVERTURE_RELEASE_RE } from '../lib/overture-release'
 import { asInspectFilters, validateInspectSql } from '../lib/inspect-sql'
 import { readDataMode } from '../lib/server-env'
 import { createUserClient } from '../lib/supabase'
-import type { QueryWorkflow, QueryWorkflowList } from '../types/query-workflows'
+import type { QueryWorkflow, QueryWorkflowList, QueryWorkflowNewDataCheck } from '../types/query-workflows'
 import { resolveUser } from './auth'
 
 type RouteResult = { status: number; body: unknown; cookies?: string[] }
@@ -45,6 +45,9 @@ export async function routeQueryWorkflows(
   if (method === 'POST' && action === 'run') {
     const { runQueryWorkflow } = await import('./workflow-runs')
     return respond(await runQueryWorkflow(id, cookies, body))
+  }
+  if (method === 'POST' && action === 'check-new-data') {
+    return respond(await checkQueryWorkflowNewData(id, cookies))
   }
   if (method === 'GET' && action === 'runs') {
     const { listQueryWorkflowRuns } = await import('./workflow-runs')
@@ -174,6 +177,7 @@ function parseCreate(body: unknown): Omit<QueryWorkflow, 'id' | 'owner_user_id' 
     filters,
     enrichments,
     release_version: typeof release === 'string' ? release : null,
+    subscribe_new_data: typeof body.subscribe_new_data === 'boolean' ? body.subscribe_new_data : false,
   }
 }
 
@@ -266,9 +270,14 @@ async function supabaseCreate(
   const full = {
     ...base,
     enrichments: parsed.enrichments,
+    subscribe_new_data: parsed.subscribe_new_data,
     ...(parsed.release_version ? { release_version: parsed.release_version } : {}),
   }
   let { data, error } = await client.from('query_workflows').insert(full).select('*').single()
+  if (error && missingSubscribeColumn(error)) {
+    const { subscribe_new_data: _drop, ...withoutSubscribe } = full
+    ;({ data, error } = await client.from('query_workflows').insert(withoutSubscribe).select('*').single())
+  }
   if (error && missingWorkflowColumn(error)) {
     ;({ data, error } = await client.from('query_workflows').insert(base).select('*').single())
   }
@@ -283,6 +292,7 @@ async function supabaseCreate(
     ...mapped,
     enrichments: parsed.enrichments,
     release_version: parsed.release_version,
+    subscribe_new_data: parsed.subscribe_new_data,
   }
 }
 
@@ -304,6 +314,7 @@ function mapRow(value: unknown): QueryWorkflow | null {
     filters,
     enrichments,
     release_version: typeof value.release_version === 'string' ? value.release_version : null,
+    subscribe_new_data: typeof value.subscribe_new_data === 'boolean' ? value.subscribe_new_data : false,
     created_at: typeof value.created_at === 'string' ? value.created_at : new Date().toISOString(),
     updated_at: typeof value.updated_at === 'string' ? value.updated_at : new Date().toISOString(),
   }
@@ -322,38 +333,151 @@ export async function patchQueryWorkflow(
   id: string,
   body: unknown,
   cookies: Record<string, string>,
-): Promise<import('../types/query-workflows').QueryWorkflow | ApiError> {
+): Promise<QueryWorkflow | ApiError> {
   const existing = await getQueryWorkflow(id, cookies)
   if ('error' in existing) return existing
-  if (!isRecord(body)) return { error: 'Request body must include enrichments or release_version.', status: 400 }
-  const enrichments = body.enrichments === undefined ? existing.enrichments : asEnrichments(body.enrichments)
-  if (!enrichments) return { error: 'Enrichments must be a geofence, hail_history, or ai_column list.', status: 400 }
-  const release = body.release_version === undefined ? existing.release_version : parseReleasePin(body.release_version)
-  if (release && typeof release === 'object' && 'error' in release) return release
+  const parsed = parsePatch(body)
+  if ('error' in parsed) return parsed
   const session = await requireWorkflowOwner(cookies)
   if ('error' in session) return session
-  const next = {
+  const next: QueryWorkflow = {
     ...existing,
-    enrichments,
-    release_version: typeof release === 'string' || release === null ? release : existing.release_version,
+    ...parsed,
     updated_at: new Date().toISOString(),
   }
   if (readDataMode().resolved === 'mock') {
+    if (next.name.toLowerCase() !== existing.name.toLowerCase()) {
+      const clash = mockList(session.ownerId).some(
+        (row) => row.id !== id && row.name.toLowerCase() === next.name.toLowerCase(),
+      )
+      if (clash) return { error: 'A workflow with that name already exists.', status: 400 }
+    }
     mockStore.set(id, next)
     return next
   }
   const client = userClient(session.accessToken)
   if (!client) return { error: 'Set SUPABASE_URL and SUPABASE_ANON_KEY on the server to save workflows.', status: 503 }
-  const { data, error } = await client
-    .from('query_workflows')
-    .update({ enrichments: next.enrichments, release_version: next.release_version })
-    .eq('id', id)
-    .select('*')
-    .single()
-  if (error) return supabaseError(error)
+  const payload = {
+    name: next.name,
+    sql: next.sql,
+    custom_sql: next.custom_sql,
+    h3_cells: next.h3_cells,
+    filters: next.filters,
+    enrichments: next.enrichments,
+    release_version: next.release_version,
+    subscribe_new_data: next.subscribe_new_data,
+  }
+  let { data, error } = await client.from('query_workflows').update(payload).eq('id', id).select('*').single()
+  if (error && missingSubscribeColumn(error)) {
+    const { subscribe_new_data: _drop, ...withoutSubscribe } = payload
+    ;({ data, error } = await client.from('query_workflows').update(withoutSubscribe).eq('id', id).select('*').single())
+  }
+  if (error) {
+    if (/duplicate|unique/i.test(errorText(error))) return { error: 'A workflow with that name already exists.', status: 400 }
+    return supabaseError(error)
+  }
   const mapped = mapRow(data)
   if (!mapped) return { error: 'The workflow was saved but could not be read back.', status: 500 }
-  return mapped
+  return { ...mapped, subscribe_new_data: next.subscribe_new_data }
+}
+
+export async function checkQueryWorkflowNewData(
+  id: string,
+  cookies: Record<string, string>,
+): Promise<QueryWorkflowNewDataCheck | ApiError> {
+  const existing = await getQueryWorkflow(id, cookies)
+  if ('error' in existing) return existing
+  const { checkHexSnapshots } = await import('./hex-snapshots')
+  const check = await checkHexSnapshots(existing.h3_cells)
+  return {
+    workflow_id: existing.id,
+    subscribe_new_data: existing.subscribe_new_data,
+    current_release_version: check.current_release_version,
+    processed_count: check.processed_count,
+    current_count: check.current_count,
+    stale_count: check.stale_count,
+    missing_count: check.missing_count,
+    message: formatNewDataCheck(check),
+  }
+}
+
+function parsePatch(body: unknown): Partial<QueryWorkflow> | ApiError {
+  if (!isRecord(body)) {
+    return { error: 'Request body must include a field to update.', status: 400 }
+  }
+  const hasField =
+    body.name !== undefined ||
+    body.sql !== undefined ||
+    body.custom_sql !== undefined ||
+    body.h3_cells !== undefined ||
+    body.filters !== undefined ||
+    body.enrichments !== undefined ||
+    body.release_version !== undefined ||
+    body.subscribe_new_data !== undefined
+  if (!hasField) return { error: 'Request body must include a field to update.', status: 400 }
+  const next: Partial<QueryWorkflow> = {}
+  if (body.name !== undefined) {
+    const name = typeof body.name === 'string' ? body.name.trim() : ''
+    if (name.length < 1 || name.length > 120) return { error: 'Name must be 1 to 120 characters.', status: 400 }
+    next.name = name
+  }
+  if (body.sql !== undefined) {
+    if (typeof body.sql !== 'string') return { error: 'SQL is required.', status: 400 }
+    const sqlError = validateInspectSql(stripGeneratedComments(body.sql))
+    if (sqlError) return { error: sqlError, status: 400 }
+    next.sql = body.sql.trim()
+  }
+  if (body.custom_sql !== undefined) {
+    if (typeof body.custom_sql !== 'boolean') return { error: 'custom_sql must be true or false.', status: 400 }
+    next.custom_sql = body.custom_sql
+  } else if (body.sql !== undefined) {
+    next.custom_sql = true
+  }
+  if (body.h3_cells !== undefined) {
+    const cells = parseCells(body.h3_cells)
+    if ('error' in cells) return cells
+    next.h3_cells = cells
+  }
+  if (body.filters !== undefined) {
+    const filters = asInspectFilters(body.filters)
+    if (!filters) return { error: 'filters must be inspect filters.', status: 400 }
+    next.filters = filters
+  }
+  if (body.enrichments !== undefined) {
+    const enrichments = asEnrichments(body.enrichments)
+    if (!enrichments) return { error: 'Enrichments must be a geofence, hail_history, or ai_column list.', status: 400 }
+    next.enrichments = enrichments
+  }
+  if (body.release_version !== undefined) {
+    const release = parseReleasePin(body.release_version)
+    if (release && typeof release === 'object' && 'error' in release) return release
+    next.release_version = typeof release === 'string' ? release : null
+  }
+  if (body.subscribe_new_data !== undefined) {
+    if (typeof body.subscribe_new_data !== 'boolean') {
+      return { error: 'subscribe_new_data must be true or false.', status: 400 }
+    }
+    next.subscribe_new_data = body.subscribe_new_data
+  }
+  return next
+}
+
+function formatNewDataCheck(check: {
+  current_release_version: string
+  current_count: number
+  stale_count: number
+  missing_count: number
+}): string {
+  const current = check.current_release_version
+  if (check.missing_count === 0 && check.stale_count === 0) {
+    const hexLabel = check.current_count === 1 ? 'hex' : 'hexes'
+    return `Checked · ${check.current_count} ${hexLabel} on ${current}. No newer snapshot.`
+  }
+  const parts: string[] = []
+  if (check.current_count > 0) parts.push(`${check.current_count} current`)
+  if (check.stale_count > 0) parts.push(`${check.stale_count} older`)
+  if (check.missing_count > 0) parts.push(`${check.missing_count} not processed`)
+  return `Checked · ${parts.join(' · ')}. Current cut is ${current}.`
 }
 
 function userClient(accessToken: string) {
@@ -371,6 +495,11 @@ function missingWorkflowColumn(error: SupabaseErrorLike): boolean {
   return /PGRST204/i.test(text) || (/schema cache|does not exist/i.test(text) && /enrichments|release_version|column/i.test(text))
 }
 
+function missingSubscribeColumn(error: SupabaseErrorLike): boolean {
+  const text = errorText(error)
+  return /subscribe_new_data/i.test(text) && (/PGRST204|schema cache|does not exist|column/i.test(text))
+}
+
 function supabaseError(error: SupabaseErrorLike | string): ApiError {
   const message = typeof error === 'string' ? error : errorText(error)
   if (message) console.error('[query-workflows]', message)
@@ -383,7 +512,7 @@ function supabaseError(error: SupabaseErrorLike | string): ApiError {
   if (/does not exist|relation|schema cache|PGRST204/i.test(message)) {
     return {
       error:
-        'Run supabase/migrations/20261027_workflow_enrichments.sql and supabase/migrations/20261027_hex_snapshot_history.sql in the Supabase SQL editor, then retry.',
+        'Run supabase/migrations/20261027_workflow_enrichments.sql, supabase/migrations/20261027_hex_snapshot_history.sql, and supabase/migrations/20261029_query_workflow_subscribe.sql in the Supabase SQL editor, then retry.',
       status: 400,
     }
   }

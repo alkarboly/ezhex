@@ -35,6 +35,7 @@ export type InspectReplay = {
   sql: string
   customSql: boolean
   releaseVersion: string | null
+  openSql: boolean
 }
 
 type ExplorerState = {
@@ -460,6 +461,8 @@ function createExplorerStore() {
       page: 0,
       resultsSearch: '',
       inspectOpen: true,
+      enrichOpen: true,
+      queryHexPreview: false,
       inspectFilters: input.filters,
       inspectReplay: {
         nonce: (state.inspectReplay?.nonce ?? 0) + 1,
@@ -467,16 +470,17 @@ function createExplorerStore() {
         workflowName: input.name,
         filters: input.filters,
         sql: input.sql,
-        customSql: input.custom_sql,
+        customSql: true,
         releaseVersion: input.release_version ?? null,
+        openSql: true,
       },
       inspectRelease: input.release_version ?? null,
-      draftEnrichments: input.enrichments ?? state.draftEnrichments,
+      draftEnrichments: input.enrichments ?? [],
       fit: cells.length > 0 ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
       notice:
         cells.length === 0
           ? 'That workflow has no hexes.'
-          : `Workflow “${input.name}” · ${cells.length} hexes on the map`,
+          : `Viewing “${input.name}” · ${cells.length} ${cells.length === 1 ? 'hex' : 'hexes'}. Edit SQL or add-ons, then save.`,
     }))
   },
   clearWorkflowPreview: () =>
@@ -539,8 +543,9 @@ function createExplorerStore() {
         workflowName: input.workflowName ?? 'Agent query',
         filters: input.filters,
         sql: input.sql,
-        customSql: false,
+        customSql: true,
         releaseVersion: null,
+        openSql: true,
       },
       fit: cells.length > 0 && input.fit !== false ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
       notice:

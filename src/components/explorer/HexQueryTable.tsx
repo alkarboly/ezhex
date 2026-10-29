@@ -17,7 +17,7 @@ import { formatCount } from '../../lib/format'
 import { compileInspectSql, validateInspectSql } from '../../lib/inspect-sql'
 import { MAX_QUERY_WORKFLOWS } from '../../lib/limits'
 import { cn } from '../../lib/utils'
-import { checkHexSnapshots, createQueryWorkflow, listQueryWorkflows } from '../../services/query-workflows'
+import { checkHexSnapshots, createQueryWorkflow, listQueryWorkflows, patchQueryWorkflow } from '../../services/query-workflows'
 import { useExplorer } from '../../store/explorer-store'
 import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
 import { nativeSelectClass } from '../ui/input'
@@ -139,6 +139,7 @@ export function HexQueryTable() {
   const [createOpen, setCreateOpen] = useState(false)
   const [workflowName, setWorkflowName] = useState('')
   const [createError, setCreateError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const client = useQueryClient()
   const create = useMutation({
     mutationFn: createQueryWorkflow,
@@ -200,12 +201,31 @@ export function HexQueryTable() {
   )
   const sql = customSql ?? generatedSql
   const sqlError = customSql ? validateInspectSql(customSql) : null
+  const saveExisting = useMutation({
+    mutationFn: (id: string) =>
+      patchQueryWorkflow(id, {
+        sql,
+        custom_sql: customSql != null,
+        h3_cells: selectedCells,
+        filters: inspectFilters,
+        enrichments: draftEnrichments,
+        release_version: inspectRelease,
+      }),
+    onSuccess: (workflow) => {
+      setSaveError(null)
+      void client.invalidateQueries({ queryKey: ['query-workflows'] })
+      previewWorkflow(workflow)
+      useExplorer.getState().setNotice(`Saved “${workflow.name}”.`)
+    },
+    onError: (next) => setSaveError(next instanceof Error ? next.message : 'Could not save the workflow.'),
+  })
 
   useEffect(() => {
     if (!inspectReplay) return
     setInspectFilters(inspectReplay.filters)
-    setCustomSql(inspectReplay.customSql ? inspectReplay.sql : null)
+    setCustomSql(inspectReplay.sql)
     setInspectRelease(inspectReplay.releaseVersion)
+    setSaveError(null)
   }, [inspectReplay, setInspectFilters, setInspectRelease])
 
   return (
@@ -370,6 +390,24 @@ export function HexQueryTable() {
           })
         }}
         creating={create.isPending}
+        replayNonce={inspectReplay?.nonce ?? null}
+        openSql={inspectReplay?.openSql ?? false}
+        workflowId={inspectReplay?.workflowId ?? null}
+        savedName={inspectReplay?.workflowName ?? null}
+        saving={saveExisting.isPending}
+        saveError={saveError}
+        onSaveToWorkflow={() => {
+          const id = inspectReplay?.workflowId
+          if (!id) return
+          setSaveError(null)
+          if (sqlError) {
+            setSaveError(sqlError)
+            return
+          }
+          void client.invalidateQueries({ queryKey: ['auth-session'] }).then(() => {
+            saveExisting.mutate(id)
+          })
+        }}
       />
       {invalid[0] && <p className="text-[11px] text-destructive">{invalid[0]}</p>}
       {error && <p className="text-[11px] text-destructive">{error.message}</p>}
@@ -467,6 +505,12 @@ function SqlWorkbench({
   rowCount,
   hexCount,
   creating,
+  replayNonce,
+  openSql,
+  workflowId,
+  savedName,
+  saving,
+  saveError,
   onSqlChange,
   onReset,
   onCopy,
@@ -474,6 +518,7 @@ function SqlWorkbench({
   onToggleCreate,
   onNameChange,
   onCreate,
+  onSaveToWorkflow,
 }: {
   sql: string
   custom: boolean
@@ -485,6 +530,12 @@ function SqlWorkbench({
   rowCount: number
   hexCount: number
   creating: boolean
+  replayNonce: number | null
+  openSql: boolean
+  workflowId: string | null
+  savedName: string | null
+  saving: boolean
+  saveError: string | null
   onSqlChange: (next: string) => void
   onReset: () => void
   onCopy: () => void
@@ -492,6 +543,7 @@ function SqlWorkbench({
   onToggleCreate: () => void
   onNameChange: (next: string) => void
   onCreate: () => void
+  onSaveToWorkflow: () => void
 }) {
   const auth = useAuth()
   const user = auth.session.data?.user ?? null
@@ -502,6 +554,10 @@ function SqlWorkbench({
     queryFn: listQueryWorkflows,
     enabled: createOpen,
   })
+
+  useEffect(() => {
+    if (openSql) setSqlOpen(true)
+  }, [replayNonce, openSql])
 
   useEffect(() => {
     if (sqlError) setSqlOpen(true)
@@ -559,11 +615,18 @@ function SqlWorkbench({
           <Download className="size-3" />
           Download CSV
         </SqlAction>
-        <SqlAction primary onClick={onToggleCreate}>
+        {workflowId && (
+          <SqlAction primary onClick={onSaveToWorkflow} testId="save-to-workflow">
+            <Workflow className="size-3" />
+            {saving ? 'Saving…' : savedName ? `Save to “${savedName}”` : 'Save to workflow'}
+          </SqlAction>
+        )}
+        <SqlAction primary={!workflowId} onClick={onToggleCreate}>
           <Workflow className="size-3" />
-          Create a workflow
+          {workflowId ? 'Save as new' : 'Create a workflow'}
         </SqlAction>
       </div>
+      {saveError && <p className="px-2.5 pb-1 text-[10px] text-destructive">{saveError}</p>}
       {createOpen && (
         <div className="grid gap-2 border-t border-white/[0.06] bg-black/25 px-2.5 py-2.5">
           {configured && !user ? (
@@ -576,7 +639,7 @@ function SqlWorkbench({
           ) : (
             <>
               <p className="text-[10px] text-muted-foreground">
-                Saves this SQL and every selected hex. Preview later from Workflows.                 {MAX_QUERY_WORKFLOWS} max
+                Saves this SQL and every selected hex. View later from Workflows. {MAX_QUERY_WORKFLOWS} max
                 {typeof saved?.remaining === 'number' ? ` · ${saved.remaining} left` : ''}.
               </p>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -608,14 +671,17 @@ function SqlAction({
   children,
   onClick,
   primary,
+  testId,
 }: {
   children: ReactNode
   onClick: () => void
   primary?: boolean
+  testId?: string
 }) {
   return (
     <button
       type="button"
+      data-testid={testId}
       onClick={onClick}
       className={cn(
         'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-[10px] font-medium',

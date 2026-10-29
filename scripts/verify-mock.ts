@@ -761,6 +761,26 @@ const patched = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, 
   ],
 })
 assert(patched.status === 200 && isRecord(patched.body) && Array.isArray(patched.body.enrichments) && patched.body.enrichments.length === 3, 'workflow enrichments did not save')
+const renamed = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, { name: 'Capitol inspect' })
+assert(renamed.status === 200 && isRecord(renamed.body) && renamed.body.name === 'Capitol inspect', 'workflow name did not save')
+const subscribed = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, { subscribe_new_data: true })
+assert(subscribed.status === 200 && isRecord(subscribed.body) && subscribed.body.subscribe_new_data === true, 'workflow subscribe flag did not save')
+const sqlPatched = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, {
+  sql: generatedSql,
+  custom_sql: true,
+})
+assert(sqlPatched.status === 200 && isRecord(sqlPatched.body) && sqlPatched.body.custom_sql === true, 'workflow SQL did not save')
+const emptyPatch = await routeApi('PATCH', `/api/query-workflows/${remaining.id}`, {})
+assert(emptyPatch.status === 400, 'empty workflow patch was accepted')
+const checkedNew = await routeApi('POST', `/api/query-workflows/${remaining.id}/check-new-data`, {})
+assert(
+  checkedNew.status === 200 &&
+    isRecord(checkedNew.body) &&
+    checkedNew.body.subscribe_new_data === true &&
+    typeof checkedNew.body.message === 'string' &&
+    checkedNew.body.message.includes('Checked'),
+  'workflow new-data check failed',
+)
 const quoted = await routeApi('POST', `/api/query-workflows/${remaining.id}/quote`, {})
 assert(quoted.status === 200 && isRecord(quoted.body), 'workflow quote failed')
 assert(Array.isArray(quoted.body.lines) && quoted.body.lines.length >= 2, 'workflow quote returned no lines')

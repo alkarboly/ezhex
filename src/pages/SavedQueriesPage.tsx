@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Hexagon, MapPinned, Trash2 } from 'lucide-react'
+import { Bell, Hexagon, MapPinned, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { useAuth } from '../hooks/useAuth'
@@ -10,6 +10,7 @@ import { MAX_QUERY_WORKFLOWS } from '../lib/limits'
 import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
 import { cn } from '../lib/utils'
 import {
+  checkQueryWorkflowNewData,
   deleteQueryWorkflow,
   listQueryWorkflows,
   patchQueryWorkflow,
@@ -86,6 +87,21 @@ export function SavedQueriesPage() {
     mutationFn: (id: string) => patchQueryWorkflow(id, { enrichments: draftEnrichments }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['query-workflows'] }),
   })
+  const rename = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => patchQueryWorkflow(id, { name }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['query-workflows'] }),
+    onError: (error) =>
+      useExplorer.getState().setNotice(error instanceof Error ? error.message : 'Could not rename that workflow.'),
+  })
+  const subscribe = useMutation({
+    mutationFn: ({ id, subscribe_new_data }: { id: string; subscribe_new_data: boolean }) =>
+      patchQueryWorkflow(id, { subscribe_new_data }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ['query-workflows'] }),
+    onError: (error) =>
+      useExplorer
+        .getState()
+        .setNotice(error instanceof Error ? error.message : 'Could not update the subscribe flag.'),
+  })
 
   const workflows = saved.data?.workflows ?? []
   const remaining = saved.data?.remaining ?? Math.max(0, MAX_QUERY_WORKFLOWS - workflows.length)
@@ -98,10 +114,9 @@ export function SavedQueriesPage() {
           <p className="font-mono text-[10px] tracking-[0.22em] text-primary uppercase">Query workflows</p>
           <h1 className="mt-1 text-xl font-semibold">Saved inspect SQL</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            A workflow is a private inspect query plus optional add-ons. Weather currently offers hail (NOAA MESH).
-            A custom polygon keeps rows inside or outside a fence. AI enhance writes one typed column from each row.
-            History starts at first Process; run uses an orchestrator quote, optional process jobs of one hex each,
-            then checks overture_hex_snapshots for the latest cut and can pin an older one.{' '}
+            A workflow is a private inspect query plus optional add-ons. Rename it here. View workflow restores
+            the hexes, Inspect filters, Add-ons, and the SQL editor so you can edit the saved query. Subscribe to
+            new data is a demo check against overture_hex_snapshots — no schedule yet.{' '}
             {MAX_QUERY_WORKFLOWS} per account.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
@@ -134,10 +149,13 @@ export function SavedQueriesPage() {
                 previewWorkflow(workflow)
                 navigate('/')
               }}
+              onRename={(name) => rename.mutate({ id: workflow.id, name })}
+              onSubscribe={(subscribe_new_data) => subscribe.mutate({ id: workflow.id, subscribe_new_data })}
               onRun={() => run.mutate(workflow.id)}
               onSaveEnrichments={() => saveDraft.mutate(workflow.id)}
               onDelete={() => remove.mutate(workflow.id)}
               deleting={remove.isPending && remove.variables === workflow.id}
+              renaming={rename.isPending && rename.variables?.id === workflow.id}
               running={run.isPending && run.variables === workflow.id}
             />
           ))}
@@ -161,21 +179,51 @@ function WorkflowCard({
   workflow,
   active,
   onOpen,
+  onRename,
+  onSubscribe,
   onRun,
   onSaveEnrichments,
   onDelete,
   deleting,
+  renaming,
   running,
 }: {
   workflow: QueryWorkflow
   active: boolean
   onOpen: () => void
+  onRename: (name: string) => void
+  onSubscribe: (subscribe_new_data: boolean) => void
   onRun: () => void
   onSaveEnrichments: () => void
   onDelete: () => void
   deleting: boolean
+  renaming: boolean
   running: boolean
 }) {
+  const [editing, setEditing] = useState(false)
+  const [nameDraft, setNameDraft] = useState(workflow.name)
+  const [checkMessage, setCheckMessage] = useState<string | null>(null)
+  const checkNew = useMutation({
+    mutationFn: () => checkQueryWorkflowNewData(workflow.id),
+    onSuccess: (result) => setCheckMessage(result.message),
+    onError: (error) =>
+      setCheckMessage(error instanceof Error ? error.message : 'Could not check for new data.'),
+  })
+
+  useEffect(() => {
+    setNameDraft(workflow.name)
+  }, [workflow.name])
+
+  const commitName = () => {
+    const next = nameDraft.trim()
+    setEditing(false)
+    if (!next || next === workflow.name) {
+      setNameDraft(workflow.name)
+      return
+    }
+    onRename(next)
+  }
+
   const preview = workflow.sql
     .split(/\r?\n/)
     .filter((line) => !line.trim().startsWith('--'))
@@ -188,10 +236,40 @@ function WorkflowCard({
         active ? 'border-primary/50 shadow-[0_0_24px_-8px_rgba(46,230,166,0.45)]' : 'border-white/[0.08]',
       )}
     >
-      <button type="button" onClick={onOpen} className="block w-full px-4 pt-4 text-left">
+      <div className="px-4 pt-4">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{workflow.name}</p>
+          <div className="min-w-0 flex-1">
+            {editing ? (
+              <input
+                data-testid="workflow-name-input"
+                value={nameDraft}
+                autoFocus
+                disabled={renaming}
+                onChange={(event) => setNameDraft(event.target.value)}
+                onBlur={commitName}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    commitName()
+                  }
+                  if (event.key === 'Escape') {
+                    setNameDraft(workflow.name)
+                    setEditing(false)
+                  }
+                }}
+                className="h-7 w-full rounded-md border border-primary/40 bg-black/40 px-2 text-sm font-semibold text-foreground focus-visible:outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                data-testid="workflow-rename"
+                onClick={() => setEditing(true)}
+                className="flex max-w-full items-center gap-1.5 text-left"
+              >
+                <span className="truncate text-sm font-semibold">{workflow.name}</span>
+                <Pencil className="size-3 shrink-0 text-muted-foreground" />
+              </button>
+            )}
             <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
               <MapPinned className="size-3 text-primary" />
               {formatCount(workflow.h3_cells.length)} hexes
@@ -206,21 +284,24 @@ function WorkflowCard({
             <Hexagon className="size-4" />
           </span>
         </div>
-        <pre className="mt-3 max-h-20 overflow-hidden rounded-lg border border-white/[0.06] bg-[#05080c] px-3 py-2 font-mono text-[10px] leading-4 text-[#9fd9c8]">
-          {preview}
-        </pre>
-        <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground">
-          {workflow.h3_cells.slice(0, 3).join(' · ')}
-          {workflow.h3_cells.length > 3 ? ` · +${workflow.h3_cells.length - 3}` : ''}
-        </p>
-      </button>
-      <div className="flex items-center justify-between px-4 py-3">
+        <button type="button" onClick={onOpen} className="mt-3 block w-full text-left">
+          <pre className="max-h-20 overflow-hidden rounded-lg border border-white/[0.06] bg-[#05080c] px-3 py-2 font-mono text-[10px] leading-4 text-[#9fd9c8]">
+            {preview}
+          </pre>
+          <p className="mt-2 truncate font-mono text-[10px] text-muted-foreground">
+            {workflow.h3_cells.slice(0, 3).join(' · ')}
+            {workflow.h3_cells.length > 3 ? ` · +${workflow.h3_cells.length - 3}` : ''}
+          </p>
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3">
         <button
           type="button"
+          data-testid="view-workflow"
           onClick={onOpen}
           className="rounded-full bg-primary/15 px-3 py-1 text-[11px] font-medium text-primary hover:bg-primary/25"
         >
-          Preview on map
+          View workflow
         </button>
         <button
           type="button"
@@ -246,6 +327,33 @@ function WorkflowCard({
           <Trash2 className="size-3" />
           {deleting ? 'Removing…' : 'Delete'}
         </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.06] px-4 py-2.5">
+        <label className="inline-flex items-center gap-1.5 text-[11px] text-foreground">
+          <input
+            data-testid="workflow-subscribe"
+            type="checkbox"
+            checked={workflow.subscribe_new_data}
+            onChange={(event) => onSubscribe(event.target.checked)}
+            className="size-3.5 accent-[oklch(0.78_0.16_165)]"
+          />
+          Subscribe to new data
+        </label>
+        <button
+          type="button"
+          data-testid="workflow-check-new-data"
+          disabled={checkNew.isPending}
+          onClick={() => checkNew.mutate()}
+          className="inline-flex items-center gap-1 rounded-full bg-white/[0.06] px-2.5 py-1 text-[11px] text-foreground hover:bg-primary/15 hover:text-primary disabled:opacity-40"
+        >
+          <Bell className="size-3" />
+          {checkNew.isPending ? 'Checking…' : 'Check now'}
+        </button>
+        {checkMessage && (
+          <p data-testid="workflow-check-message" className="w-full text-[10px] text-muted-foreground">
+            {checkMessage}
+          </p>
+        )}
       </div>
     </article>
   )
