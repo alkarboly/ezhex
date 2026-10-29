@@ -873,8 +873,8 @@ assert(
 
 const disk = gridDisk(capitol, 2)
 const diskBatches = balancedHexBatches(disk, MAX_AGENT_HEX_BATCH)
-assert(diskBatches.length === 3, `19 hexes should split into 3 agent batches, got ${diskBatches.length}`)
-assert(diskBatches.every((batch) => batch.length > 0 && batch.length <= MAX_AGENT_HEX_BATCH), 'agent batch exceeded the cap')
+assert(diskBatches.length === disk.length, `19 hexes should split into 19 agent jobs, got ${diskBatches.length}`)
+assert(diskBatches.every((batch) => batch.length === 1), 'agent job processed more than one hex')
 assert(diskBatches.flat().length === disk.length && new Set(diskBatches.flat()).size === disk.length, 'agent batches lost hexes')
 assert(
   diskBatches.every((batch) => batch.length === 1 || batch.every((cell) => batch.some((other) => areNeighborCells(cell, other)))),

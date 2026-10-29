@@ -54,7 +54,7 @@ export function SavedQueriesPage() {
           ...lines,
           '',
           quote.missing_hexes.length > 0
-            ? `Process agent will auto-batch ${quote.missing_hexes.length} missing hexes in groups under 10.`
+            ? `Process agent will create one job per missing hex (${quote.missing_hexes.length}).`
             : 'All hexes are already processed.',
           '',
           'Run workflow now?',
@@ -100,7 +100,7 @@ export function SavedQueriesPage() {
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
             A workflow is a private inspect query plus optional enrichments. Geofence keeps rows inside or outside a
             custom polygon. Hail history attaches NOAA MESH stats. AI column adds one typed result column per row.
-            History starts at first Process; run uses an orchestrator quote, optional process batching under 10 hexes,
+            History starts at first Process; run uses an orchestrator quote, optional process jobs of one hex each,
             then checks overture_hex_snapshots for the latest cut and can pin an older one.{' '}
             {MAX_QUERY_WORKFLOWS} per account.
           </p>

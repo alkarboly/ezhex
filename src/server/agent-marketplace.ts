@@ -137,7 +137,7 @@ export function listAgentLedger(ownerId: string): AgentLedgerResponse {
   }
 }
 
-/** Connected groups of at most `batchSize`, because one ingest job takes one connected hex group. */
+/** One ingest job per group. The default size is one hex. */
 export function chunkHexesForAgent(cells: readonly string[], batchSize = MAX_AGENT_HEX_BATCH): string[][] {
   return connectedHexBatches(cells, batchSize)
 }
@@ -160,7 +160,7 @@ function buildDeterministicLines(input: QuoteInput, priceBook: PriceBook): Agent
       agent: 'process',
       usd_cents: input.missingHexes.length * priceBook.process_hex_cents,
       clamped_usd_cents: input.missingHexes.length * priceBook.process_hex_cents,
-      reason: `${input.missingHexes.length} missing hexes in ${input.processBatches.length} batch(es)`,
+      reason: `${input.missingHexes.length} missing hexes in ${input.processBatches.length} job(s)`,
     })
   }
   const geofence = input.enrichments.find((step) => step.kind === 'geofence')

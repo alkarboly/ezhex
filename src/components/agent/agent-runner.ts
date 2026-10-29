@@ -1,11 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { latLngToCell } from 'h3-js'
+import { connectedHexBatches } from '../../lib/hex-batches'
 import { compileInspectSql } from '../../lib/inspect-sql'
-import { H3_RESOLUTION } from '../../lib/limits'
+import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../../lib/limits'
 import { fitGeofencePolygon, polygonVertexCount } from '../../lib/polygon-input'
 import { AgentRequestError, buildAgentQuery, planAgent } from '../../services/agent'
 import { createQueryWorkflow, enrichHail, runQueryWorkflow } from '../../services/query-workflows'
-import { createIngestionJob, getIngestionJob } from '../../services/workflow-ingestion'
+import { createIngestionJob, getHexStatus, getIngestionJob } from '../../services/workflow-ingestion'
 import {
   newAgentTurn,
   useAgent,
@@ -59,6 +60,15 @@ export function configureAgentRunner(next: Partial<RunnerConfig>) {
 
 export function stopAgent() {
   controller?.abort()
+  const latest = useAgent.getState().turns[useAgent.getState().turns.length - 1]
+  if (latest?.status === 'confirm') {
+    patchStep(latest.id, 'region', {
+      state: 'skipped',
+      detail: 'Stopped before processing.',
+      endedAt: Date.now(),
+    })
+    patch(latest.id, { status: 'stopped' })
+  }
 }
 
 export function agentPrompt(prompt: string) {
@@ -96,16 +106,37 @@ export async function runAgent(prompt: string): Promise<void> {
 
     current = 'region'
     await showRegion(id, plan, signal)
+  } catch (error) {
+    if (signal.aborted) stopTurn(id, current)
+    else failTurn(id, current, error)
+  } finally {
+    if (controller === local) controller = null
+    useAgent.getState().setProcessingCells([])
+  }
+}
 
+/** Continue after the person confirms the hexes on the map. */
+export async function confirmAgentHexes(id: string): Promise<void> {
+  const turn = findTurn(id)
+  if (!turn || turn.status !== 'confirm' || !turn.plan || controller) return
+  const selected = useExplorer.getState().selectedCells
+  if (selected.length === 0) {
+    patchStep(id, 'region', { detail: 'Select at least one hex on the map, then confirm.' })
+    return
+  }
+  const local = new AbortController()
+  controller = local
+  const signal = local.signal
+  let current: AgentStepId = 'region'
+  patch(id, { status: 'working', error: null })
+  try {
+    const plan = await applyConfirmedHexes(id, turn.plan, selected)
     current = 'process'
     const cells = await processHexes(id, plan, signal)
-
     current = 'query'
-    const query = await composeQuery(id, text, plan, cells, signal)
-
+    const query = await composeQuery(id, turn.prompt, plan, cells, signal)
     current = 'weather'
     await previewWeather(id, cells, query, signal)
-
     current = 'review'
     patchStep(id, 'review', { state: 'waiting', startedAt: Date.now(), detail: 'Waiting for your approval' })
     patch(id, { status: 'review' })
@@ -211,11 +242,44 @@ async function showRegion(id: string, plan: AgentPlan, signal: AbortSignal) {
     patch(id, { revealed: count })
     await sleep(REVEAL_FRAME_MS, signal)
   }
+  patchStep(id, 'region', {
+    state: 'waiting',
+    detail: `Confirm ${plural(total, 'hex', 'hexes')} · click the map to add or remove`,
+  })
+  patch(id, { status: 'confirm' })
+  useAgent.getState().markUnread()
+}
+
+async function applyConfirmedHexes(id: string, plan: AgentPlan, cells: readonly string[]): Promise<AgentPlan> {
+  begin(id, 'region', `Checking ${plural(cells.length, 'hex', 'hexes')}`)
+  const coverage = await getHexStatus(cells)
+  const status = new Map(coverage.cells.map((cell) => [cell.h3, cell]))
+  const ready = cells.filter((cell) => status.get(cell)?.status === 'ready')
+  const missing = cells.filter((cell) => status.get(cell)?.status !== 'ready' && status.get(cell)?.status !== 'processing')
+  const processingJobs = [
+    ...new Set(
+      cells
+        .map((cell) => status.get(cell))
+        .filter((cell) => cell?.status === 'processing' && cell.job_id)
+        .map((cell) => cell?.job_id as string),
+    ),
+  ]
+  const next: AgentPlan = {
+    ...plan,
+    h3_cells: [...cells],
+    ready,
+    missing,
+    processing_jobs: processingJobs,
+    batches: connectedHexBatches(missing, MAX_AGENT_HEX_BATCH),
+    release_version: coverage.current_release_version,
+  }
+  patch(id, { plan: next, revealed: cells.length })
   finish(
     id,
     'region',
-    `${plural(total, 'hex', 'hexes')} · ${plan.ready.length} ready · ${plan.missing.length} to process`,
+    `${plural(cells.length, 'hex', 'hexes')} confirmed · ${ready.length} ready · ${missing.length} to process`,
   )
+  return next
 }
 
 async function processHexes(id: string, plan: AgentPlan, signal: AbortSignal): Promise<string[]> {
@@ -227,7 +291,7 @@ async function processHexes(id: string, plan: AgentPlan, signal: AbortSignal): P
     id,
     'process',
     plan.batches.length > 0
-      ? `${plural(plan.missing.length, 'new hex', 'new hexes')} in ${plural(plan.batches.length, 'batch', 'batches')}`
+      ? `${plural(plan.missing.length, 'new hex', 'new hexes')} · one job each`
       : 'Waiting for a job that is already running',
   )
   patch(id, {
@@ -381,7 +445,7 @@ async function followJob(
   const began = Date.now()
   while (job.status === 'queued' || job.status === 'running') {
     if (Date.now() - began > JOB_TIMEOUT_MS) {
-      throw new Error('This batch is taking more than 10 minutes. It keeps running on the Jobs page.')
+      throw new Error('This job is taking more than 10 minutes. It keeps running on the Jobs page.')
     }
     await sleep(POLL_MS, signal)
     job = await getIngestionJob(job.id)

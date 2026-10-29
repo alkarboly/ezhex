@@ -4,7 +4,6 @@ import {
   AGENT_MAX_NEW_HEXES,
   AGENT_MAX_RADIUS_KM,
   HAIL_MESH_START,
-  MAX_AGENT_HEX_BATCH,
   MAX_HAIL_DAYS,
 } from './limits'
 import type { AgentPresenceField, AgentRegionKind } from '../types/agents'
@@ -26,7 +25,7 @@ export const AGENT_CAPABILITIES = [
   {
     id: 'process',
     title: 'Process',
-    body: `Creates Overture jobs for missing hexes in connected batches of ${MAX_AGENT_HEX_BATCH} or fewer.`,
+    body: 'Creates one Overture job per missing hex.',
   },
   {
     id: 'query',
@@ -88,7 +87,7 @@ export function agentCapabilityBrief(maxNewHexes = AGENT_MAX_NEW_HEXES): string 
     ...AGENT_REGION_OPTIONS.map((option) => `- ${option.kind}: ${option.hint}.`),
     `- previous: reuse the hexes from the previous plan (for follow-ups like "add hail" or "only open ones").`,
     `Radius defaults to ${AGENT_DEFAULT_RADIUS_KM} km and is capped at ${AGENT_MAX_RADIUS_KM} km.`,
-    `Missing hexes are processed in connected batches of at most ${MAX_AGENT_HEX_BATCH}; at most ${maxNewHexes} new hexes per run.`,
+    `Missing hexes are processed one hex per job; at most ${maxNewHexes} new hexes per run.`,
     'Datasets: places (points of interest with category, confidence, phones, emails, socials, websites, operating_status), buildings (class, height, floors, roof), addresses. "all" joins every theme.',
     'Filters: category_terms (plain words such as "coffee", "restaurant", "hotel", "hospital"), search (name text), confidence_min (0.5, 0.7, or 0.9), open_only, require (phone, email, socials, official_id).',
     `Enrichments: geofence keeps rows inside or outside the region polygon; hail_history adds NOAA MRMS MESH hail per hex for the last N days (1-${MAX_HAIL_DAYS}, data from ${HAIL_MESH_START}, default ${AGENT_DEFAULT_HAIL_DAYS}); ai_column adds one typed column per row (bool, enum, number, or text) from a prompt and source fields: ${AGENT_AI_SOURCE_FIELDS.join(', ')}.`,

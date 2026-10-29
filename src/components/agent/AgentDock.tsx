@@ -80,9 +80,9 @@ export function AgentDock({ mobile }: { mobile: boolean }) {
               aria-hidden
               className="absolute -bottom-1 left-2 size-3 rotate-45 rounded-[2px] bg-[#071217] shadow-[1px_1px_0_rgba(61,222,192,0.28)]"
             />
-            {(unread || latest?.status === 'review') && (
+            {(unread || latest?.status === 'review' || latest?.status === 'confirm') && (
               <span className="absolute top-0.5 right-0.5 grid size-[18px] place-items-center rounded-full border-2 border-[#05080c] bg-select text-[9px] font-bold text-[#1c1300] shadow-[0_0_12px_rgba(244,194,91,0.9)]">
-                {latest?.status === 'review' ? '!' : '•'}
+                {latest?.status === 'review' || latest?.status === 'confirm' ? '!' : '•'}
               </span>
             )}
           </button>
@@ -259,6 +259,7 @@ function activeStep(turn: AgentTurn) {
 }
 
 function launcherStatus(turn: AgentTurn): string | null {
+  if (turn.status === 'confirm') return 'Confirm the selected hexes'
   if (turn.status === 'review') return 'Ready for your approval'
   if (turn.status === 'done') return turn.result ? `Done · ${turn.result.rowCount.toLocaleString()} rows` : null
   if (turn.status === 'error') return 'The agent needs attention'
@@ -267,13 +268,16 @@ function launcherStatus(turn: AgentTurn): string | null {
   if (!step) return 'Working'
   if (step.id === 'process') {
     const done = turn.batches.filter((batch) => batch.state === 'done' || batch.state === 'error').length
-    return turn.batches.length > 0 ? `Processing batch ${Math.min(done + 1, turn.batches.length)} of ${turn.batches.length}` : STEP_STATUS.process
+    return turn.batches.length > 0
+      ? `Processing hex ${Math.min(done + 1, turn.batches.length)} of ${turn.batches.length}`
+      : STEP_STATUS.process
   }
   return STEP_STATUS[step.id] ?? 'Working'
 }
 
 function headerStatus(turn: AgentTurn | null): string {
   if (!turn) return 'Finds hexes, processes data, builds queries, adds weather'
+  if (turn.status === 'confirm') return 'Waiting for you to confirm the hexes'
   if (turn.status === 'review') return 'Waiting for your approval'
   if (turn.status === 'done') return turn.result ? `Workflow ran · ${turn.result.rowCount.toLocaleString()} rows` : 'Done'
   if (turn.status === 'error') return 'Needs attention'

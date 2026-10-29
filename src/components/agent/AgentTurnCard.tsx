@@ -28,7 +28,7 @@ import type { AgentBatch, AgentStep, AgentStepId, AgentTurn } from '../../store/
 import { useExplorer } from '../../store/explorer-store'
 import type { AgentName, AgentPlan, AgentQueryResponse, AgentRegion } from '../../types/agents'
 import type { AiColumnEnrichment } from '../../types/enrichments'
-import { agentPrompt, approveAgent, formatUsd, reviewInInspect } from './agent-runner'
+import { agentPrompt, approveAgent, confirmAgentHexes, formatUsd, reviewInInspect, stopAgent } from './agent-runner'
 import { AgentOrb, Chip, formatElapsed, HexGlyph, ShimmerBar, useNow, useTypewriter, type HexGlyphTone } from './agent-ui'
 
 const STEP_META: Record<AgentStepId, { title: string; icon: LucideIcon }> = {
@@ -82,7 +82,7 @@ function AgentReply({ turn, latest }: { turn: AgentTurn; latest: boolean }) {
   useEffect(() => {
     if (reply && !typing) typed.add(turn.id)
   }, [reply, typing, turn.id])
-  const busy = turn.status === 'working' || turn.status === 'running'
+  const busy = turn.status === 'working' || turn.status === 'running' || turn.status === 'confirm'
   if (!turn.plan) {
     if (turn.status !== 'working') return null
     return (
@@ -231,7 +231,10 @@ function StepRow({ step, turn, last }: { step: AgentStep; turn: AgentTurn; last:
   const now = useNow(step.state === 'active')
   const elapsed = step.startedAt ? (step.endedAt ?? (step.state === 'active' ? now : step.startedAt)) - step.startedAt : null
   const dim = step.state === 'pending' || step.state === 'skipped'
-  const detail = step.id === 'review' && turn.status === 'replaced' ? 'Replaced by your next request' : step.detail
+  const detail =
+    (step.id === 'review' || step.id === 'region') && turn.status === 'replaced'
+      ? 'Replaced by your next request'
+      : step.detail
   return (
     <li className="relative grid grid-cols-[22px_minmax(0,1fr)] gap-x-2.5">
       {!last && (
@@ -326,18 +329,24 @@ function StepBody({ step, turn }: { step: AgentStep; turn: AgentTurn }) {
 }
 
 function RegionBody({ turn, plan }: { turn: AgentTurn; plan: AgentPlan }) {
+  const selected = useExplorer((state) => state.selectedCells)
+  const cells = turn.status === 'confirm' ? selected : plan.h3_cells
   const ready = useMemo(() => new Set(plan.ready), [plan.ready])
-  const shown = plan.h3_cells.slice(0, Math.min(turn.revealed, MAX_GLYPHS))
-  const hidden = plan.h3_cells.length - MAX_GLYPHS
+  const missing = useMemo(() => new Set(plan.missing), [plan.missing])
+  const shown = cells.slice(0, MAX_GLYPHS)
+  const hidden = cells.length - MAX_GLYPHS
+  const waiting = turn.status === 'confirm'
   return (
     <div className="mt-2 grid gap-1.5">
       <div className="flex flex-wrap items-center gap-[3px]">
         {shown.map((cell, index) => (
-          <HexGlyph key={cell} tone={ready.has(cell) ? 'ready' : 'missing'} delay={Math.min(index, 20) * 12} />
+          <HexGlyph
+            key={cell}
+            tone={ready.has(cell) ? 'ready' : missing.has(cell) || waiting ? 'missing' : 'idle'}
+            delay={Math.min(index, 20) * 12}
+          />
         ))}
-        {turn.revealed >= plan.h3_cells.length && hidden > 0 && (
-          <span className="ml-1 font-mono text-[10px] text-muted-foreground">+{hidden}</span>
-        )}
+        {hidden > 0 && <span className="ml-1 font-mono text-[10px] text-muted-foreground">+{hidden}</span>}
       </div>
       <div className="flex gap-3 text-[10px] text-muted-foreground">
         <span className="inline-flex items-center gap-1">
@@ -348,6 +357,33 @@ function RegionBody({ turn, plan }: { turn: AgentTurn; plan: AgentPlan }) {
         </span>
       </div>
       <Notes notes={plan.notes} />
+      {waiting && (
+        <div className="wp-rise overflow-hidden rounded-2xl border border-select/35 bg-select/[0.07] p-2.5">
+          <p className="text-[11.5px] font-medium text-foreground">
+            Confirm these {cells.length.toLocaleString()} hexes
+          </p>
+          <p className="mt-0.5 text-[10.5px] leading-4 text-muted-foreground">
+            Click hexes on the map to add or remove them. Processing starts one hex at a time after you confirm.
+          </p>
+          <div className="mt-2 flex gap-1.5">
+            <button
+              type="button"
+              disabled={cells.length === 0}
+              onClick={() => void confirmAgentHexes(turn.id)}
+              className="h-8 flex-1 rounded-full bg-primary text-[12px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-40"
+            >
+              Confirm hexes
+            </button>
+            <button
+              type="button"
+              onClick={stopAgent}
+              className="h-8 rounded-full bg-white/[0.06] px-3 text-[12px] hover:bg-white/[0.1]"
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -378,8 +414,11 @@ function BatchList({ batches }: { batches: AgentBatch[] }) {
                   ))}
                 </span>
                 <span className="text-[11px] text-foreground/90">
-                  Batch {batch.index + 1}
-                  <span className="text-muted-foreground"> · {batch.cells.length} hexes</span>
+                  Job {batch.index + 1}
+                  <span className="text-muted-foreground">
+                    {' '}
+                    · {batch.cells.length === 1 ? shortHex(batch.cells[0]) : `${batch.cells.length} hexes`}
+                  </span>
                 </span>
               </span>
               <span
@@ -712,6 +751,10 @@ function Notes({ notes }: { notes: readonly string[] }) {
       ))}
     </ul>
   )
+}
+
+function shortHex(cell: string): string {
+  return cell.length > 10 ? `${cell.slice(0, 6)}…${cell.slice(-3)}` : cell
 }
 
 function regionLabel(region: AgentRegion): string {

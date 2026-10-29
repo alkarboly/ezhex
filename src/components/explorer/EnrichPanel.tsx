@@ -180,7 +180,7 @@ export function EnrichPanel() {
               <p className="text-[10px] text-muted-foreground">
                 Total {formatUsd(assistQuote.data.total_usd_cents)} · Balance {formatUsd(assistQuote.data.balance_usd_cents)}
                 {assistQuote.data.missing_hexes.length > 0
-                  ? ` · process ${assistQuote.data.missing_hexes.length} missing hexes in ${assistQuote.data.process_batches.length} batch(es)`
+                  ? ` · process ${assistQuote.data.missing_hexes.length} missing hexes in ${assistQuote.data.process_batches.length} job(s)`
                   : ' · no missing hexes'}
               </p>
               <ul className="mt-1 grid gap-0.5 text-[10px] text-foreground/85">

@@ -7,17 +7,19 @@ const STAGE: Record<AgentStepId, { kicker: string; line: (turn: AgentTurn) => st
   region: {
     kicker: 'Finding hexes',
     line: (turn) =>
-      turn.plan
-        ? `${turn.revealed.toLocaleString()} of ${turn.plan.h3_cells.length.toLocaleString()} hexes · ${turn.plan.region.label}`
-        : 'Deriving hexes from the region',
+      turn.status === 'confirm' && turn.plan
+        ? `Confirm ${turn.plan.h3_cells.length.toLocaleString()} hexes · ${turn.plan.region.label}`
+        : turn.plan
+          ? `${turn.revealed.toLocaleString()} of ${turn.plan.h3_cells.length.toLocaleString()} hexes · ${turn.plan.region.label}`
+          : 'Deriving hexes from the region',
   },
   process: {
     kicker: 'Process agent',
     line: (turn) => {
       const running = turn.batches.find((batch) => batch.state === 'running')
       const done = turn.batches.filter((batch) => batch.state === 'done').length
-      if (running) return `Job ${running.runId ?? running.jobId ?? '…'} · batch ${running.index + 1} of ${turn.batches.length}`
-      return done > 0 ? `${done} of ${turn.batches.length} batches ready` : 'Creating ingest jobs'
+      if (running) return `Job ${running.runId ?? running.jobId ?? '…'} · hex ${running.index + 1} of ${turn.batches.length}`
+      return done > 0 ? `${done} of ${turn.batches.length} hexes ready` : 'Creating one job per hex'
     },
   },
   query: {
@@ -44,7 +46,9 @@ export function AgentStage({ mobile }: { mobile: boolean }) {
   const turn = useAgent((state) => state.turns[state.turns.length - 1] ?? null)
   const open = useAgent((state) => state.open)
   if (!turn) return null
-  if (turn.status !== 'working' && turn.status !== 'running' && turn.status !== 'review') return null
+  if (turn.status !== 'working' && turn.status !== 'running' && turn.status !== 'review' && turn.status !== 'confirm') {
+    return null
+  }
 
   const step = turn.steps.find((entry) => entry.state === 'active' || entry.state === 'waiting') ?? turn.steps.find((entry) => entry.state === 'done')
   if (!step) return null

@@ -26,7 +26,7 @@ export function connectedHexBatches(cells: readonly string[], max: number): stri
   return batches
 }
 
-/** Same groups, sized evenly: 10 hexes become 5 + 5 instead of 9 + 1. */
+/** Same groups, sized evenly when the cap is greater than 1. */
 export function balancedHexBatches(cells: readonly string[], max: number): string[][] {
   const unique = [...new Set(cells)]
   if (unique.length === 0) return []

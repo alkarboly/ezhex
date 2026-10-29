@@ -137,7 +137,7 @@ export type AgentPlan = {
   missing: string[]
   /** Jobs already running for some of these hexes. */
   processing_jobs: string[]
-  /** Connected groups of missing hexes, each under 10. */
+  /** One missing hex per ingest job. */
   batches: string[][]
   release_version: string
   max_new_hexes: number

@@ -1,6 +1,6 @@
 # Enrichment marketplace (OpenAI + Rho)
 
-**Status: demo scaffold live.** Structured quote, process-agent batching (<10 hexes), `ai_column`, a simulated ledger, and the Explorer agent (prompt → hexes → process → query → enrichments → approve, see [architecture.md](architecture.md#agent)) are shipped. Real Rho card debit is still target-only. This page remains the pickup contract for the remaining Rho production wiring.
+**Status: demo scaffold live.** Structured quote, process-agent jobs (one hex each), `ai_column`, a simulated ledger, and the Explorer agent (prompt → hexes → confirm → process → query → enrichments → approve, see [architecture.md](architecture.md#agent)) are shipped. Real Rho card debit is still target-only. This page remains the pickup contract for the remaining Rho production wiring.
 
 Read first: [architecture.md](architecture.md), [workflow-pipeline.md](workflow-pipeline.md), [query-spec.md](query-spec.md). Keep field names from those docs and from `src/types/enrichments.ts`. Do not invent a second workflow type.
 
@@ -31,7 +31,7 @@ Do not rebuild these. Extend them.
 | --- | --- | --- |
 | Process / open-source ingest | `POST /api/workflow-ingestion/jobs`, DuckDB S3, `ingest_overture_*` | This is the processor agent. Jobs already have `logs` (`at`, `level`, `message`) |
 | Query workflow | `query_workflows` | name, SQL, `custom_sql`, `h3_cells` (1–300), `filters`, `enrichments` (max 4), `release_version` |
-| Run | `POST /api/query-workflows/:id/run` | quote → optional process batches (<10) → snapshot check/historize → query → enrichments |
+| Run | `POST /api/query-workflows/:id/run` | quote → optional process jobs (one hex each) → snapshot check/historize → query → enrichments |
 | `geofence` | `keep` `inside` \| `outside`, GeoJSON `Polygon` | Enrich panel draw |
 | `hail_history` | `start_date`, `end_date` | NOAA MRMS MESH_Max_1440min, 12Z only, from 2020-11-01 |
 | Hail columns | `hail_mm_max`, `hail_days`, `hail_last_date` | On `FeatureRow` after a run |

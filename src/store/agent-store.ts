@@ -28,7 +28,7 @@ export type AgentBatch = {
   error: string | null
 }
 
-export type AgentTurnStatus = 'working' | 'review' | 'running' | 'done' | 'error' | 'stopped' | 'replaced'
+export type AgentTurnStatus = 'working' | 'confirm' | 'review' | 'running' | 'done' | 'error' | 'stopped' | 'replaced'
 
 export type AgentHailPreview = {
   start: string
@@ -128,7 +128,9 @@ export const useAgent = create<AgentState>((set) => ({
     set((state) => ({
       turns: [
         ...state.turns.map((existing) =>
-          existing.status === 'review' ? { ...existing, status: 'replaced' as const } : existing,
+          existing.status === 'review' || existing.status === 'confirm'
+            ? { ...existing, status: 'replaced' as const }
+            : existing,
         ),
         turn,
       ],
