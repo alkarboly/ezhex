@@ -1,6 +1,29 @@
 # Architecture
 
-ReadyHex (readyhex.com) is the H3 explorer. The explorer reads Overture rows from Supabase. Process downloads the public Overture Maps release for the selected hex bbox and writes those rows. Mock data is only used when `DATA_MODE=mock` (local verify).
+ReadyHex (readyhex.com) is the H3 explorer. The explorer reads Overture rows from Supabase. Process downloads the public Overture Maps release for the selected hex bbox and writes those rows. Mock data is only used when `DATA_MODE=mock` (local verify). Submission fields, quick start, and the short write-up live in the [README](../README.md).
+
+```mermaid
+flowchart TB
+  Browser["Browser · MapLibre globe · agent chat"]
+  Node["Node API on Render"]
+  SB[("Supabase Postgres")]
+  OV["Overture Maps S3 parquet"]
+  NOAA["NOAA MRMS MESH"]
+  NOM["Nominatim"]
+  OAI["OpenAI gpt-4o / mini"]
+  Tiles["OpenFreeMap + Esri tiles"]
+
+  Browser -->|"POST /api/* · httpOnly cookies"| Node
+  Browser --> Tiles
+  Node --> SB
+  Node -->|"DuckDB httpfs"| OV
+  Node --> NOAA
+  Node --> NOM
+  Node -.->|"optional"| OAI
+  Node -->|"JSON · inspect SQL · jobs"| Browser
+```
+
+Request path for map counts, Process, and Jobs:
 
 ```
 Browser
@@ -63,7 +86,29 @@ Each `IngestionJob` carries `logs`: timestamped `info` / `warn` / `error` lines 
 
 ## Agent
 
-The agent is a chat bubble at the bottom left of the Explorer (a floating action button with a speech-bubble tail). Ctrl/⌘ K toggles the panel and Escape minimizes it. The empty panel has a short intro, four capability cards (Find hexes, Process, Query, Add-ons), and 3 examples: restaurants with contact information in North Austin, commercial properties with confirmed phone numbers along South Lamar in Austin TX, and residential addresses in North Austin after a hail storm for a roof-repair door-flyer campaign. While it works, a live stage caption sits on the map (drag it off the hexes) and the panel shows specialists lighting up as each hop finishes. A plain-language request runs these steps:
+The agent is a chat bubble at the bottom left of the Explorer (a floating action button with a speech-bubble tail). Ctrl/⌘ K toggles the panel and Escape minimizes it. The empty panel has a short intro, four capability cards (Find hexes, Process, Query, Add-ons), and 3 examples: restaurants with contact information in North Austin, commercial properties with confirmed phone numbers along South Lamar in Austin TX, and residential addresses in North Austin after a hail storm for a roof-repair door-flyer campaign. While it works, a live stage caption sits on the map (drag it off the hexes) and the panel shows specialists lighting up as each hop finishes.
+
+```mermaid
+sequenceDiagram
+  participant U as Operator
+  participant A as Agent UI
+  participant N as Node API
+  participant S as Supabase
+  U->>A: prompt
+  A->>N: POST /api/agent/plan
+  N-->>A: hexes ready / missing
+  U->>A: confirm hexes
+  A->>N: POST /api/workflow-ingestion/jobs
+  N->>S: ingest Overture rows
+  A->>N: POST /api/agent/query
+  N-->>A: inspect SQL + add-ons
+  U->>A: Approve and run
+  A->>N: POST /api/query-workflows/:id/run
+  N->>S: query + enrichments + ledger
+  N-->>A: table, quote, CSV
+```
+
+A plain-language request runs these steps:
 
 1. **Plan.** `POST /api/agent/plan` reads the prompt, the selection, the map view, an attached polygon, the Weather toggle, and Add-ons already saved on the explorer (`enrichments`: `geofence`, `hail_history`, `ai_column`). A saved AI column or hail window is kept unless the prompt drops it. The reply names those kept add-ons even when the model wrote the rest of the prose. It returns the intent (dataset, category terms, name search, confidence floor, open only, required contact fields, geofence keep, hail days, `ai_column`, workflow name), the region, and the resolution-8 hexes split into `ready`, `missing`, and `batches` of one missing hex each. OpenAI parses the prompt when a key is set (`OPENAI_AGENT_MODEL`, default `gpt-4o`); built-in heuristics parse it otherwise. Quote and `ai_column` stay on the cheaper model.
 2. **Find hexes.** Regions are `selection` (hexes already selected on the map, or H3 ids pasted in the prompt; finer cells become their res-8 parent, coarser cells expand when they stay under 300), `place` (a named landmark, street, neighborhood, or city), `point` (the map center), `view` (the visible map up to 60 km², else a 1.5 km circle at its center), `polygon` (an attached GeoJSON/WKT file, pasted text, or a drawn shape, up to 2,500 km²), or `previous`. A named place is parsed from conversational prompts (including “the capitol”, “the Westgate neighborhood in Austin TX”, “along South Lamar”, or “along Tiffany Trail in Richardson Texas”). If the request names a city, that city is geocoded first and the search is biased there, so a street in another city is not pulled back to the map. The map city’s ~30 km viewbox is used only when the request does not name another city: reverse-geocode the map center for a locality, search in that viewbox, and pick the best of the candidates. Short names are qualified with the map locality, so a neighborhood off the current zoom still resolves in the same city. “Along X in CITY” keeps the city on the corridor query. A leftover Austin pin on a known road is rewritten when the prompt names a different city. The geocoder highlights hexes in one of two shapes. A street or highway named with along/on/down, or a known road name (South Lamar, I-35, Mopac), traces the road (Nominatim line geometries, then Photon highway matches in that city bbox if the match is shorter than 8 km) and keeps a corridor of hexes within `AGENT_CORRIDOR_KM` (0.6 km) of the line. If those traces miss, the geocoded street bbox is used as the corridor axis. Only long traces (over 15 km) are clipped to the search-city viewbox so an interstate does not run statewide. Model coordinates are ignored when they sit on the current map and the prompt named a different city. “X between A and B” geocodes both ends and traces the road in that span (not clipped to the map’s city box). A short city name inherits the other end’s state (“Austin” plus “Buda, Texas” becomes Austin, TX). If Nominatim is off or misses, known Texas city pins (Austin, Dallas, Houston, and Buda) still resolve the ends, and a request that names Austin, Dallas, or Houston uses that metro pin instead of the map city. If there is no road, or the road cannot be traced, it highlights a loose polygon between those places (`AGENT_LOOSE_SPAN_KM`, 3 km). A named neighborhood or other mid-size area uses a loose polygon from the geocoded bbox (padded by `AGENT_LOOSE_PAD_KM`) instead of a tight circle. A leftover map selection or the previous run is not used when the request names an area. A pasted hex list, or an explicit “selected hexes”, still wins. Place hexes are a 0.8–3 km circle around the match (the prompt radius if given, otherwise the geocoded span, max `AGENT_MAX_RADIUS_KM`). A neighborhood that geocodes to a shop or other small POI uses `AGENT_NEIGHBORHOOD_RADIUS_KM` (2 km) so the hexes cover the area, not only the building. A large city or state whose bbox contains the map uses the map center instead of the admin centroid. Circles and polygons become the geofence. Commercial properties and other real-estate wording use the buildings dataset. A region holds at most 300 hexes. One request processes at most 36 new hexes (`AGENT_MAX_NEW_HEXES` can lower it); the hexes nearest the center are kept. The hexes appear on the map from the center outward and become the explorer selection. The planner receives the selected and listed hex ids; it does not invent hexes.
@@ -101,7 +146,7 @@ Switching basemaps calls `setStyle(style, { diff: false })`. That reloads the st
 
 ### Layout
 
-Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selection dock with Process. Workflows and Jobs stay in the side nav. At 767 px and below, the explorer switches to a top bar with menu and map controls, and the same dock sits at the bottom. The snapshot legend is Empty → No Data, current green, and stale yellow labeled Old snapshot.
+Desktop keeps a minimal chrome: nav rail, map controls, status pill, and a selection dock with Process. Workflows and Jobs stay in the side nav. Map chrome sits in a `pointer-events-none` overlay so hex clicks still reach the map; zoom, reset, and Map layers turn pointer events back on for that cluster. At 767 px and below, the explorer switches to a top bar with menu and map controls, and the same dock sits at the bottom. The snapshot legend is Empty → No Data, current green, and stale yellow labeled Old snapshot.
 
 Touch input is detected with `(hover: none), (pointer: coarse)`. On touch screens the lens stays under a reticle at the map center. Taps add to the selection instead of replacing it. A ready tap opens inspect; later taps add hexes to that query. Process still opens from the dock.
 
@@ -149,6 +194,8 @@ Browser
        every other path serves dist/
   → MapLibre loads tiles from OpenFreeMap and Esri
 ```
+
+The live Render service is **`worldpulse-kb6e`** (`name: worldpulse` in `render.yaml`). The public hostname is still readyhex.com. Do not change that blueprint name and do not apply a new blueprint: a name change created the extra `readyhex` and `readyhex-kb6e` services. Suspend or delete those. Leave `worldpulse-kb6e` as the only ReadyHex web service. Preview generation is off.
 
 `render.yaml` is a Node web service on `main`, built with Node 22.16.0. The build installs `pipelines/hail/requirements.txt` with `python3 -m pip install` into the active environment (`PYTHON_VERSION=3.11.11`, `PYTHON=python3`, no `--user`) so hail history decodes NOAA MRMS on the service. Python 3.14 has no wheels for those pinned packages, and compiling NumPy exceeds the free-instance build. The build then writes the browser assets to `dist/` and the server bundle to `dist-server/`. Render's free instance is 512MB. The blueprint build uses `NODE_OPTIONS=--max-old-space-size=384 npm run build:web` (Vite only, no `tsc`) so the compile does not OOM. The start command is `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`. Do not set `NODE_OPTIONS` in the Render dashboard: that env applies to the build as well. Ingest caps stay 8,000 rows per theme / 20,000 total. `node dist-server/index.js` listens on `0.0.0.0` and `PORT`. Render's health check is `GET /api/health`.
 

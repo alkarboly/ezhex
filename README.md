@@ -1,154 +1,215 @@
 # ReadyHex
 
-ReadyHex (readyhex.com) is an H3 map for exploring Overture building, address, and place records. Process a hex to download all three themes, with geometry and links, from the public Overture release into Supabase.
+Hex-scale building, place, and address intelligence. Ask an agent in English; it finds H3 cells, processes the public Overture Maps release, and returns a filterable table you can save as a workflow.
 
-## Run locally
+Live app: [readyhex.com](https://readyhex.com) · Repo: [github.com/alkarboly/ezhex](https://github.com/alkarboly/ezhex)
+
+## Hackathon submission
+
+AITX & MLOps World Community Hackathon @ Austin Tech Week. One submission per team. Hack Fair is Friday, Oct 30 at 1:00 PM at Antler (800 Brazos St #340). Bring a laptop that can run the demo live; wake [readyhex.com](https://readyhex.com) a minute early (Render free instance sleeps).
+
+| Field | Value |
+| --- | --- |
+| **Project title** | ReadyHex |
+| **Track** | Antler Agents |
+| **Repo** | https://github.com/alkarboly/ezhex (public) |
+| **Deployed URL** | https://readyhex.com |
+| **Demo video** | Record 2–5 min on [Loom](https://www.loom.com/). Paste the share URL here after recording. Shot list is below. |
+| **Team** | Ahmed Alkarboly — builder — ahmed.alkarboly@gmail.com — [github.com/alkarboly](https://github.com/alkarboly) |
+
+Solo team (event allows 1–5). Add names here if the roster grows.
+
+### Short write-up
+
+Sales crews, roofers, and neighborhood marketers still hunt places, buildings, and addresses in GIS exports. Public Overture Maps already publishes that truth as parquet on S3, but turning a sentence like “restaurants with phones in North Austin” into processed hexes, a filtered table, and an optional hail or AI column is still a multi-tool job.
+
+ReadyHex helps those field teams — anyone who needs hex-scale building, place, and address records for outreach, after-storm roof work, or corridor canvassing — without writing Spark. An operator talks to an agent. The agent finds resolution-8 hexes (a neighborhood, a road corridor, or the area between two places), processes missing cells from the public Overture release into Supabase, builds inspect SQL over all rows, and can attach a geofence, NOAA MRMS hail history, or a typed AI column. Approve & run saves a private workflow, quotes a simulated ledger, and returns a map-backed table plus CSV. Saved workflows use the same Quote & run path.
+
+The impact is English to a downloadable result in minutes, on a live globe, with provenance from Overture, OSM, NAD, and NOAA. Next: real Rho card debit, scheduled subscribe, and persisted ingest jobs.
+
+### Demo video (Loom, 2–5 min)
+
+Show the **core loop live**, not slides. Record on Loom. Suggested shots:
+
+1. **0:00** Title: ReadyHex · Antler Agents · readyhex.com.
+2. **0:15** Problem in one sentence, then the globe landing on Austin.
+3. **0:40** Open the agent (Ctrl/⌘ K). Run: *Help me find restaurants with contact information in North Austin*.
+4. **1:10** Confirm hexes on the map (add/remove a cell). Watch Process jobs, then the query.
+5. **2:30** Inspect table, phones/emails, CSV. Mention **Save to agent** if you edit filters.
+6. **3:20** **Approve & run**. Show the quote, ledger debit on `/ledger`, and the saved workflow on `/workflows`.
+7. **4:00** Optional: hail or AI column in one sentence. Architecture one-liner. Known limits. Stop by 5:00.
+
+Do not record secrets, `.env`, or the Rho staging VPN.
+
+## Quick start
+
+Node **22.16.0**. Python 3.11 only if you run the Weather (hail) add-on.
 
 ```bash
+git clone https://github.com/alkarboly/ezhex.git
+cd ezhex
+cp .env.example .env
 npm install
-pip install -r pipelines/hail/requirements.txt
 npm run dev
 ```
 
-Weather add-on hail decode NOAA MRMS `MESH_Max_1440min` 12Z files through `pipelines/hail/extract_mesh.py`. That needs the Python packages above (`xarray`, `cfgrib`, `eccodes`). The Render build installs the same file.
+Open http://localhost:5173. `dev` starts the Node server, which also serves the app.
 
-Open http://localhost:5173. That command starts the Node server, which also serves the app. Set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `.env`, then run `supabase/migrations/20261027_overture.sql`, `supabase/migrations/20261027_overture_features.sql`, `supabase/migrations/20261027_overture_snapshots.sql`, `supabase/migrations/20261027_auth.sql`, `supabase/migrations/20261027_query_workflows.sql`, `supabase/migrations/20261027_workflow_enrichments.sql`, `supabase/migrations/20261027_hex_snapshot_history.sql`, `supabase/migrations/20261027_query_workflow_grants.sql`, `supabase/migrations/20261028_agentic_ledger.sql`, and `supabase/migrations/20261029_query_workflow_subscribe.sql`. If query errors with `phones does not exist`, run the features file — that column is not on the original places table. Inspect opens one feature table as SQL; you do not pick a theme. Settings creates and deletes accounts. Saving a workflow needs a sign-in when Supabase is configured. Create a workflow refreshes that session, then writes with the current JWT. The map does not require a login.
+Fastest local path (Austin generator, no cloud keys):
 
 ```bash
-npm run build
-npm start
+DATA_MODE=mock npm run dev
 ```
 
-`start` runs the production server from `dist-server/` and serves the built app from `dist/`.
+PowerShell: `$env:DATA_MODE='mock'; npm run dev`
 
 ```bash
 npm run verify
 npm run build
+npm start
 ```
 
-`verify` checks that resolution-8 cell boundaries are real H3 polygons and that mock filters change the counts. `build` typechecks and writes `dist/`. The build uses Node `22.16.0`.
+`verify` checks H3 polygons and mock filters. `build` typechecks and writes `dist/` plus `dist-server/`. `start` serves the production build.
+
+Hail decode needs `pip install -r pipelines/hail/requirements.txt`. Render installs the same file.
+
+## Reproduce the demo
+
+Two ways. Hack Fair: use the deployed URL, then fall back to local if the free instance is slow to wake.
+
+### 1. Live (recommended)
+
+1. Open [readyhex.com](https://readyhex.com). Wait through the globe flight (or skip if `prefers-reduced-motion`).
+2. Open the agent (bottom-left bubble, or Ctrl/⌘ K).
+3. Click the first example, or type: `Help me find restaurants with contact information in North Austin`.
+4. Confirm hexes. Process runs one Overture job per missing cell. Inspect opens on **All rows**.
+5. **Approve & run** saves a workflow and debits the simulated ledger. Sign in under Settings if save asks for an account.
+6. Optional second pass: the hail example, or **Quote & run** on `/workflows`.
+
+### 2. Local with real Overture
+
+Copy `.env.example` to `.env`. Fill at least:
+
+```
+DATA_MODE=supabase
+OVERTURE_RELEASE=2026-10-21.0
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=YOUR_ANON_KEY
+```
+
+Optional for the planner and AI column:
+
+```
+OPENAI_API_KEY=sk-...
+OPENAI_AGENT_MODEL=gpt-4o
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Without an OpenAI key the agent uses built-in heuristics. Nominatim is public (`AGENT_GEOCODER_URL` defaults to `https://nominatim.openstreetmap.org/search`). Do not put a Supabase service-role key, Rho token, or card PAN in `.env`, the repo, or Render.
+
+Run the SQL files in `supabase/migrations/` in filename order (see [supabase/README.md](supabase/README.md)). Include `20261028_agentic_ledger.sql` and `20261029_query_workflow_subscribe.sql`. In Supabase Auth, turn off Confirm email if create-account should start a session immediately.
+
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` still work as aliases. The browser never receives those keys; Node holds them and sets httpOnly `wp_access` / `wp_refresh` cookies.
+
+Full env catalog: [.env.example](.env.example). Caps, ledger cents, and geocoder switches live there.
+
+## Tech stack and architecture
+
+| Layer | Stack |
+| --- | --- |
+| Client | React 19, Vite, MapLibre globe, H3, Zustand, TanStack Query |
+| API | Node 22, TypeScript. Query whitelist, DuckDB ingest, agent planner, workflow runs |
+| Data | Supabase Postgres (Overture features, snapshots, query workflows, optional auth) |
+| Ingest | DuckDB `httpfs` + `spatial` against public Overture S3 parquet |
+| Agent | gpt-4o plan (optional), Nominatim regions, specialist jobs on the workflow run |
+| Add-ons | Geofence polygon, NOAA MRMS MESH hail (Python), OpenAI `ai_column` |
+| Spend | Simulated in-app ledger. Real Rho card debit is not wired |
+| Host | Render web service `worldpulse-kb6e` at readyhex.com |
+
+```mermaid
+flowchart TB
+  Browser["Browser · MapLibre globe · agent chat"]
+  Node["Node API on Render"]
+  SB[("Supabase Postgres")]
+  OV["Overture Maps S3 parquet"]
+  NOAA["NOAA MRMS MESH"]
+  NOM["Nominatim"]
+  OAI["OpenAI gpt-4o / mini"]
+  Tiles["OpenFreeMap + Esri tiles"]
+
+  Browser -->|"POST /api/* · httpOnly cookies"| Node
+  Browser --> Tiles
+  Node --> SB
+  Node -->|"DuckDB httpfs"| OV
+  Node --> NOAA
+  Node --> NOM
+  Node -.->|"optional"| OAI
+  Node -->|"JSON · inspect SQL · jobs"| Browser
+```
+
+Core agent loop:
+
+```
+prompt
+  → POST /api/agent/plan          find hexes
+  → confirm on the map
+  → POST /api/workflow-ingestion/jobs   one job per missing hex
+  → POST /api/agent/query         inspect SQL, All rows
+  → review add-ons (geofence / hail / ai_column)
+  → POST /api/query-workflows + /run    quote, ledger debit, results
+```
+
+The browser does not import Supabase or dataset files. Counts, filters, and ingest run on Node. Full request map, agent steps, map layers, and deploy notes: [docs/architecture.md](docs/architecture.md).
+
+## Datasets and provenance
+
+| Data | Use | Provenance |
+| --- | --- | --- |
+| Overture Maps `2026-10-21.0` (default) | Places, buildings, addresses per hex | Public S3 `s3://overturemaps-us-west-2/release/<version>/`. [Overture attribution](https://docs.overturemaps.org/attribution/) |
+| Places | POIs, contacts, categories | CDLA Permissive 2.0; Foursquare rows Apache 2.0 |
+| Buildings | Footprints, class, height | ODbL (OSM, Microsoft footprints, others) |
+| Addresses | Point addresses | Mixed open licenses; US/Texas from the [National Address Database](https://www.transportation.gov/mission/open/gis/national-address-database/national-address-database-nad-disclaimer). NAD is not a mailing list |
+| NOAA MRMS `MESH_Max_1440min` 12Z | Hail size (mm) per hex-day | Public NOAA S3, anonymous. From 2020-11-01. GRIBs stay in temp space |
+| OpenStreetMap / OpenFreeMap | Streets basemap | ODbL. Credit on `/licenses` |
+| Esri World Imagery | Satellite basemap | Esri terms |
+| Nominatim | Agent place / corridor geocoding | OSM geocoder |
+| Mock Austin generator | `DATA_MODE=mock` and `npm run verify` only | Synthetic places/buildings/addresses from `src/services/mock/database.ts`. Not production data |
+
+Public notices: [readyhex.com/licenses](https://readyhex.com/licenses).
+
+## Known limitations and next steps
+
+- Ingest jobs live in the Node process. A restart drops the in-memory job store; the agent recreates a missing hex job. Those records are not persisted to Supabase yet.
+- The older `workflows*` tables stay the connected ingest scaffold. Product workflows are `query_workflows` (5 per account, up to 300 hexes).
+- Subscribe checks snapshots when turned on. There is no scheduler.
+- Real Rho card debit is not wired. Quotes, specialist lines, and tips write a simulated ledger (`/ledger`). Rho staging remains the pickup contract in [docs/marketplace.md](docs/marketplace.md).
+- OpenAI is optional. Without a key the planner uses heuristics. `ai_column` needs a key.
+- Render free instance (512MB) sleeps when idle. Ingest caps stay 8,000 rows per theme / 20,000 total. Hail needs Python 3.11 on the service.
+- Cookie names stay `wp_access` / `wp_refresh` from the WorldPulse rename.
+- Building names and heights are often empty in Overture. NAD addresses are not for mailing lists.
+
+**Next:** persist ingest jobs, schedule subscribe, wire Rho staging debit if the token can write, keep OpenAI server-side.
 
 ## Data mode
 
 | Variable | Purpose |
 | --- | --- |
-| `DATA_MODE` | `supabase` (default) or `mock` for local verify. |
+| `DATA_MODE` | `supabase` (default) or `mock` for local verify |
 | `SUPABASE_URL` | Project URL, used only when mode is `supabase` |
 | `SUPABASE_ANON_KEY` | Publishable anon key, read only by the server |
-| `OVERTURE_RELEASE` | Public Overture release id. Default `2026-10-21.0`. |
+| `OVERTURE_RELEASE` | Public Overture release id. Default `2026-10-21.0` |
 
-Copy `.env.example` to `.env` if you want to set them. The `VITE_` names of those three variables still work as aliases. Do not put the Supabase service-role key in this app or on Render.
+Copy `.env.example` to `.env`. The `VITE_` names of those three variables still work as aliases. Do not put the Supabase service-role key in this app or on Render.
 
 `supabase` mode reads Overture rows from Supabase. Process downloads the public `2026-10-21.0` release for the selected hexes. The active mode is shown in the sidebar, or in the menu on phones. It comes from `GET /api/source`.
 
-## Workflow ingestion planning
-
-The server includes segmented-ingestion planning and job routes:
-
-- `GET /api/query-schemas`
-- `GET /api/releases`
-- `GET /api/auth/session`
-- `POST /api/auth/signup`
-- `POST /api/auth/signin`
-- `POST /api/auth/signout`
-- `POST /api/auth/delete`
-- `GET /api/query-workflows`
-- `POST /api/query-workflows`
-- `GET /api/query-workflows/:id`
-- `PATCH /api/query-workflows/:id`
-- `DELETE /api/query-workflows/:id`
-- `POST /api/query-workflows/:id/quote`
-- `POST /api/query-workflows/:id/run`
-- `POST /api/query-workflows/:id/check-new-data`
-- `GET /api/query-workflows/:id/runs`
-- `GET /api/ledger`
-- `POST /api/agent-assist/draft`
-- `POST /api/agent-assist/quote`
-- `POST /api/agent/plan`
-- `POST /api/agent/query`
-- `POST /api/enrichments/hail`
-- `GET /api/workflow-ingestion/limits`
-- `POST /api/workflow-ingestion/plan`
-- `POST /api/workflow-ingestion/jobs`
-- `GET /api/workflow-ingestion/jobs`
-- `GET /api/workflow-ingestion/jobs/:id`
-- `POST /api/workflow-ingestion/jobs/:id/run`
-- `POST /api/hex-snapshots/check`
-- `POST /api/hex-status`
-
-The plan route enforces:
-
-- max 20 selected hexes
-- one connected hex group
-- H3 resolution 8 only
-- bbox area cap
-- row caps per dataset and per run
-
-It returns a Spark plan JSON with release version, selected hexes, bbox, row caps, and storage prefixes. Spark scaffolding lives in `pipelines/spark/`.
-
-`/api/query-schemas` returns dataset/field/operator contracts from the same whitelist used by query validation, plus whether query execution is enabled in the current mode.
-
-`/api/workflow-ingestion/jobs` starts a hex-scoped Overture download into Supabase. Each job includes a `logs` array (`at`, `level`, `message`). `/jobs` keeps that stream collapsed until Logs is pressed. Process always writes places, buildings, and addresses, including GeoJSON and computed links. `/api/hex-status` is ready when those tables have rows for the hex. The map paints empty / green / yellow from that snapshot and keeps populated hexes visible without hover.
-
-Workflow ingestion envs in `.env.example`:
-
-- `WORKFLOW_MAX_BBOX_AREA_KM2`
-- `WORKFLOW_MAX_ROWS_PER_DATASET`
-- `WORKFLOW_MAX_TOTAL_ROWS`
-- `OVERTURE_SILVER_PREFIX`
-- `WORKFLOW_OUTPUT_PREFIX`
-- `WORKFLOW_METRICS_PREFIX`
-
 ## Deploy
 
-Production is [readyhex.com](https://readyhex.com). Point that domain at this Render web service. Rename the existing Render web service to `readyhex` in the dashboard if its name does not match, so a blueprint sync does not create a second service.
+Production is [readyhex.com](https://readyhex.com) on Render service **`worldpulse-kb6e`**. `render.yaml` keeps `name: worldpulse` so a blueprint sync updates that service. Do not rename it to `readyhex` and do not click Deploy to Render again. Leave `worldpulse-kb6e` running. Point `readyhex.com` at `worldpulse-kb6e`.
 
-Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0 using `build:web` at a 384MB heap, then starts `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`. Do not set `NODE_OPTIONS` in the dashboard or the Vite build will OOM. It sets `DATA_MODE=supabase` and the 8,000 / 20,000 ingest caps. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
+Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0 using `build:web` at a 384MB heap, then starts `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`. Do not set `NODE_OPTIONS` in the dashboard or the Vite build will OOM. It sets `DATA_MODE=supabase` and the 8,000 / 20,000 ingest caps. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`. Preview instances are off.
 
-Create the service from the blueprint, then sign in with GitHub and deploy it:
-
-[Deploy to Render](https://render.com/deploy?repo=https://github.com/alkarboly/ezhex)
-
-From a terminal, after [installing the Render CLI](https://render.com/docs/cli):
-
-```bash
-winget install render.cli
-render login
-render blueprints validate
-```
-
-`render blueprints validate` checks `render.yaml`. It does not create the service. The first deploy is the blueprint link above, or Dashboard → New → Blueprint. After the service exists, pushes to `main` deploy on their own. A manual deploy is:
-
-```bash
-render services
-render deploys create SERVICE_ID --wait --confirm
-```
-
-`SERVICE_ID` is the id from `render services`, not the name. Do not add the Supabase service-role key. The free instance sleeps when idle and wakes on the next request.
-
-## What works now
-
-- MapLibre globe in the dark streets basemap. It turns from orbit and flies into Austin. Streets (OpenFreeMap) and satellite (Esri) basemaps
-- H3 cells for the current view, from `h3-js` boundaries. City zoom uses resolution 8. Zooming out steps to coarser hexes down to resolution 4. The opening load hides the basemap, sidebar, agent, and map attribution. The credit line stays collapsed to an info button after that flight. Resolution-1 hexes fall onto a dark sphere, north first. Drag and zoom stay locked until that flight lands. Then the selection dock fades in (0 selected, Clear, Process, Add-ons), then the sidebar fades in over the map, then after 2 seconds the agent bubble fades in with a click prompt. The map canvas does not resize or pop when that chrome appears. The dive punches into the Austin hex and splits it into the city grid. Hover lifts that city hex off the map. City hexes use the same glass fill and mint bloom as the opening drop. City zoom stays still until you touch a cell. Zoom swaps fade the last grid out so the hexes do not pop. Parent hexes stay empty; only the exact processed resolution-8 cells take color. Zooming out past that floor eases into a globe you can scroll, with no hex mesh. Empty hexes stay unfilled. Green is the current Overture snapshot. Yellow is an older snapshot. **Map layers** switches between lens, grid, or hidden.
-- Hex-first explorer: click a ready hex to inspect. Further clicks add hexes to that query. Process stays on the selection dock. There is no Query button and no hover card. Workflows and Jobs stay in the side nav
-- Jobs page at `/jobs` starts hex-scoped Overture downloads into Supabase. Logs stay collapsed until opened.
-- Query schemas are served by the API whitelist (`/api/query-schemas`) so UI choices track server-side query contracts
-- Release snapshots stay as metadata (`GET /api/releases`, `POST /api/hex-snapshots/check`). Process writes the first hex snapshot. A workflow run checks that table and historizes the latest cut. Query with `release_version` for a historical slice stored after first process
-- `/licenses` credits OpenStreetMap, Overture, Foursquare, NAD, OpenFreeMap, and Esri
-- Optional Supabase accounts in Settings: create, sign in, sign out, delete account. The public map does not require a login
-- Inspect is SQL: generated from hexes and filters, collapsed until opened, editable custom SELECT (leading `--` inspect headers are allowed), copy SQL, download CSV. Row source defaults to All rows. View workflow and an agent query load that SQL into the editor and open it. An agent query shows **Save to agent**, which writes those Inspect edits back onto the agent turn (and PATCHes the saved workflow when one exists). The hex chip lists included cells. Preview hexes frames all of them; Exit query closes inspect. The map follows those inspect filters while the query is open
-- Query workflows (5 per account) are saved inspect queries plus add-ons. Rename, view, or Quote & run them on `/workflows`. Subscribe checks snapshots when turned on (no schedule)
-- Add-ons is a picker, off by default: Weather (hail from NOAA MRMS MESH 12Z files), a custom polygon (keep inside or outside from draw, upload, or pasted text), and AI enhance (one typed `ai_column` from each row). Stored kinds stay `geofence`, `hail_history`, and `ai_column`. Only hex-day mm and run result rows are retained
-- The agent is a chat bubble at the bottom left of the Explorer (Ctrl/⌘ K). The empty panel has a short intro, four capability cards, and 3 examples: restaurants with contact information in North Austin, commercial properties with confirmed phone numbers along South Lamar in Austin TX, and residential addresses in North Austin after a hail storm for a roof-repair door-flyer campaign. Type a request. It highlights hexes from the named area: a corridor along a street or highway (along, on, or just the road name), or a loose polygon around a neighborhood or the area between two places. A city named in the request is searched there, not on the current map city. Austin, Dallas, and Houston have fallback pins when the geocoder misses. The planner uses gpt-4o. Pasted H3 ids or an explicit “selected hexes” still win. It waits for you to confirm those hexes (the card shows the matched place; click the map to add or remove them); creates one process job per missing hex; chooses the query; then shows geofence, Weather, and AI column steps from the prompt, the Weather toggle, or Add-ons already saved on the explorer; then waits for **Approve & run**. **Edit in Inspect** opens the table; **Save to agent** writes those edits back onto the turn. Saved Add-ons survive that plan. Geofence and AI column run as specialist jobs on the workflow run. A live caption on the map follows each step; drag it if it covers hexes. Add-ons **Open agent** opens the same bubble
-- Workflows run through an agent quote path (orchestrator + specialist lines), auto-process missing hexes one hex per job, debit a simulated ledger, and credit demo tips from agents
-- Ledger page at `/ledger` shows seeded credits, spend, tips, and per-agent entries for the signed-in user (or mock guest)
-- Hard caps on hex count, bbox area, and row counts for ingest. Query workflows allow up to 300 disconnected hexes
-
-Click a ready hex to pin a fitted table. Click another ready hex to add it to the same query. The hex chip lists every included H3. Preview hexes frames those cells equally; Exit query leaves inspect. SQL starts collapsed. Each place is matched to its address and building when those ids exist; unmatched rows stay with nulls. Taxonomy `primary < category` splits into main category and category. Snapshot stays the release id; snapshot date is the date prefix. Each column has a Power Query-style filter (remove blanks, or pick one or a few values). The toolbar still covers category, main category, snapshot date, status, building class, confidence (Any / Has a score / Missing / ≥ 0.5 / ≥ 0.7 / ≥ 0.9), underground, phone, email, socials, and official id. Category lists and presence controls can select `null` for empty values. A confidence floor drops rows with no score. While inspect is open, the map draws only matching inspect rows and unfills query hexes that have none. The table also includes sources, attribution, contact fields, building extras, and address extras. Building name, subtype, height, and floors show when Overture has them — names and heights are often empty. Missing hexes have to be processed first. Process pulls real Overture rows.
-
-## Not in this slice
-
-Persisting ingest job records to Supabase. The older `workflows*` tables stay the connected ingest scaffold. Query workflows live in `query_workflows`. Real Rho card debits are not wired yet: the marketplace path uses a simulated in-app ledger and optional OpenAI model calls. See `docs/marketplace.md` and `docs/architecture.md`.
+Pushes to `main` deploy `worldpulse-kb6e` on their own. A manual deploy is Dashboard → `worldpulse-kb6e` → Manual Deploy. Do not add the Supabase service-role key. The free instance sleeps when idle and wakes on the next request.
 
 ## Docs
 
@@ -157,3 +218,4 @@ Persisting ingest job records to Supabase. The older `workflows*` tables stay th
 - [docs/query-spec.md](docs/query-spec.md)
 - [docs/workflow-pipeline.md](docs/workflow-pipeline.md)
 - [docs/marketplace.md](docs/marketplace.md)
+- [supabase/README.md](supabase/README.md)

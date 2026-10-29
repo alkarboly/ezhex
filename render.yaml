@@ -3,9 +3,9 @@
 # server reads it on each boot. Never put a service-role key here.
 services:
   - type: web
-    # Public site is readyhex.com. Rename the existing Render service to this
-    # name in the dashboard if it does not already match.
-    name: readyhex
+    # Keep this name. Render already created worldpulse-kb6e from it.
+    # Changing it (for example to readyhex) makes a second service.
+    name: worldpulse
     runtime: node
     plan: free
     branch: main
@@ -33,4 +33,4 @@ services:
       - key: WORKFLOW_MAX_TOTAL_ROWS
         value: "20000"
     previews:
-      generation: automatic
+      generation: off
