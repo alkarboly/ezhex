@@ -11,6 +11,7 @@ import {
 } from '../lib/feature-rows'
 import { asGeometry, metersBetween, type GeoJsonPosition } from '../lib/geojson'
 import { balancedHexBatches, connectedHexBatches } from '../lib/hex-batches'
+import { extractHexCells } from '../lib/hex-ids'
 import { earliestSnapshotDate } from '../lib/hex-snapshots'
 import { compileInspectSql } from '../lib/inspect-sql'
 import {
@@ -56,6 +57,8 @@ type ResolvedRegion = { region: AgentRegion; cells: string[] }
 type PlanInput = {
   prompt: string
   selection: string[]
+  /** Resolution-8 hexes parsed from the prompt. These win over the map selection. */
+  promptCells: string[]
   view: AgentViewContext | null
   polygon: GeofencePolygon | null
   polygonSimplified: boolean
@@ -326,10 +329,11 @@ export async function buildAgentQuery(body: unknown, cookies: Record<string, str
 
 function parsePlanRequest(body: unknown): PlanInput | ApiError {
   if (!isRecord(body)) return { error: 'Request body must include a prompt.', status: 400 }
-  const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 1500) : ''
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim().slice(0, 8000) : ''
   if (prompt.length < 2) return { error: 'Tell the agent what to build.', status: 400 }
   const selection = parseCells(body.selection ?? [])
   if ('error' in selection) return selection
+  const promptCells = extractHexCells(prompt)
   let polygon: GeofencePolygon | null = null
   let polygonSimplified = false
   if (body.polygon != null) {
@@ -342,6 +346,7 @@ function parsePlanRequest(body: unknown): PlanInput | ApiError {
   return {
     prompt,
     selection: selection.cells,
+    promptCells,
     view: parseView(body.view),
     polygon,
     polygonSimplified,
@@ -580,13 +585,16 @@ function isRefinement(lower: string): boolean {
 
 function detectRegion(text: string, lower: string, input: PlanInput): AgentIntent['region'] {
   const radius = detectRadius(lower)
+  if (input.promptCells.length > 0) {
+    return { kind: 'selection', place: null, radius_km: null }
+  }
   if (/\b(?:polygon|boundary|outline|geojson|wkt|drawn|uploaded|pasted)\b/.test(lower)) {
     return { kind: 'polygon', place: null, radius_km: null }
   }
   if (input.polygon && /\b(?:shape|attached|my area|the area)\b/.test(lower)) {
     return { kind: 'polygon', place: null, radius_km: null }
   }
-  if (/\b(?:selected|selection|my hexes|these hexes|chosen hexes|my cells|picked hexes)\b/.test(lower)) {
+  if (/\b(?:selected|selection|my hexes|these hexes|chosen hexes|my cells|picked hexes|these cells|this hex|this cell)\b/.test(lower)) {
     return { kind: 'selection', place: null, radius_km: null }
   }
   const place = detectPlace(text)
@@ -770,7 +778,9 @@ async function modelIntent(
   heuristic: AgentIntent,
 ): Promise<{ intent: AgentIntent; reply: string; placeHint: LatLng | null } | null> {
   const context = {
-    selected_hexes: input.selection.length,
+    selected_hex_count: input.selection.length,
+    selected_hexes: input.selection.slice(0, 40),
+    prompt_hexes: input.promptCells.slice(0, 40),
     polygon_attached: Boolean(input.polygon),
     map: input.view ? { center: input.view.center, zoom: Math.round(input.view.zoom * 10) / 10 } : null,
     weather_toggle: input.weather,
@@ -785,6 +795,9 @@ async function modelIntent(
   const parsed = await openAiJson(planSystemPrompt(), { request: input.prompt, context })
   if (!parsed) return null
   const intent = sanitizeIntent(parsed, heuristic)
+  if (input.promptCells.length > 0 || heuristic.region.kind === 'selection') {
+    intent.region = { kind: 'selection', place: null, radius_km: null }
+  }
   if (intent.region.kind === 'polygon' && !input.polygon) intent.region.kind = heuristic.region.kind
   if (intent.region.kind === 'previous' && !input.previous) intent.region.kind = heuristic.region.kind
   const region = isRecord(parsed.region) ? parsed.region : {}
@@ -802,7 +815,7 @@ function planSystemPrompt(): string {
     'JSON shape: {"reply": string, "region": {"kind": "selection|view|place|point|polygon|previous", "place": string|null, "radius_km": number|null, "lat": number|null, "lng": number|null}, "dataset": "places|buildings|addresses|all", "category_terms": string[], "search": string|null, "confidence_min": 0.5|0.7|0.9|null, "open_only": boolean, "require": ("phone"|"email"|"socials"|"official_id")[], "geofence_keep": "inside"|"outside"|null, "hail_days": number|null, "ai_column": {"column": string, "value_type": "bool|enum|number|text", "prompt": string, "source_fields": string[], "enum_values": string[]}|null, "workflow_name": string}',
     'Rules:',
     '- reply: one or two short first-person sentences that say what you will build. No markdown.',
-    '- region.kind: "place" when the user names a landmark, address, street, neighborhood, or city (put a searchable name with city and state in place, and your best lat/lng). "selection" when the user refers to selected hexes, or has a selection and names no area. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area.',
+    '- region.kind: "selection" when context.prompt_hexes is not empty, when the user refers to selected hexes, or when context.selected_hex_count > 0 and they did not name a new place, view, polygon, or map center. Use the hex ids from context; never invent hex ids. "place" when the user names a landmark, address, street, neighborhood, or city and is not using a current selection or pasted hex list (put a searchable name with city and state in place, and your best lat/lng). "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area.',
     '- For follow-ups, start from context.previous.intent and change only what the user asks.',
     '- dataset: places for businesses or points of interest; buildings for structures or roofs; addresses for address points; all when the user wants everything.',
     '- category_terms: short lowercase singular words for the kinds of places wanted, for example ["coffee", "cafe"]. Empty when no kind is named.',
@@ -872,7 +885,9 @@ async function resolveRegion(
   let kind = intent.region.kind
   if (kind === 'previous' && !input.previous) kind = input.selection.length > 0 ? 'selection' : 'point'
   if (kind === 'place' && !intent.region.place) kind = input.selection.length > 0 ? 'selection' : 'point'
-  if (kind === 'selection' && input.selection.length === 0) {
+  const listed = input.promptCells
+  const selected = listed.length > 0 ? listed : input.selection
+  if (kind === 'selection' && selected.length === 0) {
     if (input.previous) kind = 'previous'
     else {
       kind = 'point'
@@ -884,19 +899,33 @@ async function resolveRegion(
     if (!input.polygon) return { error: 'Attach a polygon first: upload a file, paste GeoJSON or WKT, or draw one.', status: 400 }
     return polygonRegion(input.polygon)
   }
-  if (kind === 'selection') return selectionRegion(input.selection)
+  if (kind === 'selection') {
+    if (listed.length > 0) {
+      notes.push(
+        listed.length === 1
+          ? 'Using the hex you listed in the request.'
+          : `Using the ${listed.length} hexes you listed in the request.`,
+      )
+    } else {
+      notes.push(
+        selected.length === 1 ? 'Using your selected hex.' : `Using your ${selected.length} selected hexes.`,
+      )
+    }
+    return selectionRegion(selected, listed.length > 0 ? 'listed' : 'selected')
+  }
   if (kind === 'previous' && input.previous) return previousRegion(input.previous, intent.region.radius_km, notes)
   if (kind === 'place' && intent.region.place) return placeRegion(intent.region.place, intent.region.radius_km, hint, notes)
   if (kind === 'view') return viewRegion(input.view, notes)
   return pointRegion(input.view, intent.region.radius_km, notes)
 }
 
-function selectionRegion(cells: readonly string[]): ResolvedRegion {
+function selectionRegion(cells: readonly string[], source: 'selected' | 'listed' = 'selected'): ResolvedRegion {
   const center = centroid(cells.map((cell) => cellCenter(cell)))
+  const noun = cells.length === 1 ? 'hex' : 'hexes'
   return {
     region: {
       kind: 'selection',
-      label: `${cells.length} selected hex${cells.length === 1 ? '' : 'es'}`,
+      label: source === 'listed' ? `${cells.length} listed ${noun}` : `${cells.length} selected ${noun}`,
       center,
       radius_km: null,
       polygon: null,

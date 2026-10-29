@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { closedRing } from '../../lib/enrichments'
+import { extractHexCells } from '../../lib/hex-ids'
 import { parsePolygonText } from '../../lib/polygon-input'
 import { cn } from '../../lib/utils'
 import { useAgent } from '../../store/agent-store'
@@ -15,6 +16,7 @@ const PLACEHOLDERS = [
   'Score restaurants in my selection as leads…',
   'Buildings around the map center with 90 days of hail…',
   'Hotels inside my polygon, high confidence…',
+  'Query these selected hexes for coffee shops…',
 ]
 
 export function AgentComposer({ busy, mobile }: { busy: boolean; mobile: boolean }) {
@@ -29,6 +31,13 @@ export function AgentComposer({ busy, mobile }: { busy: boolean; mobile: boolean
   const attachment = useAgent((state) => state.attachment)
   const drawing = useAgent((state) => state.drawing)
   const selectedCount = useExplorer((state) => state.selectedCells.length)
+  const listedCount = extractHexCells(text).length
+  const hexHint =
+    listedCount > 0
+      ? `Using ${listedCount} hex${listedCount === 1 ? '' : 'es'} from this message`
+      : selectedCount > 0
+        ? `Using ${selectedCount} selected hex${selectedCount === 1 ? '' : 'es'}`
+        : null
   const { session } = useAuth()
   const fileRef = useRef<HTMLInputElement>(null)
   const areaRef = useRef<HTMLTextAreaElement>(null)
@@ -151,9 +160,16 @@ export function AgentComposer({ busy, mobile }: { busy: boolean; mobile: boolean
             </button>
           </span>
         ) : (
-          <span className="inline-flex h-6 items-center gap-1 rounded-full border border-white/[0.08] bg-white/[0.03] px-2 text-[10.5px] text-muted-foreground">
-            {selectedCount > 0 ? <Hexagon className="size-3" /> : <MapPin className="size-3" />}
-            {selectedCount > 0 ? `${selectedCount} selected hex${selectedCount === 1 ? '' : 'es'}` : 'Map center or a named place'}
+          <span
+            className={cn(
+              'inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[10.5px]',
+              hexHint
+                ? 'border-primary/35 bg-primary/10 text-primary'
+                : 'border-white/[0.08] bg-white/[0.03] text-muted-foreground',
+            )}
+          >
+            {hexHint ? <Hexagon className="size-3" /> : <MapPin className="size-3" />}
+            {hexHint ?? 'Map center or a named place'}
           </span>
         )}
         <button
@@ -251,7 +267,7 @@ export function AgentComposer({ busy, mobile }: { busy: boolean; mobile: boolean
         )}
       </div>
       <p className="mt-1.5 px-1 text-[9.5px] text-muted-foreground/70">
-        Enter to send · Shift+Enter for a new line · Ctrl K toggles the agent
+        Enter to send · paste H3 ids or use the map selection · Ctrl K toggles the agent
       </p>
     </div>
   )

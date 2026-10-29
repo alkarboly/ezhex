@@ -10,7 +10,7 @@ import type { AgentPresenceField, AgentRegionKind } from '../types/agents'
 
 export const AGENT_REGION_OPTIONS: readonly { kind: Exclude<AgentRegionKind, 'previous'>; label: string; hint: string }[] = [
   { kind: 'place', label: 'Named place', hint: 'A landmark, address, or neighborhood, with a radius' },
-  { kind: 'selection', label: 'Selected hexes', hint: 'Hexes clicked on the map' },
+  { kind: 'selection', label: 'Selected hexes', hint: 'Hexes already selected on the map, or a list of H3 ids in the prompt' },
   { kind: 'view', label: 'Map view', hint: 'Every hex in the current view' },
   { kind: 'point', label: 'Map center', hint: 'A circle around the middle of the map' },
   { kind: 'polygon', label: 'Custom polygon', hint: 'Uploaded, pasted, or drawn' },
@@ -20,7 +20,7 @@ export const AGENT_CAPABILITIES = [
   {
     id: 'hexes',
     title: 'Find hexes',
-    body: 'From a named place, your selection, the map view, or a custom polygon.',
+    body: 'Uses hexes you already selected or paste as H3 ids. Otherwise a named place, the map view, or a custom polygon.',
   },
   {
     id: 'process',
@@ -44,6 +44,7 @@ export const AGENT_SUGGESTIONS = [
   'Restaurants with phone numbers in my selected hexes, score each as a lead from 0 to 100',
   'Buildings around the map center, classify roof hail risk as low, medium, or high',
   'Hotels inside my polygon with high confidence',
+  'Query these selected hexes for coffee shops',
 ] as const
 
 export const AGENT_PRESENCE_LABELS: Record<AgentPresenceField, string> = {
@@ -86,6 +87,7 @@ export function agentCapabilityBrief(maxNewHexes = AGENT_MAX_NEW_HEXES): string 
     'Region kinds:',
     ...AGENT_REGION_OPTIONS.map((option) => `- ${option.kind}: ${option.hint}.`),
     `- previous: reuse the hexes from the previous plan (for follow-ups like "add hail" or "only open ones").`,
+    'Prefer selection whenever the user already has hexes selected or pastes H3 ids, unless they name a new place, view, polygon, or map center.',
     `Radius defaults to ${AGENT_DEFAULT_RADIUS_KM} km and is capped at ${AGENT_MAX_RADIUS_KM} km.`,
     `Missing hexes are processed one hex per job; at most ${maxNewHexes} new hexes per run.`,
     'Datasets: places (points of interest with category, confidence, phones, emails, socials, websites, operating_status), buildings (class, height, floors, roof), addresses. "all" joins every theme.',

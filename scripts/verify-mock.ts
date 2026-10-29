@@ -1,4 +1,4 @@
-import { areNeighborCells, cellToParent, getResolution, gridDisk, isValidCell, latLngToCell } from 'h3-js'
+import { areNeighborCells, cellToChildren, cellToParent, getResolution, gridDisk, isValidCell, latLngToCell } from 'h3-js'
 import {
   AUSTIN_CENTER,
   cellPolygon,
@@ -31,6 +31,7 @@ import { pointGeometry, simplifyGeometry, squarePolygon } from '../src/lib/geojs
 import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../src/lib/limits.ts'
 import { balancedHexBatches, connectedHexBatches } from '../src/lib/hex-batches.ts'
+import { extractHexCells } from '../src/lib/hex-ids.ts'
 import { parsePolygonText } from '../src/lib/polygon-input.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
 import { buildMockDatabase } from '../src/services/mock/database.ts'
@@ -903,6 +904,33 @@ assert(coffeePlan.region.kind === 'selection' && coffeePlan.h3_cells.length === 
 assert(coffeePlan.intent.dataset === 'places' && coffeePlan.intent.category_terms.length > 0, 'agent plan missed the coffee ask')
 assert(coffeePlan.intent.hail_days === 30, 'agent plan missed the hail window')
 assert(coffeePlan.missing.length === 0 && coffeePlan.batches.length === 0, 'covered hexes should not need processing')
+
+const listedHex = cafeCells[0] ?? capitol
+const listedNeighbor = cafeCells[1] ?? gridDisk(listedHex, 1)[1]
+assert(extractHexCells(`use ${listedHex.toUpperCase()} and 0x${listedNeighbor}`).includes(listedHex), 'hex list parser missed a pasted id')
+const listedPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: `Coffee shops in ${listedHex} ${listedNeighbor}`,
+})
+assert(listedPlanRes.status === 200 && isRecord(listedPlanRes.body), `agent listed-hex plan failed: ${JSON.stringify(listedPlanRes.body)}`)
+const listedPlan = listedPlanRes.body as unknown as AgentPlan
+assert(listedPlan.region.kind === 'selection', 'agent did not treat pasted hexes as a selection')
+assert(
+  listedPlan.h3_cells.includes(listedHex) && listedPlan.h3_cells.includes(listedNeighbor) && listedPlan.h3_cells.length === 2,
+  'agent drifted from the pasted hex list',
+)
+const child = cellToChildren(listedHex, H3_RESOLUTION + 1)[0]
+const childPlanRes = await routeApi('POST', '/api/agent/plan', { prompt: `Buildings in ${child}` })
+assert(childPlanRes.status === 200 && isRecord(childPlanRes.body), `agent child-hex plan failed: ${JSON.stringify(childPlanRes.body)}`)
+const childPlan = childPlanRes.body as unknown as AgentPlan
+assert(childPlan.h3_cells.length === 1 && childPlan.h3_cells[0] === listedHex, 'finer pasted hex did not snap to resolution 8')
+
+const implicitSel = await routeApi('POST', '/api/agent/plan', { prompt: 'Coffee shops', selection: cafeCells })
+assert(implicitSel.status === 200 && isRecord(implicitSel.body), `agent implicit selection plan failed: ${JSON.stringify(implicitSel.body)}`)
+const implicitPlan = implicitSel.body as unknown as AgentPlan
+assert(
+  implicitPlan.region.kind === 'selection' && implicitPlan.h3_cells.length === cafeCells.length,
+  'agent ignored the current map selection when no area was named',
+)
 
 const square = squarePolygon(AUSTIN_CENTER.lng, AUSTIN_CENTER.lat, 0.008)
 const polygonPlanRes = await routeApi('POST', '/api/agent/plan', { prompt: 'Restaurants inside my polygon with high confidence', polygon: square })
