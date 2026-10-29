@@ -70,7 +70,7 @@ export function stripGeneratedComments(sql: string): string {
 }
 
 export function validateInspectSql(sql: string): string | null {
-  const trimmed = sql.trim()
+  const trimmed = stripGeneratedComments(sql).trim()
   if (!trimmed) return 'SQL is required.'
   if (trimmed.length > MAX_INSPECT_SQL_LENGTH) return 'SQL is too long.'
   if (/--|\/\*|\*\//.test(trimmed)) return 'Comments are not allowed in custom SQL.'
