@@ -26,5 +26,9 @@ export const AGENT_DEFAULT_RADIUS_KM = 1
 export const AGENT_NEIGHBORHOOD_RADIUS_KM = 2
 /** Half-width of hexes collected along a named street or highway. */
 export const AGENT_CORRIDOR_KM = 0.6
+/** Extra padding around a geocoded area so edge hexes stay in the highlight. */
+export const AGENT_LOOSE_PAD_KM = 0.8
+/** Half-width of the loose area between two named places when no road is traced. */
+export const AGENT_LOOSE_SPAN_KM = 3
 export const AGENT_MAX_RADIUS_KM = 3
 export const AGENT_DEFAULT_HAIL_DAYS = 30

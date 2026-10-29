@@ -185,6 +185,24 @@ const KNOWN_AREAS: readonly { match: RegExp; place: string }[] = [
   { match: /\b(?:ut campus|university of texas(?: at austin)?)\b/i, place: 'University of Texas at Austin' },
 ]
 
+/** Highway queries for a corridor, without pinning the road to one city. */
+const KNOWN_ROADS: readonly { match: RegExp; road: string }[] = [
+  { match: /\bsouth\s+lamar\b/i, road: 'South Lamar Boulevard' },
+  { match: /\bnorth\s+lamar\b/i, road: 'North Lamar Boulevard' },
+  { match: /\b(?:mopac|mo-?pac|loop\s*1)\b/i, road: 'Mopac Expressway' },
+  { match: /\b(?:i-?35|ih-?35|interstate\s*35)\b/i, road: 'Interstate 35' },
+  { match: /\b(?:(?:state\s+)?(?:highway|hwy)\s*71|ben\s+white)\b/i, road: 'Ben White Boulevard' },
+  { match: /\b(?:us-?290|highway\s*290|hwy\s*290)\b/i, road: 'US 290' },
+  { match: /\bloop\s*360\b/i, road: 'Loop 360' },
+]
+
+export type PlaceSpan = {
+  road: string | null
+  from: string
+  to: string
+  label: string
+}
+
 export function namesSelection(text: string): boolean {
   return /\b(?:selected|selection|my hexes|these hexes|chosen hexes|my cells|picked hexes|these cells|this hex|this cell)\b/i.test(
     text,
@@ -192,10 +210,12 @@ export function namesSelection(text: string): boolean {
 }
 
 export function namesCorridor(text: string): boolean {
-  return extractCorridor(text) != null
+  return extractCorridor(text) != null || extractSpan(text) != null
 }
 
 export function extractPlace(text: string): string | null {
+  const span = extractSpan(text)
+  if (span) return span.label
   const known = matchKnownArea(text)
   if (known) return known
   const neighborhood = matchNeighborhoodCity(text)
@@ -232,6 +252,31 @@ export function pickBetterPlace(model: string | null | undefined, heuristic: str
     return left.length >= right.length ? left : right
   }
   return left ?? right
+}
+
+/** A road or area between two named places, e.g. I-35 between Austin and Buda. */
+export function extractSpan(text: string): PlaceSpan | null {
+  if (/\b(?:score|rate|rank|rated|ranked|confidence|priced?)\s+between\b/i.test(text)) return null
+  if (/\bbetween\s+\d/i.test(text)) return null
+  const between = text.match(
+    /\bbetween\s+(.+?)\s+and\s+(.+?)(?=\s+(?:with|that|for|using|plus|then|add|score|classify)|[.;!?]|$)/i,
+  )
+  const fromTo =
+    between ?? text.match(/\bfrom\s+(.+?)\s+to\s+(.+?)(?=\s+(?:along|on|with|that|for|using)|[.;!?]|$)/i)
+  if (!fromTo) return null
+  const from = cleanPlace(fromTo[1])
+  const to = cleanPlace(fromTo[2])
+  if (!from || !to || from.toLowerCase() === to.toLowerCase()) return null
+  if (/^\d/.test(from) || /^\d/.test(to)) return null
+  const road = matchKnownRoad(text)
+  return { road, from, to, label: road ? `${road} between ${from} and ${to}` : `between ${from} and ${to}` }
+}
+
+function matchKnownRoad(text: string): string | null {
+  for (const item of KNOWN_ROADS) {
+    if (item.match.test(text)) return item.road
+  }
+  return null
 }
 
 function extractCorridor(text: string): string | null {

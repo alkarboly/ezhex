@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { cellToLatLng, getResolution, gridDisk, isValidCell, latLngToCell, polygonToCells } from 'h3-js'
-import { extractPlace, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt } from '../lib/agent-place'
+import { extractPlace, extractSpan, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, type PlaceSpan } from '../lib/agent-place'
 import { AGENT_AI_SOURCE_FIELDS, agentCapabilityBrief } from '../lib/agent-capabilities'
 import { addDay, applyGeofence, asEnrichment } from '../lib/enrichments'
 import {
@@ -19,6 +19,8 @@ import {
   AGENT_DEFAULT_HAIL_DAYS,
   AGENT_CORRIDOR_KM,
   AGENT_DEFAULT_RADIUS_KM,
+  AGENT_LOOSE_PAD_KM,
+  AGENT_LOOSE_SPAN_KM,
   AGENT_MAX_NEW_HEXES,
   AGENT_MAX_RADIUS_KM,
   AGENT_NEIGHBORHOOD_RADIUS_KM,
@@ -819,7 +821,7 @@ function planSystemPrompt(): string {
     'JSON shape: {"reply": string, "region": {"kind": "selection|view|place|point|polygon|previous", "place": string|null, "radius_km": number|null, "lat": number|null, "lng": number|null}, "dataset": "places|buildings|addresses|all", "category_terms": string[], "search": string|null, "confidence_min": 0.5|0.7|0.9|null, "open_only": boolean, "require": ("phone"|"email"|"socials"|"official_id")[], "geofence_keep": "inside"|"outside"|null, "hail_days": number|null, "ai_column": {"column": string, "value_type": "bool|enum|number|text", "prompt": string, "source_fields": string[], "enum_values": string[]}|null, "workflow_name": string}',
     'Rules:',
     '- reply: one or two short first-person sentences that say what you will build. No markdown.',
-    '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, highway, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at. "along X street/highway" is still kind place; the server traces the road. Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
+    '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, highway, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at. "along X street/highway" is still kind place; the server highlights a corridor along the road. "X between A and B" highlights that span (a road corridor when a highway is named, otherwise a loose polygon); put a short searchable name in place (not the whole between-phrase). Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
     '- For follow-ups, start from context.previous.intent and change only what the user asks.',
     '- dataset: buildings for commercial properties, real estate, roofs, or structures; places for businesses or points of interest; addresses for address points; all when the user wants everything.',
     '- category_terms: short lowercase singular words for the kinds of places wanted, for example ["coffee", "cafe"]. Empty when no kind is named.',
@@ -918,6 +920,8 @@ async function resolveRegion(
     }
     return selectionRegion(selected, listed.length > 0 ? 'listed' : 'selected')
   }
+  const span = extractSpan(input.prompt)
+  if (span) return spanRegion(span, notes, locality)
   if (kind === 'previous' && input.previous) return previousRegion(input.previous, intent.region.radius_km, notes)
   if (kind === 'place' && intent.region.place) {
     return placeRegion(intent.region.place, intent.region.radius_km, hint, notes, input.view, locality, namesCorridor(input.prompt))
@@ -963,6 +967,81 @@ function previousRegion(previous: AgentPrevious, radius: number | null, notes: s
   return { region, cells: [...previous.h3_cells] }
 }
 
+async function spanRegion(
+  span: PlaceSpan,
+  notes: string[],
+  locality: string | null,
+): Promise<ResolvedRegion | ApiError> {
+  const start = await geocodePlace(qualifyCity(span.from, locality), null)
+  const end = await geocodePlace(qualifyCity(span.to, locality), null)
+  if (!start || !end) {
+    const missing = !start ? span.from : span.to
+    return { error: `I couldn't find “${missing}”. Add the city and state, or select hexes on the map.`, status: 422 }
+  }
+  const a = { lat: start.lat, lng: start.lng }
+  const b = { lat: end.lat, lng: end.lng }
+  const center = { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }
+  const box = bboxAround([a, b], 8)
+  const road = span.road
+  const bias: MapBias = { center, bounds: null, zoom: 10, locality: null, box }
+  let lines: GeoJsonPosition[][] = []
+  if (road) {
+    const hit = await geocodePlace(road, bias, true)
+    if (hit?.lines.length) lines.push(...hit.lines)
+    const extras = await nominatimSearch(road, bias)
+    for (const extra of extras) {
+      if (extra.category === 'highway' || extra.lines.length > 0) lines.push(...extra.lines)
+    }
+    if (lineLengthKm(lines) < 2) {
+      const traced = await photonHighways(road, box)
+      if (traced.length > 0) lines = traced
+    }
+  }
+  lines = clipLinesToBbox(lines, box)
+  if (lineLengthKm(lines) >= 0.3 && road) {
+    const along = highlightShape(
+      span.label,
+      center,
+      lines,
+      AGENT_CORRIDOR_KM,
+      `I highlighted hexes along ${span.label} (within ${AGENT_CORRIDOR_KM} km of the road).`,
+      notes,
+    )
+    if (along) return along
+  }
+  const loose = highlightShape(
+    span.label,
+    center,
+    [[[a.lng, a.lat], [b.lng, b.lat]]],
+    AGENT_LOOSE_SPAN_KM,
+    `I highlighted hexes in a loose area between ${span.from} and ${span.to}.`,
+    notes,
+  )
+  if (loose) return loose
+  return circleRegion('place', span.label, center, limitRadius(AGENT_MAX_RADIUS_KM, notes))
+}
+
+function qualifyCity(name: string, locality: string | null): string {
+  if (/,\s*[A-Z]{2}\b|\b(?:Texas|California|Florida|New York)\b/i.test(name)) return name
+  if (locality && /texas/i.test(locality)) return `${name}, TX`
+  const state = locality?.split(',').pop()?.trim()
+  return state && !name.toLowerCase().includes(state.toLowerCase()) ? `${name}, ${state}` : name
+}
+
+function bboxAround(points: readonly LatLng[], padKm: number): GeoBbox {
+  const lats = points.map((point) => point.lat)
+  const lngs = points.map((point) => point.lng)
+  const mid = (Math.min(...lats) + Math.max(...lats)) / 2
+  const latPad = padKm / 110.574
+  const lngPad = padKm / (111.32 * Math.max(0.2, Math.cos((mid * Math.PI) / 180)))
+  return {
+    south: Math.min(...lats) - latPad,
+    north: Math.max(...lats) + latPad,
+    west: Math.min(...lngs) - lngPad,
+    east: Math.max(...lngs) + lngPad,
+  }
+}
+
 async function placeRegion(
   place: string,
   radius: number | null,
@@ -988,9 +1067,19 @@ async function placeRegion(
   if (corridor) {
     const along = await corridorRegion(place, label, center, hit, bias, notes)
     if (along) return along
+    const looseRoad = looseAreaFromHit(
+      hit,
+      label,
+      center,
+      notes,
+      `I could not trace the full road, so I highlighted a loose area around ${label}.`,
+    )
+    if (looseRoad) return looseRoad
     notes.push(`I could not trace the full road, so I used a circle around ${label}.`)
   }
   if (radius != null) return circleRegion('place', label, center, limitRadius(radius, notes))
+  const loose = looseAreaFromHit(hit, label, center, notes, `I highlighted hexes in a loose area around ${label}.`)
+  if (loose) return loose
   if (hit && hit.spanKm != null && hit.spanKm > LARGE_PLACE_SPAN_KM && hit.bbox && view && pointInBbox(view.center, hit.bbox)) {
     const km = radiusAroundView(view)
     notes.push(
@@ -1039,16 +1128,78 @@ async function corridorRegion(
   }
   if (box) lines = clipLinesToBbox(lines, box)
   if (lineLengthKm(lines) < 0.3) return null
-  const drawn = corridorPolygon(lines, AGENT_CORRIDOR_KM)
+  return highlightShape(
+    label,
+    center,
+    lines,
+    AGENT_CORRIDOR_KM,
+    `I highlighted hexes along ${label} (within ${AGENT_CORRIDOR_KM} km of the road).`,
+    notes,
+  )
+}
+
+function highlightShape(
+  label: string,
+  center: LatLng,
+  lines: readonly GeoJsonPosition[][],
+  halfKm: number,
+  note: string,
+  notes: string[],
+): ResolvedRegion | null {
+  const drawn = corridorPolygon(lines, halfKm)
   if (!drawn) return null
-  const fitted = fitGeofencePolygon(drawn)
-  const polygon = fitted.polygon
+  const polygon = fitGeofencePolygon(drawn).polygon
   const cells = byDistance(cellsForPolygon(polygon), center)
   if (cells.length === 0) return null
-  notes.push(`I traced ${label} and kept hexes within ${AGENT_CORRIDOR_KM} km of the road.`)
+  notes.push(note)
   return {
-    region: { kind: 'place', label, center, radius_km: AGENT_CORRIDOR_KM, polygon },
+    region: { kind: 'place', label, center, radius_km: halfKm, polygon },
     cells,
+  }
+}
+
+function looseAreaFromHit(
+  hit: GeoHit | null,
+  label: string,
+  center: LatLng,
+  notes: string[],
+  note: string,
+): ResolvedRegion | null {
+  if (!hit?.bbox || hit.category === 'highway') return null
+  const span = hit.spanKm ?? 0
+  if (span < 0.8 || span > LARGE_PLACE_SPAN_KM) return null
+  const polygon = fitGeofencePolygon(boxPolygon(padBox(hit.bbox, AGENT_LOOSE_PAD_KM))).polygon
+  const cells = byDistance(cellsForPolygon(polygon), center)
+  if (cells.length === 0) return null
+  notes.push(note)
+  return {
+    region: { kind: 'place', label, center, radius_km: round1(Math.min(AGENT_MAX_RADIUS_KM, span + AGENT_LOOSE_PAD_KM)), polygon },
+    cells,
+  }
+}
+
+function padBox(box: GeoBbox, padKm: number): GeoBbox {
+  return bboxAround(
+    [
+      { lat: box.south, lng: box.west },
+      { lat: box.north, lng: box.east },
+    ],
+    padKm,
+  )
+}
+
+function boxPolygon(box: GeoBbox): GeofencePolygon {
+  return {
+    type: 'Polygon',
+    coordinates: [
+      [
+        [box.west, box.south],
+        [box.east, box.south],
+        [box.east, box.north],
+        [box.west, box.north],
+        [box.west, box.south],
+      ],
+    ],
   }
 }
 
@@ -1129,6 +1280,7 @@ async function photonHighways(place: string, box: GeoBbox): Promise<GeoJsonPosit
     const url = new URL('https://photon.komoot.io/api/')
     url.searchParams.set('q', place)
     url.searchParams.set('limit', '40')
+    url.searchParams.set('bbox', `${box.west},${box.south},${box.east},${box.north}`)
     const response = await fetch(url, { signal: AbortSignal.timeout(8_000), headers: GEOCODER_HEADERS })
     if (!response.ok) return []
     const json = (await response.json()) as unknown
@@ -1280,6 +1432,8 @@ type MapBias = {
   bounds: AgentViewContext['bounds']
   zoom: number
   locality: string | null
+  /** Explicit search box. Wins over the city-scale pad around the map center. */
+  box?: GeoBbox | null
 }
 type GeoHit = {
   lat: number
@@ -1473,6 +1627,7 @@ function scoreHit(hit: GeoHit, query: string, bias: MapBias | null, preferHighwa
 }
 
 function viewboxFor(bias: MapBias | null): GeoBbox | null {
+  if (bias?.box) return bias.box
   if (!bias?.center) return bias?.bounds ?? null
   return {
     west: bias.center.lng - CITY_VIEWBOX_PAD_DEG,
@@ -1576,6 +1731,9 @@ function intentSubject(intent: AgentIntent): string {
 
 function regionPhrase(region: AgentRegion): string {
   if (region.kind === 'selection') return `your ${region.label}`
+  if (region.kind === 'place' && region.polygon && region.radius_km === AGENT_CORRIDOR_KM) {
+    return `along ${region.label}`
+  }
   if (region.kind === 'place') return `${region.radius_km} km around ${region.label}`
   if (region.kind === 'point') return `${region.radius_km} km around the map center`
   if (region.kind === 'view') return 'the current map view'

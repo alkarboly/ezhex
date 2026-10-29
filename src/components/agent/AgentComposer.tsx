@@ -12,11 +12,9 @@ import type { GeofencePolygon } from '../../types/enrichments'
 import { attachAgentPolygon, runAgent, stopAgent } from './agent-runner'
 
 const PLACEHOLDERS = [
-  'Coffee shops within 1 km of the Texas State Capitol…',
-  'Score restaurants in my selection as leads…',
-  'Buildings around the map center with 90 days of hail…',
-  'Hotels inside my polygon, high confidence…',
-  'Query these selected hexes for coffee shops…',
+  'Help me search for commercial properties in the Westgate neighborhood in Austin TX…',
+  'Help me find coffee shops along South Lamar…',
+  'Help me find commercial properties along I-35 between Austin and Buda, Texas…',
 ]
 
 export function AgentComposer({ busy, mobile }: { busy: boolean; mobile: boolean }) {

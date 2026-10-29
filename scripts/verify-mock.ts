@@ -32,7 +32,8 @@ import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../src/lib/limits.ts'
 import { balancedHexBatches, connectedHexBatches } from '../src/lib/hex-batches.ts'
 import { extractHexCells } from '../src/lib/hex-ids.ts'
-import { extractPlace, namesSelection, placeMentionedInPrompt } from '../src/lib/agent-place.ts'
+import { AGENT_SUGGESTIONS } from '../src/lib/agent-capabilities.ts'
+import { extractPlace, extractSpan, namesSelection, placeMentionedInPrompt } from '../src/lib/agent-place.ts'
 import { parsePolygonText } from '../src/lib/polygon-input.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
 import { buildMockDatabase } from '../src/services/mock/database.ts'
@@ -947,6 +948,21 @@ assert(
 )
 assert(extractPlace('help me find coffee along south lamar') === 'South Lamar Boulevard, Austin, TX', 'place parser missed along South Lamar')
 assert(extractPlace('find restaurants along I-35') === 'Interstate 35, Austin, TX', 'place parser missed along I-35')
+assert(
+  extractPlace('I-35 between Austin and Buda, Texas') === 'Interstate 35 between Austin and Buda, Texas',
+  'place parser missed I-35 between Austin and Buda',
+)
+assert(extractSpan('I-35 between Austin and Buda, Texas')?.road === 'Interstate 35', 'span parser missed the I-35 road')
+assert(extractSpan('I-35 between Austin and Buda, Texas')?.from === 'Austin', 'span parser missed Austin')
+assert(extractSpan('I-35 between Austin and Buda, Texas')?.to === 'Buda, Texas', 'span parser missed Buda')
+assert(extractSpan('score each as a lead from 0 to 100') == null, 'span parser treated a score range as a place')
+assert(AGENT_SUGGESTIONS.length === 3, 'agent examples must stay at 3')
+assert(AGENT_SUGGESTIONS[0].includes('Westgate'), 'first example should be the Westgate neighborhood')
+assert(AGENT_SUGGESTIONS[1].includes('South Lamar'), 'second example should be along South Lamar')
+assert(AGENT_SUGGESTIONS[2].includes('I-35'), 'third example should be I-35 between Austin and Buda')
+assert(extractSpan('between Austin and Buda')?.road == null, 'span parser invented a road for a loose area')
+assert(extractSpan('between Austin and Buda')?.from === 'Austin', 'span parser missed a loose area from')
+assert(extractSpan('between Austin and Buda')?.to === 'Buda', 'span parser missed a loose area to')
 assert(extractPlace('Coffee shops in my selected hexes') === null, 'place parser treated selected hexes as a place')
 assert(namesSelection('Coffee shops in my selected hexes'), 'selection phrase was not detected')
 assert(placeMentionedInPrompt('Texas State Capitol, Austin, TX', 'coffee near the capitol'), 'capitol mention was not recognized')

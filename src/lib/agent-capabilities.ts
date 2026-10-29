@@ -2,6 +2,7 @@ import {
   AGENT_DEFAULT_HAIL_DAYS,
   AGENT_CORRIDOR_KM,
   AGENT_DEFAULT_RADIUS_KM,
+  AGENT_LOOSE_SPAN_KM,
   AGENT_MAX_NEW_HEXES,
   AGENT_MAX_RADIUS_KM,
   AGENT_NEIGHBORHOOD_RADIUS_KM,
@@ -11,7 +12,7 @@ import {
 import type { AgentPresenceField, AgentRegionKind } from '../types/agents'
 
 export const AGENT_REGION_OPTIONS: readonly { kind: Exclude<AgentRegionKind, 'previous'>; label: string; hint: string }[] = [
-  { kind: 'place', label: 'Named place', hint: 'A landmark, neighborhood, city, or a street/highway corridor in the same city as the map' },
+  { kind: 'place', label: 'Named place', hint: 'A landmark, neighborhood, city, a street/highway corridor, or a loose area between two cities' },
   { kind: 'selection', label: 'Selected hexes', hint: 'Hexes already selected on the map, or a list of H3 ids in the prompt' },
   { kind: 'view', label: 'Map view', hint: 'Every hex in the current view' },
   { kind: 'point', label: 'Map center', hint: 'A circle around the middle of the map' },
@@ -22,7 +23,7 @@ export const AGENT_CAPABILITIES = [
   {
     id: 'hexes',
     title: 'Find hexes',
-    body: 'Reads a named neighborhood, city, or “along this street/highway” from the prompt and geocodes it in the same city as the map. Uses selected or pasted hexes only when you point at those hexes.',
+    body: 'Highlights hexes from the prompt: a corridor along a named street or highway, or a loose polygon around a neighborhood, city, or the area between two places. Uses selected or pasted hexes only when you point at those hexes.',
   },
   {
     id: 'process',
@@ -42,15 +43,9 @@ export const AGENT_CAPABILITIES = [
 ] as const
 
 export const AGENT_SUGGESTIONS = [
-  'Coffee shops within 1 km of the Texas State Capitol',
-  'Coffee shops near the Texas State Capitol, with 30 days of hail',
-  'Restaurants with phone numbers in my selected hexes, score each as a lead from 0 to 100',
-  'Buildings around the map center, classify roof hail risk as low, medium, or high',
-  'Hotels inside my polygon with high confidence',
-  'Coffee shops in Westgate',
   'Help me search for commercial properties in the Westgate neighborhood in Austin TX',
   'Help me find coffee shops along South Lamar',
-  'Query these selected hexes for coffee shops',
+  'Help me find commercial properties along I-35 between Austin and Buda, Texas',
 ] as const
 
 export const AGENT_PRESENCE_LABELS: Record<AgentPresenceField, string> = {
@@ -94,7 +89,7 @@ export function agentCapabilityBrief(maxNewHexes = AGENT_MAX_NEW_HEXES): string 
     ...AGENT_REGION_OPTIONS.map((option) => `- ${option.kind}: ${option.hint}.`),
     `- previous: reuse the hexes from the previous plan (for follow-ups like "add hail" or "only open ones").`,
     'When the user names a place, geocode that place. Prefer a named place over leftover selected hexes or the previous run. Use selection when they paste H3 ids or refer to selected hexes.',
-    `Radius defaults to ${AGENT_DEFAULT_RADIUS_KM} km, ${AGENT_NEIGHBORHOOD_RADIUS_KM} km for a named neighborhood, and ${AGENT_CORRIDOR_KM} km along a named street or highway, capped at ${AGENT_MAX_RADIUS_KM} km.`,
+    `A named street or highway highlights a ${AGENT_CORRIDOR_KM} km corridor. A neighborhood or “between A and B” without a traced road highlights a loose polygon (about ${AGENT_LOOSE_SPAN_KM} km). Circles default to ${AGENT_DEFAULT_RADIUS_KM} km, ${AGENT_NEIGHBORHOOD_RADIUS_KM} km for a small neighborhood, capped at ${AGENT_MAX_RADIUS_KM} km.`,
     `Missing hexes are processed one hex per job; at most ${maxNewHexes} new hexes per run.`,
     'Datasets: places (points of interest with category, confidence, phones, emails, socials, websites, operating_status), buildings (class, height, floors, roof), addresses. "all" joins every theme.',
     'Filters: category_terms (plain words such as "coffee", "restaurant", "hotel", "hospital"), search (name text), confidence_min (0.5, 0.7, or 0.9), open_only, require (phone, email, socials, official_id).',
