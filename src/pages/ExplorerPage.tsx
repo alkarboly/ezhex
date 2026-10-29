@@ -419,7 +419,7 @@ function SelectionDock({
         onClick={onEnrich}
         className="rounded-full bg-primary/15 px-3 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/25 disabled:opacity-40"
       >
-        Enrich
+        Add-ons
       </button>
     </div>
   )

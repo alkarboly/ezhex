@@ -32,8 +32,8 @@ Do not rebuild these. Extend them.
 | Process / open-source ingest | `POST /api/workflow-ingestion/jobs`, DuckDB S3, `ingest_overture_*` | This is the processor agent. Jobs already have `logs` (`at`, `level`, `message`) |
 | Query workflow | `query_workflows` | name, SQL, `custom_sql`, `h3_cells` (1–300), `filters`, `enrichments` (max 4), `release_version` |
 | Run | `POST /api/query-workflows/:id/run` | quote → optional process jobs (one hex each) → snapshot check/historize → query → enrichments |
-| `geofence` | `keep` `inside` \| `outside`, GeoJSON `Polygon` | Enrich panel draw |
-| `hail_history` | `start_date`, `end_date` | NOAA MRMS MESH_Max_1440min, 12Z only, from 2020-11-01 |
+| `geofence` | `keep` `inside` \| `outside`, GeoJSON `Polygon` | Add-ons → Custom polygon |
+| `hail_history` | `start_date`, `end_date` | Weather add-on (hail). NOAA MRMS MESH_Max_1440min, 12Z only, from 2020-11-01. Not on by default |
 | Hail columns | `hail_mm_max`, `hail_days`, `hail_last_date` | On `FeatureRow` after a run |
 | Owner RLS + GRANT | `authenticated` only | Anon revoked. 42501 → run `20261027_query_workflow_grants.sql` |
 | Auth | httpOnly `wp_access` / `wp_refresh` | Node uses anon + user JWT. No service-role. Browser never imports Supabase |
@@ -115,7 +115,7 @@ If `OPENAI_API_KEY` is unset, use the price book only (deterministic). Same Jobs
 
 ## Enrichment: `ai_column`
 
-`ENRICHMENT_KINDS` and `WorkflowEnrichment` include `ai_column`. Still max 4 steps. At most one `hail_history`. At most one `ai_column` in v1.
+Explorer UI: **Add-ons → AI enhance**. `ENRICHMENT_KINDS` and `WorkflowEnrichment` include `ai_column`. Still max 4 steps. At most one `hail_history`. At most one `ai_column` in v1. Not on by default.
 
 ```ts
 type AiColumnValueType = 'bool' | 'enum' | 'number' | 'text'

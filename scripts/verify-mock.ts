@@ -780,6 +780,20 @@ const promptAi = Array.isArray(assistDraft.body.enrichments)
   ? assistDraft.body.enrichments.find((step) => isRecord(step) && step.kind === 'ai_column')
   : null
 assert(isRecord(promptAi) && promptAi.value_type === 'number', 'agent assist prompt did not set a numeric ai column')
+const addonsOff = await routeApi('POST', '/api/agent-assist/draft', {
+  h3_cells: [capitol],
+  enrichments: [],
+  prompt: 'Coffee shops in these hexes',
+})
+assert(addonsOff.status === 200 && isRecord(addonsOff.body) && Array.isArray(addonsOff.body.enrichments), 'agent assist draft without add-ons failed')
+assert(
+  !addonsOff.body.enrichments.some((step) => isRecord(step) && step.kind === 'hail_history'),
+  'agent assist added hail when it was not requested',
+)
+assert(
+  !addonsOff.body.enrichments.some((step) => isRecord(step) && step.kind === 'ai_column'),
+  'agent assist added AI enhance when it was not requested',
+)
 const assistQuote = await routeApi('POST', '/api/agent-assist/quote', {
   h3_cells: [capitol],
   enrichments: assistDraft.body.enrichments,
@@ -910,6 +924,13 @@ assert(coffeePlan.region.kind === 'selection' && coffeePlan.h3_cells.length === 
 assert(coffeePlan.intent.dataset === 'places' && coffeePlan.intent.category_terms.length > 0, 'agent plan missed the coffee ask')
 assert(coffeePlan.intent.hail_days === 30, 'agent plan missed the hail window')
 assert(coffeePlan.missing.length === 0 && coffeePlan.batches.length === 0, 'covered hexes should not need processing')
+const noHailPlan = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'Coffee shops in my selected hexes',
+  selection: cafeCells,
+  weather: false,
+})
+assert(noHailPlan.status === 200 && isRecord(noHailPlan.body), `agent plan without weather failed: ${JSON.stringify(noHailPlan.body)}`)
+assert((noHailPlan.body as unknown as AgentPlan).intent.hail_days == null, 'agent plan added hail when it was not requested')
 
 const listedHex = cafeCells[0] ?? capitol
 const listedNeighbor = cafeCells[1] ?? gridDisk(listedHex, 1)[1]
@@ -919,6 +940,13 @@ assert(extractPlace('hail risk near the capitol') === 'Texas State Capitol, Aust
 assert(extractPlace('restaurants around South Congress') === 'South Congress Avenue, Austin, TX', 'place parser missed South Congress')
 assert(extractPlace('coffee shops westgate') === 'Westgate, Austin, TX', 'place parser missed Westgate')
 assert(extractPlace('Coffee shops in Westgate') === 'Westgate, Austin, TX', 'place parser missed in Westgate')
+assert(
+  extractPlace('Help me search for commercial properties in the westgate neighborhood in austin tx') ===
+    'Westgate, Austin, TX',
+  'place parser missed conversational Westgate',
+)
+assert(extractPlace('help me find coffee along south lamar') === 'South Lamar Boulevard, Austin, TX', 'place parser missed along South Lamar')
+assert(extractPlace('find restaurants along I-35') === 'Interstate 35, Austin, TX', 'place parser missed along I-35')
 assert(extractPlace('Coffee shops in my selected hexes') === null, 'place parser treated selected hexes as a place')
 assert(namesSelection('Coffee shops in my selected hexes'), 'selection phrase was not detected')
 assert(placeMentionedInPrompt('Texas State Capitol, Austin, TX', 'coffee near the capitol'), 'capitol mention was not recognized')

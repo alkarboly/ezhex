@@ -36,7 +36,7 @@ const STEP_META: Record<AgentStepId, { title: string; icon: LucideIcon }> = {
   region: { title: 'Find the hexes', icon: Hexagon },
   process: { title: 'Process missing hexes', icon: DatabaseZap },
   query: { title: 'Build the query', icon: Funnel },
-  weather: { title: 'Hail history', icon: CloudHail },
+  weather: { title: 'Weather', icon: CloudHail },
   review: { title: 'Your review', icon: UserCheck },
   run: { title: 'Run the workflow', icon: Rocket },
 }
@@ -45,7 +45,7 @@ const AGENT_LABELS: Record<AgentName, string> = {
   orchestrator: 'Orchestrator',
   process: 'Process agent',
   geofence: 'Geofence agent',
-  hail_history: 'Hail agent',
+  hail_history: 'Weather agent',
   ai_column: 'AI column agent',
 }
 
@@ -144,7 +144,7 @@ const SPECIALISTS: { id: AgentStepId; label: string; icon: LucideIcon }[] = [
   { id: 'region', label: 'Hexes', icon: Hexagon },
   { id: 'process', label: 'Process', icon: DatabaseZap },
   { id: 'query', label: 'Query', icon: Funnel },
-  { id: 'weather', label: 'Hail', icon: CloudHail },
+  { id: 'weather', label: 'Weather', icon: CloudHail },
   { id: 'run', label: 'Run', icon: Rocket },
 ]
 

@@ -1,4 +1,4 @@
-import { ArrowUpRight, ChevronDown, CloudHail, DatabaseZap, Funnel, Hexagon, RotateCcw, Sparkles, type LucideIcon } from 'lucide-react'
+import { ArrowUpRight, ChevronDown, Cloud, DatabaseZap, Funnel, Hexagon, RotateCcw, Sparkles, type LucideIcon } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { AGENT_CAPABILITIES, AGENT_SUGGESTIONS } from '../../lib/agent-capabilities'
 import { cn } from '../../lib/utils'
@@ -12,7 +12,7 @@ const CAPABILITY_ICONS: Record<(typeof AGENT_CAPABILITIES)[number]['id'], Lucide
   hexes: Hexagon,
   process: DatabaseZap,
   query: Funnel,
-  enrich: CloudHail,
+  enrich: Cloud,
 }
 
 const STEP_STATUS: Record<string, string> = {
@@ -20,7 +20,7 @@ const STEP_STATUS: Record<string, string> = {
   region: 'Finding hexes',
   process: 'Processing hexes',
   query: 'Building the query',
-  weather: 'Pulling hail history',
+  weather: 'Pulling weather',
   run: 'Running the workflow',
 }
 
@@ -212,8 +212,8 @@ function AgentIntro() {
         <AgentOrb size={60} />
         <h2 className="mt-3 text-[17px] font-semibold tracking-tight">What should I build?</h2>
         <p className="mt-1 max-w-[19rem] text-[11.5px] leading-[1.55] text-muted-foreground">
-          Describe the data you want. I find the hexes, process anything missing, write the query, and add hail
-          history and AI columns. You approve before anything is charged.
+          Describe the data you want. I find the hexes, process anything missing, and write the query. Weather,
+          a custom polygon, and AI enhance are optional add-ons. You approve before anything is charged.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-1.5">

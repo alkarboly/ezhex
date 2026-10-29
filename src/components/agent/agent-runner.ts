@@ -210,7 +210,7 @@ export function attachAgentPolygon(polygon: GeofencePolygon, label: string) {
   ])
 }
 
-/** Opens the inspect table and enrich panel so a person can change what the agent built. */
+/** Opens the inspect table and add-ons panel so a person can change what the agent built. */
 export function reviewInInspect() {
   const explorer = useExplorer.getState()
   if (config.desktop()) explorer.setInspectPosition({ x: config.panelRight() + 16, y: 64 })

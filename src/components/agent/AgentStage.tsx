@@ -31,11 +31,11 @@ const STAGE: Record<AgentStepId, { kicker: string; line: (turn: AgentTurn) => st
     },
   },
   weather: {
-    kicker: 'Hail agent',
+    kicker: 'Weather',
     line: (turn) =>
       turn.hail
-        ? `${turn.hail.start} → ${turn.hail.end} · NOAA MESH`
-        : 'Pulling hail history for these hexes',
+        ? `Hail ${turn.hail.start} → ${turn.hail.end} · NOAA MESH`
+        : 'Pulling weather for these hexes',
   },
   review: { kicker: 'Ready', line: (turn) => turn.query?.workflow_name ?? 'Waiting for your approval' },
   run: { kicker: 'Running', line: () => 'Saving the workflow and debiting the ledger' },

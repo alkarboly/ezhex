@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { cellToLatLng, getResolution, gridDisk, isValidCell, latLngToCell, polygonToCells } from 'h3-js'
-import { extractPlace, namesSelection, pickBetterPlace, placeMentionedInPrompt } from '../lib/agent-place'
+import { extractPlace, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt } from '../lib/agent-place'
 import { AGENT_AI_SOURCE_FIELDS, agentCapabilityBrief } from '../lib/agent-capabilities'
 import { addDay, applyGeofence, asEnrichment } from '../lib/enrichments'
 import {
@@ -17,6 +17,7 @@ import { earliestSnapshotDate } from '../lib/hex-snapshots'
 import { compileInspectSql } from '../lib/inspect-sql'
 import {
   AGENT_DEFAULT_HAIL_DAYS,
+  AGENT_CORRIDOR_KM,
   AGENT_DEFAULT_RADIUS_KM,
   AGENT_MAX_NEW_HEXES,
   AGENT_MAX_RADIUS_KM,
@@ -628,7 +629,10 @@ function detectRadius(lower: string): number | null {
 
 function detectDataset(lower: string): AgentIntent['dataset'] | null {
   if (/\b(?:everything|all (?:rows|themes|data|datasets|records|features))\b/.test(lower)) return 'all'
-  if (/\b(?:buildings?|roofs?|rooftops?|structures?|footprints?)\b/.test(lower)) return 'buildings'
+  if (/\b(?:propert(?:y|ies)|real estate|building class|footprints?|roofs?|rooftops?|structures?|buildings?)\b/.test(lower)) {
+    return 'buildings'
+  }
+  if (/\bcommercial\b/.test(lower) && /\b(?:office|offices|warehouse|warehouses|retail)\b/.test(lower)) return 'buildings'
   if (/^\s*(?:all\s+)?addresses\b|\b(?:address points|only addresses|just addresses|addresses only)\b/.test(lower)) return 'addresses'
   if (/\b(?:places?|pois?|points? of interest|business(?:es)?|leads?|venues?|shops?|stores?|restaurants?)\b/.test(lower)) {
     return 'places'
@@ -815,11 +819,11 @@ function planSystemPrompt(): string {
     'JSON shape: {"reply": string, "region": {"kind": "selection|view|place|point|polygon|previous", "place": string|null, "radius_km": number|null, "lat": number|null, "lng": number|null}, "dataset": "places|buildings|addresses|all", "category_terms": string[], "search": string|null, "confidence_min": 0.5|0.7|0.9|null, "open_only": boolean, "require": ("phone"|"email"|"socials"|"official_id")[], "geofence_keep": "inside"|"outside"|null, "hail_days": number|null, "ai_column": {"column": string, "value_type": "bool|enum|number|text", "prompt": string, "source_fields": string[], "enum_values": string[]}|null, "workflow_name": string}',
     'Rules:',
     '- reply: one or two short first-person sentences that say what you will build. No markdown.',
-    '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at, for example "the capitol" while looking at Austin becomes "Texas State Capitol, Austin, TX". Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
+    '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, highway, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at. "along X street/highway" is still kind place; the server traces the road. Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
     '- For follow-ups, start from context.previous.intent and change only what the user asks.',
-    '- dataset: places for businesses or points of interest; buildings for structures or roofs; addresses for address points; all when the user wants everything.',
+    '- dataset: buildings for commercial properties, real estate, roofs, or structures; places for businesses or points of interest; addresses for address points; all when the user wants everything.',
     '- category_terms: short lowercase singular words for the kinds of places wanted, for example ["coffee", "cafe"]. Empty when no kind is named.',
-    `- hail_days: set only when the user asks for hail, storms, weather, or hail risk, or when context.weather_toggle is true (default ${AGENT_DEFAULT_HAIL_DAYS}).`,
+    `- hail_days: optional weather add-on. Set only when the user asks for hail, storms, weather, or hail risk, or when context.weather_toggle is true (default ${AGENT_DEFAULT_HAIL_DAYS}). Leave null otherwise. Do not add hail by default.`,
     '- ai_column: set only when the user asks to score, rank, rate, classify, label, flag, or assess rows. Use a snake_case column. Write the prompt as an instruction for one row.',
     '- geofence_keep: "outside" only when the user wants rows outside the area; otherwise null.',
     '- workflow_name: at most 60 characters, for example "Coffee near the Texas Capitol".',
@@ -916,7 +920,7 @@ async function resolveRegion(
   }
   if (kind === 'previous' && input.previous) return previousRegion(input.previous, intent.region.radius_km, notes)
   if (kind === 'place' && intent.region.place) {
-    return placeRegion(intent.region.place, intent.region.radius_km, hint, notes, input.view, locality)
+    return placeRegion(intent.region.place, intent.region.radius_km, hint, notes, input.view, locality, namesCorridor(input.prompt))
   }
   if (kind === 'view') return viewRegion(input.view, notes)
   return pointRegion(input.view, intent.region.radius_km, notes)
@@ -966,9 +970,10 @@ async function placeRegion(
   notes: string[],
   view: AgentViewContext | null,
   locality: string | null,
+  corridor: boolean,
 ): Promise<ResolvedRegion | ApiError> {
   const bias = mapBias(view, locality)
-  const hit = await geocodePlace(place, bias)
+  const hit = await geocodePlace(place, bias, corridor)
   let center = hit ? { lat: hit.lat, lng: hit.lng } : null
   if (hit && hint && metersBetween({ lat: hit.lat, lng: hit.lng }, hint) / 1000 > GEOCODE_HINT_KM) {
     notes.push(`I geocoded “${place}” to ${hit.label} instead of the model's coordinates.`)
@@ -979,7 +984,12 @@ async function placeRegion(
   if (!center) {
     return { error: `I couldn't find “${place}”. Add the city, or select hexes on the map.`, status: 422 }
   }
-  const label = hit?.label || place
+  const label = corridor && hit?.category !== 'highway' ? place : hit?.label || place
+  if (corridor) {
+    const along = await corridorRegion(place, label, center, hit, bias, notes)
+    if (along) return along
+    notes.push(`I could not trace the full road, so I used a circle around ${label}.`)
+  }
   if (radius != null) return circleRegion('place', label, center, limitRadius(radius, notes))
   if (hit && hit.spanKm != null && hit.spanKm > LARGE_PLACE_SPAN_KM && hit.bbox && view && pointInBbox(view.center, hit.bbox)) {
     const km = radiusAroundView(view)
@@ -1004,8 +1014,153 @@ async function placeRegion(
 }
 
 function isNeighborhoodHit(hit: GeoHit): boolean {
+  if (hit.category === 'highway') return false
   if (NEIGHBORHOOD_HIT_TYPES.has(hit.type)) return true
   return hit.category === 'landuse' || hit.category === 'place' || hit.category === 'boundary'
+}
+
+async function corridorRegion(
+  place: string,
+  label: string,
+  center: LatLng,
+  hit: GeoHit | null,
+  bias: MapBias | null,
+  notes: string[],
+): Promise<ResolvedRegion | null> {
+  const box = viewboxFor(bias)
+  let lines: GeoJsonPosition[][] = hit?.lines ? [...hit.lines] : []
+  const extras = await nominatimSearch(place, bias)
+  for (const extra of extras) {
+    if (extra.category === 'highway' || extra.lines.length > 0) lines.push(...extra.lines)
+  }
+  if (lineLengthKm(lines) < 2 && box) {
+    const traced = await photonHighways(place, box)
+    if (traced.length > 0) lines = traced
+  }
+  if (box) lines = clipLinesToBbox(lines, box)
+  if (lineLengthKm(lines) < 0.3) return null
+  const drawn = corridorPolygon(lines, AGENT_CORRIDOR_KM)
+  if (!drawn) return null
+  const fitted = fitGeofencePolygon(drawn)
+  const polygon = fitted.polygon
+  const cells = byDistance(cellsForPolygon(polygon), center)
+  if (cells.length === 0) return null
+  notes.push(`I traced ${label} and kept hexes within ${AGENT_CORRIDOR_KM} km of the road.`)
+  return {
+    region: { kind: 'place', label, center, radius_km: AGENT_CORRIDOR_KM, polygon },
+    cells,
+  }
+}
+
+function lineLengthKm(lines: readonly GeoJsonPosition[][]): number {
+  let km = 0
+  for (const line of lines) {
+    for (let index = 1; index < line.length; index += 1) {
+      const [lng1, lat1] = line[index - 1]
+      const [lng2, lat2] = line[index]
+      km += metersBetween({ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 }) / 1000
+    }
+  }
+  return km
+}
+
+function clipLinesToBbox(lines: readonly GeoJsonPosition[][], box: GeoBbox): GeoJsonPosition[][] {
+  const clipped: GeoJsonPosition[][] = []
+  for (const line of lines) {
+    let run: GeoJsonPosition[] = []
+    for (const point of line) {
+      const [lng, lat] = point
+      if (lat >= box.south && lat <= box.north && lng >= box.west && lng <= box.east) {
+        run.push(point)
+      } else if (run.length > 0) {
+        if (run.length >= 2) clipped.push(run)
+        run = []
+      }
+    }
+    if (run.length >= 2) clipped.push(run)
+  }
+  return clipped
+}
+
+function corridorPolygon(lines: readonly GeoJsonPosition[][], halfKm: number): GeofencePolygon | null {
+  const seq = densifyLines(lines, 0.35)
+  if (seq.length < 2) return null
+  const left: GeoJsonPosition[] = []
+  const right: GeoJsonPosition[] = []
+  for (let index = 0; index < seq.length; index += 1) {
+    const prev = seq[Math.max(0, index - 1)]
+    const next = seq[Math.min(seq.length - 1, index + 1)]
+    const [lng, lat] = seq[index]
+    const dlat = next[1] - prev[1]
+    const dlng = next[0] - prev[0]
+    const angle = Math.atan2(dlat, dlng) + Math.PI / 2
+    const latKm = 110.574
+    const lngKm = 111.32 * Math.cos((lat * Math.PI) / 180)
+    left.push([round6(lng + (Math.cos(angle) * halfKm) / lngKm), round6(lat + (Math.sin(angle) * halfKm) / latKm)])
+    right.push([round6(lng - (Math.cos(angle) * halfKm) / lngKm), round6(lat - (Math.sin(angle) * halfKm) / latKm)])
+  }
+  const ring = [...left, ...right.reverse()]
+  ring.push(ring[0])
+  return { type: 'Polygon', coordinates: [ring] }
+}
+
+function densifyLines(lines: readonly GeoJsonPosition[][], stepKm: number): GeoJsonPosition[] {
+  const points: GeoJsonPosition[] = []
+  for (const line of lines) {
+    for (let index = 1; index < line.length; index += 1) {
+      const [lng1, lat1] = line[index - 1]
+      const [lng2, lat2] = line[index]
+      const km = metersBetween({ lat: lat1, lng: lng1 }, { lat: lat2, lng: lng2 }) / 1000
+      const steps = Math.max(1, Math.ceil(km / stepKm))
+      for (let step = 0; step < steps; step += 1) {
+        const t = step / steps
+        points.push([lng1 + (lng2 - lng1) * t, lat1 + (lat2 - lat1) * t])
+      }
+    }
+    const last = line[line.length - 1]
+    if (last) points.push(last)
+  }
+  return points
+}
+
+async function photonHighways(place: string, box: GeoBbox): Promise<GeoJsonPosition[][]> {
+  if (geocoderOff()) return []
+  try {
+    const url = new URL('https://photon.komoot.io/api/')
+    url.searchParams.set('q', place)
+    url.searchParams.set('limit', '40')
+    const response = await fetch(url, { signal: AbortSignal.timeout(8_000), headers: GEOCODER_HEADERS })
+    if (!response.ok) return []
+    const json = (await response.json()) as unknown
+    const features = isRecord(json) && Array.isArray(json.features) ? json.features : []
+    const points: GeoJsonPosition[] = []
+    for (const feature of features) {
+      if (!isRecord(feature)) continue
+      const properties = isRecord(feature.properties) ? feature.properties : {}
+      if (properties.osm_key !== 'highway') continue
+      const geometry = isRecord(feature.geometry) ? feature.geometry : null
+      if (geometry && geometry.type === 'Point' && Array.isArray(geometry.coordinates) && geometry.coordinates.length >= 2) {
+        const lng = Number(geometry.coordinates[0])
+        const lat = Number(geometry.coordinates[1])
+        if (Number.isFinite(lat) && Number.isFinite(lng) && lat >= box.south && lat <= box.north && lng >= box.west && lng <= box.east) {
+          points.push([lng, lat])
+        }
+      }
+      const extent = Array.isArray(properties.extent) ? properties.extent.map(Number) : []
+      if (extent.length === 4 && extent.every(Number.isFinite)) {
+        const [west, north, east, south] = extent
+        const mid: GeoJsonPosition = [(west + east) / 2, (south + north) / 2]
+        if (mid[1] >= box.south && mid[1] <= box.north && mid[0] >= box.west && mid[0] <= box.east) points.push(mid)
+      }
+    }
+    if (points.length < 2) return []
+    const latSpan = Math.max(...points.map((point) => point[1])) - Math.min(...points.map((point) => point[1]))
+    const lngSpan = Math.max(...points.map((point) => point[0])) - Math.min(...points.map((point) => point[0]))
+    const sorted = [...points].sort((left, right) => (latSpan >= lngSpan ? left[1] - right[1] : left[0] - right[0]))
+    return [sorted]
+  } catch {
+    return []
+  }
 }
 
 function radiusAroundView(view: AgentViewContext): number {
@@ -1136,6 +1291,7 @@ type GeoHit = {
   category: string
   importance: number
   bbox: GeoBbox | null
+  lines: GeoJsonPosition[][]
 }
 const geocodeCache = new Map<string, GeoHit | null>()
 const localityCache = new Map<string, string | null>()
@@ -1185,16 +1341,16 @@ async function mapLocality(view: AgentViewContext | null): Promise<string | null
   }
 }
 
-async function geocodePlace(query: string, bias: MapBias | null): Promise<GeoHit | null> {
+async function geocodePlace(query: string, bias: MapBias | null, preferHighway = false): Promise<GeoHit | null> {
   if (geocoderOff()) return null
   const qualified = qualifyPlaceQuery(query, bias)
-  const cacheKey = `${qualified.toLowerCase()}|${bias?.locality ?? ''}|${bias?.center ? `${bias.center.lat.toFixed(2)},${bias.center.lng.toFixed(2)}` : ''}`
+  const cacheKey = `${qualified.toLowerCase()}|${bias?.locality ?? ''}|${bias?.center ? `${bias.center.lat.toFixed(2)},${bias.center.lng.toFixed(2)}` : ''}|${preferHighway ? 'hwy' : 'place'}`
   if (geocodeCache.has(cacheKey)) return geocodeCache.get(cacheKey) ?? null
   const primary = await nominatimSearch(qualified, bias)
-  let hit = pickBestHit(primary, query, bias)
-  if ((!hit || scoreHit(hit, query, bias) < 3) && qualified !== query) {
+  let hit = pickBestHit(primary, query, bias, preferHighway)
+  if ((!hit || scoreHit(hit, query, bias, preferHighway) < 3) && qualified !== query) {
     const bare = await nominatimSearch(query, bias)
-    hit = pickBestHit([...primary, ...bare], query, bias)
+    hit = pickBestHit([...primary, ...bare], query, bias, preferHighway)
   }
   if (geocodeCache.size > 200) geocodeCache.clear()
   geocodeCache.set(cacheKey, hit)
@@ -1213,8 +1369,9 @@ async function nominatimSearch(query: string, bias: MapBias | null): Promise<Geo
   try {
     const url = searchUrl()
     url.searchParams.set('format', 'jsonv2')
-    url.searchParams.set('limit', '5')
+    url.searchParams.set('limit', '8')
     url.searchParams.set('addressdetails', '1')
+    url.searchParams.set('polygon_geojson', '1')
     url.searchParams.set('q', query)
     const box = viewboxFor(bias)
     if (box) {
@@ -1264,15 +1421,29 @@ function parseGeoHit(row: unknown, query: string): GeoHit | null {
     category: typeof row.category === 'string' ? row.category : typeof row.class === 'string' ? row.class : '',
     importance: typeof row.importance === 'number' ? row.importance : 0,
     bbox,
+    lines: lineGeometry(row.geojson),
   }
 }
 
-function pickBestHit(hits: readonly GeoHit[], query: string, bias: MapBias | null): GeoHit | null {
-  if (hits.length === 0) return null
-  return [...hits].sort((left, right) => scoreHit(right, query, bias) - scoreHit(left, query, bias))[0] ?? null
+function lineGeometry(value: unknown): GeoJsonPosition[][] {
+  if (!isRecord(value) || !('coordinates' in value)) return []
+  if (value.type === 'LineString' && isLine(value.coordinates)) return [value.coordinates]
+  if (value.type === 'MultiLineString' && Array.isArray(value.coordinates)) {
+    return value.coordinates.filter(isLine)
+  }
+  return []
 }
 
-function scoreHit(hit: GeoHit, query: string, bias: MapBias | null): number {
+function isLine(value: unknown): value is GeoJsonPosition[] {
+  return Array.isArray(value) && value.length >= 2 && value.every((point) => Array.isArray(point) && point.length >= 2)
+}
+
+function pickBestHit(hits: readonly GeoHit[], query: string, bias: MapBias | null, preferHighway = false): GeoHit | null {
+  if (hits.length === 0) return null
+  return [...hits].sort((left, right) => scoreHit(right, query, bias, preferHighway) - scoreHit(left, query, bias, preferHighway))[0] ?? null
+}
+
+function scoreHit(hit: GeoHit, query: string, bias: MapBias | null, preferHighway = false): number {
   const queryTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 2)
   const name = hit.displayName.toLowerCase()
   const overlap = queryTokens.filter((token) => name.includes(token)).length / Math.max(1, queryTokens.length)
@@ -1290,7 +1461,10 @@ function scoreHit(hit: GeoHit, query: string, bias: MapBias | null): number {
     const locTokens = bias.locality.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3)
     if (locTokens.some((token) => name.includes(token))) score += 2
   }
-  if (['neighbourhood', 'suburb', 'quarter', 'city_block', 'pedestrian', 'retail', 'hamlet'].includes(hit.type)) score += 1.5
+  if (preferHighway && (hit.type === 'house' || hit.category === 'place')) score -= 6
+  if (preferHighway && hit.category === 'highway') score += 3
+  else if (hit.category === 'highway') score -= 1.5
+  else if (['neighbourhood', 'suburb', 'quarter', 'city_block', 'pedestrian', 'retail', 'hamlet'].includes(hit.type)) score += 1.5
   else if (['attraction', 'monument', 'yes', 'building', 'park', 'university', 'museum', 'residential'].includes(hit.type)) {
     score += 1.2
   } else if (['city', 'town', 'village', 'municipality'].includes(hit.type)) score += 0.8
@@ -1411,7 +1585,7 @@ function regionPhrase(region: AgentRegion): string {
 function describePlan(intent: AgentIntent, region: AgentRegion, missing: number): string {
   const steps: string[] = []
   if (missing > 0) steps.push(`process ${missing} new hex${missing === 1 ? '' : 'es'}`)
-  if (intent.hail_days != null) steps.push(`add ${intent.hail_days} days of hail history`)
+  if (intent.hail_days != null) steps.push(`add ${intent.hail_days} days of weather (hail)`)
   if (intent.ai_column) steps.push(`score every row into \`${intent.ai_column.column}\``)
   const head = `I'll find ${intentSubject(intent)} in ${regionPhrase(region)}`
   if (steps.length === 0) return `${head}.`

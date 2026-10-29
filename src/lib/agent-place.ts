@@ -8,7 +8,7 @@ const LOWER_PLACE_RE = new RegExp(
   String.raw`\b(?:near|around|in|at|by|along|over|covering|within\s+[\d.]+\s*${DISTANCE_UNIT}\s+of)\s+(?!(?:my|the selected|this|these|that|those|view|here|there|the map|the view|the last|the past|last|past|each|every|them|it|a|an)\b)((?:the\s+)?[a-z0-9][a-z0-9'’.&-]*(?:\s+[a-z0-9][a-z0-9'’.&-]*){0,6}?)(?=\s+(?:with|and|that|for|using|plus|then|add|adding|score|scoring|classify|rate|rank|flag|over|during|from|within|having|where|which|who|keep|only|but|including)\b|\s*[,.;!?]|\s*$)`,
 )
 const CITY_STATE_RE =
-  /\b([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+)*),\s*([A-Z]{2}|[A-Z][a-z]{3,})\b/
+  /\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+)*),?\s+([A-Z]{2}|Texas|California|Florida|New York)\b/
 const DISTRICT_RE =
   /\b((?:downtown|uptown|midtown|east|west|north|south)\s+[A-Za-z][A-Za-z .'-]{1,40}?)(?=\s+(?:with|and|that|for|using|plus|then|add|score|classify|rate|over|during|from|within|having|where|keep|only|but)\b|\s*[,.;!?]|\s*$)/i
 
@@ -75,6 +75,7 @@ const SENTENCE_STARTERS = new Set([
   'please',
   'can',
   'could',
+  'help',
   'coffee',
   'restaurants',
   'hotels',
@@ -150,6 +151,15 @@ const QUERY_STOP = new Set([
   'district',
   'numbers',
   'number',
+  'help',
+  'me',
+  'for',
+  'along',
+  'down',
+  'properties',
+  'property',
+  'commercial',
+  'please',
 ])
 
 /** Short names expanded to a Nominatim-searchable string. */
@@ -165,6 +175,13 @@ const KNOWN_AREAS: readonly { match: RegExp; place: string }[] = [
   { match: /\bbarton springs\b/i, place: 'Barton Springs, Austin, TX' },
   { match: /\bdowntown austin\b/i, place: 'Downtown Austin, TX' },
   { match: /\bwest\s*gate\b/i, place: 'Westgate, Austin, TX' },
+  { match: /\bsouth\s+lamar\b/i, place: 'South Lamar Boulevard, Austin, TX' },
+  { match: /\bnorth\s+lamar\b/i, place: 'North Lamar Boulevard, Austin, TX' },
+  { match: /\b(?:mopac|mo-?pac|loop\s*1)\b/i, place: 'Mopac Expressway, Austin, TX' },
+  { match: /\b(?:i-?35|ih-?35|interstate\s*35)\b/i, place: 'Interstate 35, Austin, TX' },
+  { match: /\b(?:(?:state\s+)?(?:highway|hwy)\s*71|ben\s+white)\b/i, place: 'Ben White Boulevard, Austin, TX' },
+  { match: /\b(?:us-?290|highway\s*290|hwy\s*290)\b/i, place: 'US 290, Austin, TX' },
+  { match: /\bloop\s*360\b/i, place: 'Loop 360, Austin, TX' },
   { match: /\b(?:ut campus|university of texas(?: at austin)?)\b/i, place: 'University of Texas at Austin' },
 ]
 
@@ -174,9 +191,17 @@ export function namesSelection(text: string): boolean {
   )
 }
 
+export function namesCorridor(text: string): boolean {
+  return extractCorridor(text) != null
+}
+
 export function extractPlace(text: string): string | null {
   const known = matchKnownArea(text)
   if (known) return known
+  const neighborhood = matchNeighborhoodCity(text)
+  if (neighborhood) return neighborhood
+  const corridor = extractCorridor(text)
+  if (corridor) return corridor
   const cityState = matchCityState(text)
   if (cityState) return cityState
   const fromCaps = cleanPlace(text.match(CAP_PLACE_RE)?.[1])
@@ -207,6 +232,24 @@ export function pickBetterPlace(model: string | null | undefined, heuristic: str
     return left.length >= right.length ? left : right
   }
   return left ?? right
+}
+
+function extractCorridor(text: string): string | null {
+  const match = text.match(
+    /\b(?:along|down)\s+(?:the\s+)?(?!with\b|side\b|here\b|there\b)(.+?)(?=\s+(?:in|near|with|and|that|for|using|plus)|[,.;!?]|$)/i,
+  )
+  return cleanPlace(match?.[1])
+}
+
+function matchNeighborhoodCity(text: string): string | null {
+  const match = text.match(
+    /\b(?:the\s+)?([A-Za-z][A-Za-z0-9'-]{2,40}(?:\s+[A-Za-z][A-Za-z0-9'-]+){0,3}?)\s+(?:neighborhood|neighbourhood|district)\s+(?:in|of)\s+([A-Za-z][A-Za-z0-9,.' -]{2,40}?)(?=\s+(?:with|and|that|for|using)|[,.;!?]|$)/i,
+  )
+  if (!match) return null
+  const hood = cleanPlace(match[1])
+  const city = cleanPlace(match[2])
+  if (!hood) return null
+  return city ? `${hood}, ${city}` : hood
 }
 
 function matchKnownArea(text: string): string | null {

@@ -1,15 +1,24 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Sparkles } from 'lucide-react'
+import { Cloud, CloudHail, Sparkles, Upload } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { HAIL_MESH_START, MAX_GEOFENCE_VERTICES } from '../../lib/limits'
 import { addDay } from '../../lib/enrichments'
 import { formatCount } from '../../lib/format'
 import { parsePolygonText } from '../../lib/polygon-input'
+import { cn } from '../../lib/utils'
 import { quoteAgentAssist } from '../../services/agent-assist'
 import { enrichHail } from '../../services/query-workflows'
 import { useAgent } from '../../store/agent-store'
 import { useExplorer } from '../../store/explorer-store'
 import type { GeofenceKeep, WorkflowEnrichment } from '../../types/enrichments'
+
+type AddonId = 'weather' | 'polygon' | 'ai'
+
+const ADDONS: readonly { id: AddonId; label: string; hint: string; icon: typeof Cloud }[] = [
+  { id: 'weather', label: 'Weather', hint: 'Hail and other weather layers', icon: Cloud },
+  { id: 'polygon', label: 'Custom polygon', hint: 'Upload, paste, or draw a fence', icon: Upload },
+  { id: 'ai', label: 'AI enhance', hint: 'Score or label each row with AI', icon: Sparkles },
+]
 
 export function EnrichPanel() {
   const open = useExplorer((state) => state.enrichOpen)
@@ -24,8 +33,11 @@ export function EnrichPanel() {
   const undoGeofenceVertex = useExplorer((state) => state.undoGeofenceVertex)
   const clearGeofenceDraft = useExplorer((state) => state.clearGeofenceDraft)
   const upsert = useExplorer((state) => state.upsertDraftEnrichment)
+  const remove = useExplorer((state) => state.removeDraftEnrichment)
   const draft = useExplorer((state) => state.draftEnrichments)
   const defaults = useMemo(() => defaultHailRange(), [])
+  const [addon, setAddon] = useState<AddonId | null>(null)
+  const [hailLayer, setHailLayer] = useState(false)
   const [start, setStart] = useState(defaults.start)
   const [end, setEnd] = useState(defaults.end)
   const [keep, setKeep] = useState<GeofenceKeep>('inside')
@@ -38,11 +50,16 @@ export function EnrichPanel() {
   const [polygonText, setPolygonText] = useState('')
   const [polygonError, setPolygonError] = useState<string | null>(null)
 
+  const hasHail = draft.some((step) => step.kind === 'hail_history')
+  const hasFence = draft.some((step) => step.kind === 'geofence')
+  const hasAi = draft.some((step) => step.kind === 'ai_column')
+
   const hail = useMutation({
     mutationFn: () => enrichHail({ h3_cells: selected, start_date: start, end_date: end }),
     onSuccess: (result) => {
       setSummaries(result.cells)
       upsert({ id: 'hail_history', kind: 'hail_history', start_date: result.start_date, end_date: result.end_date })
+      setHailLayer(true)
     },
   })
   const draftSignature = useMemo(() => JSON.stringify(draft), [draft])
@@ -60,6 +77,7 @@ export function EnrichPanel() {
     if (hailDraft) {
       setStart(hailDraft.start_date)
       setEnd(hailDraft.end_date)
+      setHailLayer(true)
     }
     const aiDraft = draft.find((step): step is Extract<WorkflowEnrichment, { kind: 'ai_column' }> => step.kind === 'ai_column')
     if (aiDraft) {
@@ -118,7 +136,7 @@ export function EnrichPanel() {
     }
     upsert({ id: 'geofence', kind: 'geofence', keep, polygon: parsed })
     clearGeofenceDraft()
-    useExplorer.getState().setNotice(`Geofence loaded · ${firstRing.length - 1} vertices · keep ${keep}`)
+    useExplorer.getState().setNotice(`Polygon loaded · ${firstRing.length - 1} vertices · keep ${keep}`)
   }
 
   const loadPolygonFile = async (file: File) => {
@@ -132,6 +150,16 @@ export function EnrichPanel() {
     }
   }
 
+  const toggleHailLayer = () => {
+    if (hailLayer || hasHail) {
+      setHailLayer(false)
+      remove('hail_history')
+      setSummaries([])
+      return
+    }
+    setHailLayer(true)
+  }
+
   if (!open) return null
 
   return (
@@ -141,8 +169,10 @@ export function EnrichPanel() {
     >
       <header className="flex items-center justify-between gap-2 px-3.5 py-2.5">
         <div>
-          <p className="text-[10px] font-medium tracking-[0.16em] text-primary uppercase">Enrich</p>
-          <p className="text-[11px] text-muted-foreground">{formatCount(selected.length)} hexes · private to this account</p>
+          <p className="text-[10px] font-medium tracking-[0.16em] text-primary uppercase">Add-ons</p>
+          <p className="text-[11px] text-muted-foreground">
+            {formatCount(selected.length)} {selected.length === 1 ? 'hex' : 'hexes'} · optional layers on this query
+          </p>
         </div>
         <button
           type="button"
@@ -153,15 +183,268 @@ export function EnrichPanel() {
         </button>
       </header>
       <div className="grid gap-3 overflow-y-auto px-3.5 pb-3.5">
-        <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-[11px] font-medium">Agent</p>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Describe the dataset. The agent finds hexes, processes them, writes the query, and fills these
-                enrichments.
-              </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {ADDONS.map((item) => {
+            const active =
+              item.id === 'weather' ? hasHail : item.id === 'polygon' ? hasFence : hasAi
+            const selectedAddon = addon === item.id
+            const Icon = item.icon
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setAddon(selectedAddon ? null : item.id)}
+                className={cn(
+                  'grid gap-1 rounded-xl border px-2 py-2 text-left transition-colors',
+                  selectedAddon
+                    ? 'border-primary/50 bg-primary/15 text-foreground'
+                    : 'border-white/[0.08] bg-black/25 text-muted-foreground hover:border-white/[0.16] hover:text-foreground',
+                )}
+              >
+                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-foreground">
+                  <Icon className="size-3.5 shrink-0" />
+                  {item.label}
+                </span>
+                <span className="text-[10px] leading-3.5">{item.hint}</span>
+                {active && <span className="text-[10px] text-primary">On this query</span>}
+              </button>
+            )
+          })}
+        </div>
+
+        {!addon && (
+          <p className="text-[11px] text-muted-foreground">
+            Choose an add-on. None of these run unless you pick them. Weather currently offers hail; a custom polygon
+            fences rows; AI enhance writes one new column from each row.
+          </p>
+        )}
+
+        {addon === 'weather' && (
+          <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
+            <p className="text-[11px] font-medium">Weather</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Pick a weather layer. Hail is optional and is not added until you run it.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                aria-pressed={hailLayer || hasHail}
+                onClick={toggleHailLayer}
+                className={cn(
+                  'inline-flex h-8 items-center gap-1 rounded-full border px-3 text-[11px] font-medium',
+                  hailLayer || hasHail
+                    ? 'border-select/45 bg-select/15 text-select'
+                    : 'border-white/[0.1] bg-white/[0.03] text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <CloudHail className="size-3.5" />
+                Hail
+              </button>
             </div>
+            {(hailLayer || hasHail) && (
+              <div className="mt-2 grid gap-1.5">
+                <p className="text-[10px] text-muted-foreground">
+                  NOAA MRMS MESH 24h max, 12Z file only, from {HAIL_MESH_START}. Temp GRIB is discarded; only hex-day mm
+                  stays.
+                </p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <label className="grid gap-1 text-[10px] text-muted-foreground">
+                    Start
+                    <input
+                      type="date"
+                      min={HAIL_MESH_START}
+                      value={start}
+                      onChange={(event) => setStart(event.target.value)}
+                      className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+                    />
+                  </label>
+                  <label className="grid gap-1 text-[10px] text-muted-foreground">
+                    End
+                    <input
+                      type="date"
+                      min={HAIL_MESH_START}
+                      value={end}
+                      onChange={(event) => setEnd(event.target.value)}
+                      className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  disabled={selected.length === 0 || hail.isPending}
+                  onClick={() => hail.mutate()}
+                  className="mt-1 h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
+                >
+                  {hail.isPending ? 'Loading hail…' : 'Add hail to this query'}
+                </button>
+                {hail.error && <p className="text-[11px] text-destructive">{hail.error.message}</p>}
+              </div>
+            )}
+          </section>
+        )}
+
+        {addon === 'polygon' && (
+          <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
+            <p className="text-[11px] font-medium">Custom polygon</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Upload a file, paste GeoJSON or WKT, or draw on the map. Keep rows inside or outside it when the workflow
+              runs.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setDrawMode(drawMode === 'geofence' ? 'off' : 'geofence')}
+                className="h-7 rounded-full bg-primary/15 px-2.5 text-[11px] text-primary hover:bg-primary/25"
+              >
+                {drawMode === 'geofence' ? 'Drawing…' : 'Draw'}
+              </button>
+              <select
+                value={keep}
+                onChange={(event) => setKeep(event.target.value as GeofenceKeep)}
+                className="h-7 rounded-full border border-white/[0.08] bg-black/40 px-2 text-[11px]"
+              >
+                <option value="inside">Keep inside</option>
+                <option value="outside">Keep outside</option>
+              </select>
+              <button type="button" onClick={undoGeofenceVertex} className="h-7 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground">
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={() => closeGeofence(keep)}
+                className="h-7 rounded-full bg-primary px-2.5 text-[11px] text-primary-foreground"
+              >
+                Save fence
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearGeofenceDraft()
+                  remove('geofence')
+                }}
+                className="h-7 rounded-full px-2 text-[11px] text-muted-foreground"
+              >
+                Clear
+              </button>
+            </div>
+            <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
+              Upload polygon (.geojson, .json, .txt)
+              <input
+                type="file"
+                accept=".geojson,.json,.txt,application/geo+json,application/json,text/plain"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void loadPolygonFile(file)
+                  event.currentTarget.value = ''
+                }}
+                className="rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/20 file:px-2 file:py-1 file:text-[11px] file:text-primary"
+              />
+            </label>
+            <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
+              Polygon text (GeoJSON / Feature / FeatureCollection / WKT POLYGON / [[lng,lat],...])
+              <textarea
+                value={polygonText}
+                onChange={(event) => setPolygonText(event.target.value)}
+                className="min-h-20 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
+                placeholder='{"type":"Polygon","coordinates":[[[-97.75,30.27],[-97.72,30.27],[-97.72,30.24],[-97.75,30.24],[-97.75,30.27]]]}'
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => applyPolygonInput(polygonText)}
+              className="mt-2 h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground"
+            >
+              Apply polygon text
+            </button>
+            {polygonError && <p className="mt-1.5 text-[11px] text-destructive">{polygonError}</p>}
+            <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
+              {geofenceDraft.length} vertices
+              {hasFence ? ' · polygon on query' : ''}
+            </p>
+          </section>
+        )}
+
+        {addon === 'ai' && (
+          <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
+            <p className="text-[11px] font-medium">AI enhance</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Uses AI plus each row’s fields to write one new column. Nothing is added until you save it.
+            </p>
+            <div className="mt-2 grid gap-1.5">
+              <label className="grid gap-1 text-[10px] text-muted-foreground">
+                Column name (snake_case)
+                <input
+                  value={aiColumn}
+                  onChange={(event) => setAiColumn(event.target.value)}
+                  className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+                />
+              </label>
+              <label className="grid gap-1 text-[10px] text-muted-foreground">
+                Value type
+                <select
+                  value={aiType}
+                  onChange={(event) => setAiType(event.target.value as 'bool' | 'enum' | 'number' | 'text')}
+                  className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+                >
+                  <option value="bool">bool</option>
+                  <option value="enum">enum</option>
+                  <option value="number">number</option>
+                  <option value="text">text</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-[10px] text-muted-foreground">
+                Prompt
+                <textarea
+                  value={aiPrompt}
+                  onChange={(event) => setAiPrompt(event.target.value)}
+                  className="min-h-16 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
+                />
+              </label>
+              <label className="grid gap-1 text-[10px] text-muted-foreground">
+                Row fields the model may read
+                <input
+                  value={aiFields}
+                  onChange={(event) => setAiFields(event.target.value)}
+                  className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+                />
+              </label>
+              {aiType === 'enum' && (
+                <label className="grid gap-1 text-[10px] text-muted-foreground">
+                  Enum values
+                  <input
+                    value={aiEnumValues}
+                    onChange={(event) => setAiEnumValues(event.target.value)}
+                    className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
+                  />
+                </label>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={saveAi}
+                  className="h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground"
+                >
+                  Save AI column
+                </button>
+                {hasAi && (
+                  <button
+                    type="button"
+                    onClick={() => remove('ai_column')}
+                    className="h-7 rounded-full px-3 text-[11px] text-muted-foreground hover:text-foreground"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              {aiError && <p className="text-[11px] text-destructive">{aiError}</p>}
+              <p className="font-mono text-[10px] text-muted-foreground">{hasAi ? 'ai_column on query' : 'not saved'}</p>
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-xl border border-white/[0.08] bg-black/20 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-medium">Quote</p>
             <button
               type="button"
               onClick={() => useAgent.getState().setOpen(true)}
@@ -171,8 +454,8 @@ export function EnrichPanel() {
               Open agent
             </button>
           </div>
-          <p className="mt-2 text-[10px] text-muted-foreground">
-            {assistQuote.isFetching ? 'Updating quote…' : 'Quote follows these enrichments'}
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            {assistQuote.isFetching ? 'Updating quote…' : 'Follows the add-ons on this query'}
           </p>
           {assistQuote.error && <p className="mt-1 text-[11px] text-destructive">{assistQuote.error.message}</p>}
           {assistQuote.data && (
@@ -194,184 +477,7 @@ export function EnrichPanel() {
           )}
         </section>
 
-        <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
-          <p className="text-[11px] font-medium">Geofence</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            Draw on the map, upload a file, or paste polygon text. Keep rows inside or outside it when the workflow runs.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setDrawMode(drawMode === 'geofence' ? 'off' : 'geofence')}
-              className="h-7 rounded-full bg-primary/15 px-2.5 text-[11px] text-primary hover:bg-primary/25"
-            >
-              {drawMode === 'geofence' ? 'Drawing…' : 'Draw fence'}
-            </button>
-            <select
-              value={keep}
-              onChange={(event) => setKeep(event.target.value as GeofenceKeep)}
-              className="h-7 rounded-full border border-white/[0.08] bg-black/40 px-2 text-[11px]"
-            >
-              <option value="inside">Keep inside</option>
-              <option value="outside">Keep outside</option>
-            </select>
-            <button type="button" onClick={undoGeofenceVertex} className="h-7 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground">
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={() => closeGeofence(keep)}
-              className="h-7 rounded-full bg-primary px-2.5 text-[11px] text-primary-foreground"
-            >
-              Save fence
-            </button>
-            <button type="button" onClick={clearGeofenceDraft} className="h-7 rounded-full px-2 text-[11px] text-muted-foreground">
-              Clear
-            </button>
-          </div>
-          <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
-            Upload polygon (.geojson, .json, .txt)
-            <input
-              type="file"
-              accept=".geojson,.json,.txt,application/geo+json,application/json,text/plain"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void loadPolygonFile(file)
-                event.currentTarget.value = ''
-              }}
-              className="rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/20 file:px-2 file:py-1 file:text-[11px] file:text-primary"
-            />
-          </label>
-          <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
-            Polygon text (GeoJSON / Feature / FeatureCollection / WKT POLYGON / [[lng,lat],...])
-            <textarea
-              value={polygonText}
-              onChange={(event) => setPolygonText(event.target.value)}
-              className="min-h-20 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
-              placeholder='{"type":"Polygon","coordinates":[[[-97.75,30.27],[-97.72,30.27],[-97.72,30.24],[-97.75,30.24],[-97.75,30.27]]]}'
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => applyPolygonInput(polygonText)}
-            className="mt-2 h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground"
-          >
-            Apply polygon text
-          </button>
-          {polygonError && <p className="mt-1.5 text-[11px] text-destructive">{polygonError}</p>}
-          <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
-            {geofenceDraft.length} vertices
-            {draft.some((step) => step.kind === 'geofence') ? ' · fence on workflow' : ''}
-          </p>
-        </section>
-
-        <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
-          <p className="text-[11px] font-medium">Hail history</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            NOAA MRMS MESH 24h max, 12Z file only, from {HAIL_MESH_START}. Temp GRIB is discarded; only hex-day mm stays.
-          </p>
-          <div className="mt-2 grid grid-cols-2 gap-1.5">
-            <label className="grid gap-1 text-[10px] text-muted-foreground">
-              Start
-              <input
-                type="date"
-                min={HAIL_MESH_START}
-                value={start}
-                onChange={(event) => setStart(event.target.value)}
-                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
-              />
-            </label>
-            <label className="grid gap-1 text-[10px] text-muted-foreground">
-              End
-              <input
-                type="date"
-                min={HAIL_MESH_START}
-                value={end}
-                onChange={(event) => setEnd(event.target.value)}
-                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
-              />
-            </label>
-          </div>
-          <button
-            type="button"
-            disabled={selected.length === 0 || hail.isPending}
-            onClick={() => hail.mutate()}
-            className="mt-2 h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
-          >
-            {hail.isPending ? 'Enriching…' : 'Run hail enrich'}
-          </button>
-          {hail.error && <p className="mt-1.5 text-[11px] text-destructive">{hail.error.message}</p>}
-        </section>
-
-        <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
-          <p className="text-[11px] font-medium">AI row column</p>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            Adds one typed run-only column per row. The orchestrator quotes per-row cost and caps this pass for demo
-            safety.
-          </p>
-          <div className="mt-2 grid gap-1.5">
-            <label className="grid gap-1 text-[10px] text-muted-foreground">
-              Column name (snake_case)
-              <input
-                value={aiColumn}
-                onChange={(event) => setAiColumn(event.target.value)}
-                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
-              />
-            </label>
-            <label className="grid gap-1 text-[10px] text-muted-foreground">
-              Value type
-              <select
-                value={aiType}
-                onChange={(event) => setAiType(event.target.value as 'bool' | 'enum' | 'number' | 'text')}
-                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
-              >
-                <option value="bool">bool</option>
-                <option value="enum">enum</option>
-                <option value="number">number</option>
-                <option value="text">text</option>
-              </select>
-            </label>
-            <label className="grid gap-1 text-[10px] text-muted-foreground">
-              Prompt
-              <textarea
-                value={aiPrompt}
-                onChange={(event) => setAiPrompt(event.target.value)}
-                className="min-h-16 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
-              />
-            </label>
-            <label className="grid gap-1 text-[10px] text-muted-foreground">
-              Source fields (comma or space separated)
-              <input
-                value={aiFields}
-                onChange={(event) => setAiFields(event.target.value)}
-                className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
-              />
-            </label>
-            {aiType === 'enum' && (
-              <label className="grid gap-1 text-[10px] text-muted-foreground">
-                Enum values
-                <input
-                  value={aiEnumValues}
-                  onChange={(event) => setAiEnumValues(event.target.value)}
-                  className="h-7 rounded-md border border-white/[0.08] bg-black/40 px-2 text-[11px] text-foreground"
-                />
-              </label>
-            )}
-            <button
-              type="button"
-              onClick={saveAi}
-              className="mt-1 h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground"
-            >
-              Save AI column
-            </button>
-            {aiError && <p className="text-[11px] text-destructive">{aiError}</p>}
-            <p className="font-mono text-[10px] text-muted-foreground">
-              {draft.some((step) => step.kind === 'ai_column') ? 'ai_column on workflow' : 'no ai_column saved'}
-            </p>
-          </div>
-        </section>
-
-        {summaries.length > 0 && (
+        {summaries.length > 0 && hailLayer && (
           <div className="max-h-40 overflow-auto rounded-lg border border-white/[0.08]">
             <table className="w-full text-left text-[11px]">
               <thead className="sticky top-0 bg-[#0a1017] text-muted-foreground">

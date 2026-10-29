@@ -55,10 +55,10 @@ UI / API caller
      POST /api/query-workflows/:id/quote returns agent quote lines + simulated ledger balance
      POST /api/query-workflows/:id/run auto-processes missing hexes (one hex per job), then checks snapshots, then query + enrichments
      GET /api/ledger returns simulated ledger entries (debits, payouts, tips)
-  -> Enrich
-     POST /api/enrichments/hail
-     geofence keep inside|outside a polygon from draw, upload, or pasted text
-     hail_history from NOAA MRMS MESH_Max_1440min 12Z only, clamped to first process
+  -> Add-ons (optional; none run unless chosen)
+     Weather → hail (`hail_history`) via POST /api/enrichments/hail
+     Custom polygon (`geofence`) keep inside|outside from draw, upload, or pasted text
+     AI enhance (`ai_column`) writes one typed column from each row
   -> POST /api/hex-snapshots/check
      processed | first_release_version | latest_release_version | has_current
 ```
@@ -132,29 +132,29 @@ Workflows, enrichments, runs, hail extracts, and ledger views are private (`auth
 }
 ```
 
-Returns `{ id, reply, used_model, intent, region, h3_cells, ready, missing, processing_jobs, batches, release_version, max_new_hexes, notes }`. `region` is `{ kind, label, center, radius_km, polygon }` with `kind` one of `selection`, `view`, `place`, `point`, or `polygon`; a circle or custom polygon becomes the geofence. `h3_cells` run from the region center outward (max 300). A list of H3 indexes in the prompt becomes the selection (resolution 8, or snapped to it). A named place is geocoded through Nominatim against the map city (locality + ~30 km viewbox, best of five hits), including neighborhoods off the current zoom; leftover selected hexes are not used when the request names an area. A neighborhood that matches a small POI uses a 2 km hex circle (`AGENT_NEIGHBORHOOD_RADIUS_KM`). A current map selection is used when the request does not name a new place, view, polygon, or map center. `batches` are one missing hex each (`MAX_AGENT_HEX_BATCH` is 1), capped at 36 new hexes (`AGENT_MAX_NEW_HEXES` lowers it). The Explorer agent pauses after revealing those hexes so a person can confirm or edit the selection; a place region shows the matched label. `previous` carries the last `{ intent, region, h3_cells }` for follow-ups.
+Returns `{ id, reply, used_model, intent, region, h3_cells, ready, missing, processing_jobs, batches, release_version, max_new_hexes, notes }`. `weather` is the optional Weather add-on toggle; hail is added only when that toggle is on or the prompt asks for weather/hail. `region` is `{ kind, label, center, radius_km, polygon }` with `kind` one of `selection`, `view`, `place`, `point`, or `polygon`; a circle or custom polygon becomes the geofence. `h3_cells` run from the region center outward (max 300). A list of H3 indexes in the prompt becomes the selection (resolution 8, or snapped to it). A named place is geocoded through Nominatim against the map city (locality + ~30 km viewbox), including neighborhoods off the current zoom and conversational wording such as “in the Westgate neighborhood in Austin TX”. “Along X street/highway” traces the road (Nominatim lines, Photon highway matches in the city bbox if needed) and keeps hexes within 0.6 km (`AGENT_CORRIDOR_KM`). Leftover selected hexes are not used when the request names an area. A neighborhood that matches a small POI uses a 2 km hex circle (`AGENT_NEIGHBORHOOD_RADIUS_KM`). Commercial properties use the buildings dataset. A current map selection is used when the request does not name a new place, view, polygon, or map center. `batches` are one missing hex each (`MAX_AGENT_HEX_BATCH` is 1), capped at 36 new hexes (`AGENT_MAX_NEW_HEXES` lowers it). The Explorer agent pauses after revealing those hexes so a person can confirm or edit the selection; a place region shows the matched label. `previous` carries the last `{ intent, region, h3_cells }` for follow-ups.
 
 `POST /api/agent/query` `{ prompt, h3_cells, intent, region }` returns `{ filters, sql, enrichments, categories, observed_categories, total_rows, matched_rows, fenced_rows, sample, workflow_name, hail_window, quote, notes, used_model }`. `filters` are inspect filters. `categories` are `{ value, count }` picks from values observed in those hexes. `enrichments` are in run order. `hail_window` is `{ start_date, end_date, floor }`, where `floor` is the first-process date the run clamps to.
 
 Neither route writes rows or debits the ledger. Both need a session when Supabase accounts are configured; otherwise they use the demo guest.
 
-### Enrichments
+### Add-ons
 
-A workflow is a query plus an ordered enrichment list (max 4, at most one `hail_history`, at most one `ai_column`).
+A workflow is a query plus an optional ordered enrichment list (max 4, at most one `hail_history`, at most one `ai_column`). The Explorer **Add-ons** panel is a button picker: Weather, custom polygon, or AI enhance. None of these are on by default. Stored kinds stay `geofence`, `hail_history`, and `ai_column`.
 
-**geofence.** `{ id, kind: "geofence", keep: "inside" | "outside", polygon }`. After the query, rows whose `lng`/`lat` fail the keep test are dropped. Draw the polygon on the map (Enrich → Draw fence), attach it to the agent, or save it onto the workflow.
+**geofence.** `{ id, kind: "geofence", keep: "inside" | "outside", polygon }`. After the query, rows whose `lng`/`lat` fail the keep test are dropped. Choose **Custom polygon** in Add-ons to draw, upload, or paste, attach it to the agent, or save it onto the workflow.
 
-**hail_history.** `{ id, kind: "hail_history", start_date, end_date }`. NOAA MRMS `MESH_Max_1440min` (24h max estimated hail size, mm). Public S3, anonymous:
+**hail_history.** Weather add-on, not a default. `{ id, kind: "hail_history", start_date, end_date }`. NOAA MRMS `MESH_Max_1440min` (24h max estimated hail size, mm). Public S3, anonymous:
 
 `s3://noaa-mrms-pds/CONUS/MESH_Max_1440min_00.50/YYYYMMDD/MRMS_MESH_Max_1440min_00.50_YYYYMMDD-HHMMSS.grib2.gz`
 
 Use only the `120000` (12Z) file per day. Never sum overlapping files. Data from `2020-11-01`. Lon 0-360 is converted to -180..180. Values: `>0` hail mm, `0` none, `-1` missing, `-3` no coverage. Range cap is 366 days.
 
-`POST /api/enrichments/hail` `{ h3_cells, start_date, end_date }` processes selected hexes and returns per-hex `{ hail_mm_max, hail_days, hail_last_date }`. The Explorer **Enrich** button opens that path.
+`POST /api/enrichments/hail` `{ h3_cells, start_date, end_date }` processes selected hexes and returns per-hex `{ hail_mm_max, hail_days, hail_last_date }`. The Explorer **Add-ons** button → **Weather** → **Hail** opens that path.
 
 Live decode uses `pipelines/hail/extract_mesh.py` (xarray+cfgrib). Node writes a temp job JSON with hex bboxes, runs the script, downloads only that day's 12Z GRIB from `https://noaa-mrms-pds.s3.amazonaws.com`, keeps hex-day mm, and deletes the GRIB. Supabase stores `hail_hex_stats` per owner. Full grids are not retained. The Render build installs `pipelines/hail/requirements.txt` on Python 3.11.11 (`PYTHON_VERSION`) into the same interpreter the server spawns (`PYTHON`, default `python`). Mock mode synthesizes deterministic MESH for verify. A missing `xarray` install returns that error; live hail is not replaced with synthetic values.
 
-**ai_column.** `{ id, kind: "ai_column", column, value_type, prompt, source_fields, enum_values? }`. Adds one typed run-only column per row (`bool` | `enum` | `number` | `text`). The pass is row-capped (default 200). OpenAI is optional and server-side only; deterministic fallback is used when the key/model is unavailable.
+**ai_column.** AI enhance add-on. `{ id, kind: "ai_column", column, value_type, prompt, source_fields, enum_values? }`. Uses AI plus the listed row fields to add one typed run-only column per row (`bool` | `enum` | `number` | `text`). The pass is row-capped (default 200). OpenAI is optional and server-side only; deterministic fallback is used when the key/model is unavailable.
 
 `POST /api/workflow-ingestion/jobs/:id/run` processes a queued or failed job on this Node process. In mock mode that writes synthetic rows for the selected hexes so they can be queried. Spark is not required for that path.
 

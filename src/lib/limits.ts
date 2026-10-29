@@ -24,5 +24,7 @@ export const AGENT_MAX_NEW_HEXES = 36
 export const AGENT_DEFAULT_RADIUS_KM = 1
 /** Circle used when a named neighborhood geocodes to a shop or other small POI. */
 export const AGENT_NEIGHBORHOOD_RADIUS_KM = 2
+/** Half-width of hexes collected along a named street or highway. */
+export const AGENT_CORRIDOR_KM = 0.6
 export const AGENT_MAX_RADIUS_KM = 3
 export const AGENT_DEFAULT_HAIL_DAYS = 30

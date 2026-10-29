@@ -67,24 +67,6 @@ export async function draftAgentAssist(
       notes.push('Added a geofence from the selected hex bounds.')
     }
   }
-  if (!enrichments.some((step) => step.kind === 'hail_history')) {
-    const end = new Date().toISOString().slice(0, 10)
-    let start = addDay(end, -29)
-    if (start < HAIL_MESH_START) start = HAIL_MESH_START
-    enrichments.push({ id: 'hail_history', kind: 'hail_history', start_date: start, end_date: end })
-    notes.push('Added a 30-day hail history window.')
-  }
-  if (!enrichments.some((step) => step.kind === 'ai_column')) {
-    enrichments.push({
-      id: 'ai_column',
-      kind: 'ai_column',
-      column: 'broker_signal',
-      value_type: 'bool',
-      prompt: 'Is this row likely useful to a data broker lead list?',
-      source_fields: ['name', 'category', 'main_category', 'address', 'operating_status'],
-    })
-    notes.push('Added a default AI row classifier (`broker_signal`).')
-  }
   const filters = {
     ...defaultInspectFilters,
     kind: 'places' as const,
@@ -248,11 +230,14 @@ function heuristicPromptPlan(prompt: string): PromptPlan {
   else if (/\b0\.7\b|medium confidence/.test(text)) plan.confidence_min = 0.7
   else if (/\b0\.5\b|confidence/.test(text)) plan.confidence_min = 0.5
 
-  const dayMatch = text.match(/\b(\d{1,3})\s*day/)
-  if (dayMatch) plan.hail_days = clampInt(Number(dayMatch[1]), 1, 366)
-  else if (text.includes('last week')) plan.hail_days = 7
-  else if (text.includes('last month')) plan.hail_days = 30
-  else if (text.includes('last quarter')) plan.hail_days = 90
+  if (/\b(?:hail|weather|storm|mesh|noaa)\b/.test(text)) {
+    const dayMatch = text.match(/\b(\d{1,3})\s*day/)
+    if (dayMatch) plan.hail_days = clampInt(Number(dayMatch[1]), 1, 366)
+    else if (text.includes('last week')) plan.hail_days = 7
+    else if (text.includes('last month')) plan.hail_days = 30
+    else if (text.includes('last quarter')) plan.hail_days = 90
+    else plan.hail_days = 30
+  }
 
   if (/\boutside\b|\bexclude\b|\bwithout\b/.test(text)) plan.geofence_keep = 'outside'
   else if (/\binside\b|\bwithin\b/.test(text)) plan.geofence_keep = 'inside'
@@ -329,28 +314,37 @@ function applyPromptPlan(
     else enrichments.push(hail)
   }
 
-  const aiIndex = enrichments.findIndex((step) => step.kind === 'ai_column')
-  if (aiIndex >= 0) {
-    const existing = enrichments[aiIndex]
-    if (existing.kind === 'ai_column') {
-      const valueType = plan.ai_value_type ?? existing.value_type
-      const column = normalizeAiColumn(plan.ai_column) ?? existing.column
-      const prompt = plan.ai_prompt && plan.ai_prompt.length >= 6 ? plan.ai_prompt : existing.prompt
-      const sourceFields = plan.ai_source_fields && plan.ai_source_fields.length > 0 ? plan.ai_source_fields : existing.source_fields
-      const enumValues =
-        valueType === 'enum'
-          ? (plan.ai_enum_values && plan.ai_enum_values.length >= 2 ? plan.ai_enum_values : existing.enum_values ?? ['low', 'medium', 'high'])
-          : undefined
-      enrichments[aiIndex] = {
-        id: existing.id,
-        kind: 'ai_column',
-        column,
-        value_type: valueType,
-        prompt,
-        source_fields: sourceFields,
-        ...(enumValues ? { enum_values: enumValues } : {}),
-      }
+  if (plan.ai_value_type || plan.ai_column || (plan.ai_prompt && plan.ai_prompt.length >= 6)) {
+    const aiIndex = enrichments.findIndex((step) => step.kind === 'ai_column')
+    const existing = aiIndex >= 0 ? enrichments[aiIndex] : null
+    const current = existing?.kind === 'ai_column' ? existing : null
+    const valueType = plan.ai_value_type ?? current?.value_type ?? 'text'
+    const column = normalizeAiColumn(plan.ai_column) ?? current?.column ?? 'ai_column'
+    const prompt =
+      plan.ai_prompt && plan.ai_prompt.length >= 6
+        ? plan.ai_prompt
+        : current?.prompt ?? 'Score or label this row using the listed fields.'
+    const sourceFields =
+      plan.ai_source_fields && plan.ai_source_fields.length > 0
+        ? plan.ai_source_fields
+        : current?.source_fields ?? ['name', 'category', 'main_category', 'address', 'operating_status']
+    const enumValues =
+      valueType === 'enum'
+        ? (plan.ai_enum_values && plan.ai_enum_values.length >= 2
+            ? plan.ai_enum_values
+            : current?.enum_values ?? ['low', 'medium', 'high'])
+        : undefined
+    const next = {
+      id: current?.id ?? 'ai_column',
+      kind: 'ai_column' as const,
+      column,
+      value_type: valueType,
+      prompt,
+      source_fields: sourceFields,
+      ...(enumValues ? { enum_values: enumValues } : {}),
     }
+    if (aiIndex >= 0) enrichments[aiIndex] = next
+    else enrichments.push(next)
   }
 }
 

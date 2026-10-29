@@ -98,8 +98,8 @@ export function SavedQueriesPage() {
           <p className="font-mono text-[10px] tracking-[0.22em] text-primary uppercase">Query workflows</p>
           <h1 className="mt-1 text-xl font-semibold">Saved inspect SQL</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            A workflow is a private inspect query plus optional enrichments. Geofence keeps rows inside or outside a
-            custom polygon. Hail history attaches NOAA MESH stats. AI column adds one typed result column per row.
+            A workflow is a private inspect query plus optional add-ons. Weather currently offers hail (NOAA MESH).
+            A custom polygon keeps rows inside or outside a fence. AI enhance writes one typed column from each row.
             History starts at first Process; run uses an orchestrator quote, optional process jobs of one hex each,
             then checks overture_hex_snapshots for the latest cut and can pin an older one.{' '}
             {MAX_QUERY_WORKFLOWS} per account.
@@ -235,7 +235,7 @@ function WorkflowCard({
           onClick={onSaveEnrichments}
           className="rounded-full px-3 py-1 text-[11px] text-muted-foreground hover:bg-white/[0.05] hover:text-foreground"
         >
-          Save enrichments
+          Save add-ons
         </button>
         <button
           type="button"

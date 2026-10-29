@@ -1,4 +1,4 @@
-import { ArrowUp, ClipboardPaste, CloudHail, Hexagon, MapPin, Paperclip, PenLine, Shapes, Square, Upload, X } from 'lucide-react'
+import { ArrowUp, ClipboardPaste, Cloud, Hexagon, MapPin, Paperclip, PenLine, Shapes, Square, Upload, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
@@ -183,8 +183,8 @@ export function AgentComposer({ busy, mobile }: { busy: boolean; mobile: boolean
               : 'border-white/[0.08] bg-white/[0.03] text-muted-foreground hover:text-foreground',
           )}
         >
-          <CloudHail className="size-3" />
-          Hail history {weather ? 'on' : 'off'}
+          <Cloud className="size-3" />
+          Weather {weather ? '· hail' : ''}
         </button>
       </div>
       <div className="flex items-end gap-1.5 rounded-2xl border border-white/[0.09] bg-black/35 p-1.5 transition-colors focus-within:border-primary/40 focus-within:shadow-[0_0_0_3px_rgba(61,222,192,0.08)]">
