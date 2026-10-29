@@ -32,6 +32,7 @@ import { addressLevels, cellForPoint } from '../src/lib/overture.ts'
 import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../src/lib/limits.ts'
 import { balancedHexBatches, connectedHexBatches } from '../src/lib/hex-batches.ts'
 import { extractHexCells } from '../src/lib/hex-ids.ts'
+import { extractPlace, namesSelection, placeMentionedInPrompt } from '../src/lib/agent-place.ts'
 import { parsePolygonText } from '../src/lib/polygon-input.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
 import { buildMockDatabase } from '../src/services/mock/database.ts'
@@ -913,6 +914,15 @@ assert(coffeePlan.missing.length === 0 && coffeePlan.batches.length === 0, 'cove
 const listedHex = cafeCells[0] ?? capitol
 const listedNeighbor = cafeCells[1] ?? gridDisk(listedHex, 1)[1]
 assert(extractHexCells(`use ${listedHex.toUpperCase()} and 0x${listedNeighbor}`).includes(listedHex), 'hex list parser missed a pasted id')
+assert(extractPlace('Coffee shops downtown Austin') === 'Downtown Austin, TX', 'place parser missed downtown Austin')
+assert(extractPlace('hail risk near the capitol') === 'Texas State Capitol, Austin, TX', 'place parser missed the capitol')
+assert(extractPlace('restaurants around South Congress') === 'South Congress Avenue, Austin, TX', 'place parser missed South Congress')
+assert(extractPlace('coffee shops westgate') === 'Westgate, Austin, TX', 'place parser missed Westgate')
+assert(extractPlace('Coffee shops in Westgate') === 'Westgate, Austin, TX', 'place parser missed in Westgate')
+assert(extractPlace('Coffee shops in my selected hexes') === null, 'place parser treated selected hexes as a place')
+assert(namesSelection('Coffee shops in my selected hexes'), 'selection phrase was not detected')
+assert(placeMentionedInPrompt('Texas State Capitol, Austin, TX', 'coffee near the capitol'), 'capitol mention was not recognized')
+assert(!placeMentionedInPrompt('Austin, Texas', 'coffee shops'), 'unmentioned city should not count as a place')
 const listedPlanRes = await routeApi('POST', '/api/agent/plan', {
   prompt: `Coffee shops in ${listedHex} ${listedNeighbor}`,
 })
@@ -928,6 +938,15 @@ const childPlanRes = await routeApi('POST', '/api/agent/plan', { prompt: `Buildi
 assert(childPlanRes.status === 200 && isRecord(childPlanRes.body), `agent child-hex plan failed: ${JSON.stringify(childPlanRes.body)}`)
 const childPlan = childPlanRes.body as unknown as AgentPlan
 assert(childPlan.h3_cells.length === 1 && childPlan.h3_cells[0] === listedHex, 'finer pasted hex did not snap to resolution 8')
+
+const namedOverSel = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'Coffee shops downtown Austin',
+  selection: cafeCells,
+})
+assert(
+  namedOverSel.status === 422 && isRecord(namedOverSel.body) && String(namedOverSel.body.error).toLowerCase().includes('downtown austin'),
+  `named place should not reuse leftover hexes when the geocoder is off: ${JSON.stringify(namedOverSel.body)}`,
+)
 
 const implicitSel = await routeApi('POST', '/api/agent/plan', { prompt: 'Coffee shops', selection: cafeCells })
 assert(implicitSel.status === 200 && isRecord(implicitSel.body), `agent implicit selection plan failed: ${JSON.stringify(implicitSel.body)}`)

@@ -93,7 +93,7 @@ Env:
 - `OPENAI_AI_COLUMN_MODEL` (optional, ai-column-only override)
 - `OPENAI_AGENT_MODEL` (optional, Explorer agent planner override)
 - `OPENAI_QUOTE_API_KEY` / `OPENAI_AI_COLUMN_API_KEY` / `OPENAI_AGENT_API_KEY` (optional key overrides)
-- `AGENT_MAX_NEW_HEXES` (lowers the 36 new hexes one agent request may process), `AGENT_GEOCODER=off` and `AGENT_GEOCODER_URL` (place lookup, Nominatim by default)
+- `AGENT_MAX_NEW_HEXES` (lowers the 36 new hexes one agent request may process), `AGENT_GEOCODER=off` and `AGENT_GEOCODER_URL` (Nominatim search + reverse for the map locality)
 
 The orchestrator does **not** free-chat a price. It emits a structured quote the server validates:
 

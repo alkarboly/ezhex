@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { cellToLatLng, getResolution, gridDisk, isValidCell, latLngToCell, polygonToCells } from 'h3-js'
+import { extractPlace, namesSelection, pickBetterPlace, placeMentionedInPrompt } from '../lib/agent-place'
 import { AGENT_AI_SOURCE_FIELDS, agentCapabilityBrief } from '../lib/agent-capabilities'
 import { addDay, applyGeofence, asEnrichment } from '../lib/enrichments'
 import {
@@ -19,6 +20,7 @@ import {
   AGENT_DEFAULT_RADIUS_KM,
   AGENT_MAX_NEW_HEXES,
   AGENT_MAX_RADIUS_KM,
+  AGENT_NEIGHBORHOOD_RADIUS_KM,
   H3_RESOLUTION,
   HAIL_MESH_START,
   MAX_AGENT_HEX_BATCH,
@@ -148,17 +150,19 @@ const COLUMN_STOP_WORDS = new Set([
   'a', 'an', 'the', 'each', 'every', 'row', 'rows', 'place', 'places', 'building', 'buildings', 'them', 'it', 'its',
   'their', 'likely', 'how', 'very', 'one', 'ones', 'overall', 'business', 'businesses',
 ])
-const PLACE_DENYLIST = new Set([
-  'order', 'total', 'general', 'detail', 'details', 'bulk', 'batches', 'range', 'parallel', 'time', 'csv', 'json', 'sql',
-  'ai', 'noaa', 'mesh', 'mrms', 'overture', 'geojson', 'wkt', 'view', 'hexes', 'hex', 'cells', 'polygon', 'map',
+const LARGE_PLACE_SPAN_KM = 8
+const GEOCODE_HINT_KM = 25
+const CITY_VIEWBOX_PAD_DEG = 0.28
+const NEIGHBORHOOD_HIT_TYPES = new Set([
+  'neighbourhood',
+  'suburb',
+  'quarter',
+  'city_block',
+  'residential',
+  'retail',
+  'commercial',
+  'hamlet',
 ])
-const DISTANCE_UNIT = String.raw`(?:km|kilomet(?:er|re)s?|mi|miles?|m|met(?:er|re)s?)`
-const CAP_PLACE_RE = new RegExp(
-  String.raw`(?:^|[^A-Za-z])(?:[Nn]ear|[Aa]round|[Ii]n|[Aa]t|[Bb]y|[Aa]long|[Oo]n|[Aa]cross|[Oo]f|[Ww]ithin\s+[\d.]+\s*${DISTANCE_UNIT}\s+of)\s+((?:the\s+)?[A-Z0-9][\w'’.&-]*(?:,?\s+(?:[A-Z0-9][\w'’.&-]*|of|de|del|la|le|the|and|on|at|&))*)`,
-)
-const LOWER_PLACE_RE = new RegExp(
-  String.raw`\b(?:near|around|in|at|by|along|within\s+[\d.]+\s*${DISTANCE_UNIT}\s+of)\s+(?!(?:my|the selected|this|these|that|those|view|here|there|the map|the view|the last|the past|last|past|each|every|them|it|a|an)\b)((?:the\s+)?[a-z0-9][a-z0-9'’.&-]*(?:\s+[a-z0-9][a-z0-9'’.&-]*){0,5}?)(?=\s+(?:with|and|that|for|using|plus|then|add|adding|score|scoring|classify|rate|rank|flag|over|during|from|within|having|where|which|who|keep|only|but|including)\b|\s*[,.;!?]|\s*$)`,
-)
 
 export async function planAgentRun(body: unknown, cookies: Record<string, string>): Promise<AgentPlan | ApiError> {
   const input = parsePlanRequest(body)
@@ -166,15 +170,16 @@ export async function planAgentRun(body: unknown, cookies: Record<string, string
   const owner = await assistOwner(cookies)
   if ('error' in owner) return owner
 
+  const locality = await mapLocality(input.view)
   const heuristic = heuristicIntent(input)
-  const model = await modelIntent(input, heuristic)
+  const model = await modelIntent(input, heuristic, locality)
   const intent = model?.intent ?? heuristic
   if (input.weather && intent.hail_days == null) intent.hail_days = AGENT_DEFAULT_HAIL_DAYS
   withHailSourceFields(intent)
 
   const notes: string[] = []
   if (input.polygonSimplified) notes.push(`Simplified the attached polygon to ${MAX_GEOFENCE_VERTICES} vertices.`)
-  const resolved = await resolveRegion(intent, input, model?.placeHint ?? null, notes)
+  const resolved = await resolveRegion(intent, input, model?.placeHint ?? null, notes, locality)
   if ('error' in resolved) return resolved
   let cells = resolved.cells
   if (cells.length === 0) return { error: 'That region has no hexes. Try a larger radius or another area.', status: 422 }
@@ -594,10 +599,10 @@ function detectRegion(text: string, lower: string, input: PlanInput): AgentInten
   if (input.polygon && /\b(?:shape|attached|my area|the area)\b/.test(lower)) {
     return { kind: 'polygon', place: null, radius_km: null }
   }
-  if (/\b(?:selected|selection|my hexes|these hexes|chosen hexes|my cells|picked hexes|these cells|this hex|this cell)\b/.test(lower)) {
+  if (namesSelection(text)) {
     return { kind: 'selection', place: null, radius_km: null }
   }
-  const place = detectPlace(text)
+  const place = extractPlace(text)
   if (place) return { kind: 'place', place, radius_km: radius }
   if (/\b(?:map cent(?:er|re)|cent(?:er|re) of the map|middle of the map|right here|around here|near here|here)\b/.test(lower)) {
     return { kind: 'point', place: null, radius_km: radius }
@@ -609,27 +614,6 @@ function detectRegion(text: string, lower: string, input: PlanInput): AgentInten
   if (input.previous) return { kind: 'previous', place: null, radius_km: radius }
   if (input.selection.length > 0) return { kind: 'selection', place: null, radius_km: null }
   return { kind: 'point', place: null, radius_km: radius }
-}
-
-function detectPlace(text: string): string | null {
-  const capitalized = text.match(CAP_PLACE_RE)?.[1]
-  const fromCaps = cleanPlace(capitalized)
-  if (fromCaps) return fromCaps
-  return cleanPlace(text.toLowerCase().match(LOWER_PLACE_RE)?.[1])
-}
-
-function cleanPlace(raw: string | undefined): string | null {
-  if (!raw) return null
-  const place = raw
-    .replace(/^the\s+/i, '')
-    .replace(/(?:[,\s]+(?:of|de|del|la|le|the|and|on|at|&))+[,\s]*$/i, '')
-    .replace(/[,\s]+$/, '')
-    .trim()
-  if (place.length < 3) return null
-  if (/^\d+(?:\.\d+)?$/.test(place) || /^\d{4}(?:-\d{2})?(?:-\d{2})?$/.test(place)) return null
-  if (PLACE_DENYLIST.has(place.toLowerCase())) return null
-  if (/\b(?:days?|weeks?|months?|years?|hexes?|km|miles?)\b/i.test(place)) return null
-  return place
 }
 
 function detectRadius(lower: string): number | null {
@@ -776,13 +760,20 @@ function withHailSourceFields(intent: AgentIntent) {
 async function modelIntent(
   input: PlanInput,
   heuristic: AgentIntent,
+  locality: string | null,
 ): Promise<{ intent: AgentIntent; reply: string; placeHint: LatLng | null } | null> {
   const context = {
     selected_hex_count: input.selection.length,
     selected_hexes: input.selection.slice(0, 40),
     prompt_hexes: input.promptCells.slice(0, 40),
     polygon_attached: Boolean(input.polygon),
-    map: input.view ? { center: input.view.center, zoom: Math.round(input.view.zoom * 10) / 10 } : null,
+    map: input.view
+      ? {
+          center: input.view.center,
+          zoom: Math.round(input.view.zoom * 10) / 10,
+          looking_at: locality,
+        }
+      : null,
     weather_toggle: input.weather,
     previous: input.previous
       ? {
@@ -795,8 +786,17 @@ async function modelIntent(
   const parsed = await openAiJson(planSystemPrompt(), { request: input.prompt, context })
   if (!parsed) return null
   const intent = sanitizeIntent(parsed, heuristic)
-  if (input.promptCells.length > 0 || heuristic.region.kind === 'selection') {
+  const modelPlace = intent.region.kind === 'place' ? intent.region.place : null
+  const namedInPrompt = Boolean(modelPlace && placeMentionedInPrompt(modelPlace, input.prompt))
+  if (input.promptCells.length > 0) {
     intent.region = { kind: 'selection', place: null, radius_km: null }
+  } else if (namesSelection(input.prompt) && !namedInPrompt) {
+    intent.region = { kind: 'selection', place: null, radius_km: null }
+  } else if (heuristic.region.kind === 'place' && heuristic.region.place) {
+    intent.region.kind = 'place'
+    intent.region.place = pickBetterPlace(intent.region.place, heuristic.region.place)
+  } else if (intent.region.kind === 'place' && modelPlace && !namedInPrompt) {
+    intent.region = heuristic.region
   }
   if (intent.region.kind === 'polygon' && !input.polygon) intent.region.kind = heuristic.region.kind
   if (intent.region.kind === 'previous' && !input.previous) intent.region.kind = heuristic.region.kind
@@ -815,7 +815,7 @@ function planSystemPrompt(): string {
     'JSON shape: {"reply": string, "region": {"kind": "selection|view|place|point|polygon|previous", "place": string|null, "radius_km": number|null, "lat": number|null, "lng": number|null}, "dataset": "places|buildings|addresses|all", "category_terms": string[], "search": string|null, "confidence_min": 0.5|0.7|0.9|null, "open_only": boolean, "require": ("phone"|"email"|"socials"|"official_id")[], "geofence_keep": "inside"|"outside"|null, "hail_days": number|null, "ai_column": {"column": string, "value_type": "bool|enum|number|text", "prompt": string, "source_fields": string[], "enum_values": string[]}|null, "workflow_name": string}',
     'Rules:',
     '- reply: one or two short first-person sentences that say what you will build. No markdown.',
-    '- region.kind: "selection" when context.prompt_hexes is not empty, when the user refers to selected hexes, or when context.selected_hex_count > 0 and they did not name a new place, view, polygon, or map center. Use the hex ids from context; never invent hex ids. "place" when the user names a landmark, address, street, neighborhood, or city and is not using a current selection or pasted hex list (put a searchable name with city and state in place, and your best lat/lng). "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area.',
+    '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at, for example "the capitol" while looking at Austin becomes "Texas State Capitol, Austin, TX". Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
     '- For follow-ups, start from context.previous.intent and change only what the user asks.',
     '- dataset: places for businesses or points of interest; buildings for structures or roofs; addresses for address points; all when the user wants everything.',
     '- category_terms: short lowercase singular words for the kinds of places wanted, for example ["coffee", "cafe"]. Empty when no kind is named.',
@@ -881,6 +881,7 @@ async function resolveRegion(
   input: PlanInput,
   hint: LatLng | null,
   notes: string[],
+  locality: string | null,
 ): Promise<ResolvedRegion | ApiError> {
   let kind = intent.region.kind
   if (kind === 'previous' && !input.previous) kind = input.selection.length > 0 ? 'selection' : 'point'
@@ -914,7 +915,9 @@ async function resolveRegion(
     return selectionRegion(selected, listed.length > 0 ? 'listed' : 'selected')
   }
   if (kind === 'previous' && input.previous) return previousRegion(input.previous, intent.region.radius_km, notes)
-  if (kind === 'place' && intent.region.place) return placeRegion(intent.region.place, intent.region.radius_km, hint, notes)
+  if (kind === 'place' && intent.region.place) {
+    return placeRegion(intent.region.place, intent.region.radius_km, hint, notes, input.view, locality)
+  }
   if (kind === 'view') return viewRegion(input.view, notes)
   return pointRegion(input.view, intent.region.radius_km, notes)
 }
@@ -961,22 +964,71 @@ async function placeRegion(
   radius: number | null,
   hint: LatLng | null,
   notes: string[],
+  view: AgentViewContext | null,
+  locality: string | null,
 ): Promise<ResolvedRegion | ApiError> {
-  const hit = await geocodePlace(place)
-  const center = hit ? { lat: hit.lat, lng: hit.lng } : hint
+  const bias = mapBias(view, locality)
+  const hit = await geocodePlace(place, bias)
+  let center = hit ? { lat: hit.lat, lng: hit.lng } : null
+  if (hit && hint && metersBetween({ lat: hit.lat, lng: hit.lng }, hint) / 1000 > GEOCODE_HINT_KM) {
+    notes.push(`I geocoded “${place}” to ${hit.label} instead of the model's coordinates.`)
+  } else if (!hit && hint) {
+    center = hint
+    notes.push(`The geocoder had no match for “${place}”, so I used the model's coordinates.`)
+  }
   if (!center) {
     return { error: `I couldn't find “${place}”. Add the city, or select hexes on the map.`, status: 422 }
   }
-  if (!hit) notes.push(`The geocoder had no match for “${place}”, so I used the model's coordinates.`)
   const label = hit?.label || place
+  if (radius != null) return circleRegion('place', label, center, limitRadius(radius, notes))
+  if (hit && hit.spanKm != null && hit.spanKm > LARGE_PLACE_SPAN_KM && hit.bbox && view && pointInBbox(view.center, hit.bbox)) {
+    const km = radiusAroundView(view)
+    notes.push(
+      `${label} is a large area, so I used ${km} km around the map${locality ? ` (near ${locality})` : ''}. Name a neighborhood or give a radius to change it.`,
+    )
+    return circleRegion('place', label, view.center, km)
+  }
   let km = AGENT_DEFAULT_RADIUS_KM
-  if (radius != null) km = limitRadius(radius, notes)
-  else if (hit?.spanKm != null) {
+  if (hit?.spanKm != null) {
     const wanted = hit.spanKm * 0.8
-    km = round1(Math.min(2, Math.max(0.8, wanted)))
-    if (wanted > 2) notes.push(`${label} is large, so I focused on ${km} km around its center. Give a radius to widen it.`)
+    km = round1(Math.min(AGENT_MAX_RADIUS_KM, Math.max(0.8, wanted)))
+    if (wanted > AGENT_MAX_RADIUS_KM) {
+      notes.push(`${label} is large, so I focused on ${km} km around its center. Give a radius to widen it.`)
+    }
+  }
+  if (hit && isNeighborhoodHit(hit) && km < AGENT_NEIGHBORHOOD_RADIUS_KM) {
+    km = AGENT_NEIGHBORHOOD_RADIUS_KM
+    notes.push(`I used ${km} km around ${label} to cover the neighborhood. Give a radius to change it.`)
   }
   return circleRegion('place', label, center, km)
+}
+
+function isNeighborhoodHit(hit: GeoHit): boolean {
+  if (NEIGHBORHOOD_HIT_TYPES.has(hit.type)) return true
+  return hit.category === 'landuse' || hit.category === 'place' || hit.category === 'boundary'
+}
+
+function radiusAroundView(view: AgentViewContext): number {
+  if (!view.bounds) return AGENT_DEFAULT_RADIUS_KM
+  const { west, south, east, north } = view.bounds
+  const mid = (south + north) / 2
+  const width = metersBetween({ lat: mid, lng: west }, { lat: mid, lng: east }) / 2000
+  const height = metersBetween({ lat: south, lng: west }, { lat: north, lng: west }) / 2000
+  return limitRadius(Math.max(width, height, AGENT_DEFAULT_RADIUS_KM), [])
+}
+
+function pointInBbox(point: LatLng, bbox: GeoBbox): boolean {
+  return point.lat >= bbox.south && point.lat <= bbox.north && point.lng >= bbox.west && point.lng <= bbox.east
+}
+
+function mapBias(view: AgentViewContext | null, locality: string | null): MapBias | null {
+  if (!view && !locality) return null
+  return {
+    center: view?.center ?? null,
+    bounds: view?.bounds ?? null,
+    zoom: view?.zoom ?? 0,
+    locality,
+  }
 }
 
 function viewRegion(view: AgentViewContext | null, notes: string[]): ResolvedRegion | ApiError {
@@ -1067,54 +1119,197 @@ function limitRadius(radius: number, notes: string[]): number {
   return Math.max(MIN_RADIUS_KM, round1(radius))
 }
 
-type GeoHit = { lat: number; lng: number; label: string; spanKm: number | null }
+type GeoBbox = { south: number; north: number; west: number; east: number }
+type MapBias = {
+  center: LatLng | null
+  bounds: AgentViewContext['bounds']
+  zoom: number
+  locality: string | null
+}
+type GeoHit = {
+  lat: number
+  lng: number
+  label: string
+  displayName: string
+  spanKm: number | null
+  type: string
+  category: string
+  importance: number
+  bbox: GeoBbox | null
+}
 const geocodeCache = new Map<string, GeoHit | null>()
+const localityCache = new Map<string, string | null>()
+const GEOCODER_HEADERS = { accept: 'application/json', 'user-agent': 'WorldPulse-agent/0.1 (hackathon demo data exchange)' }
 
-async function geocodePlace(query: string): Promise<GeoHit | null> {
-  const key = query.trim().toLowerCase()
-  if (geocodeCache.has(key)) return geocodeCache.get(key) ?? null
-  if (serverEnv('AGENT_GEOCODER') === 'off') return null
+function geocoderOff(): boolean {
+  return serverEnv('AGENT_GEOCODER') === 'off'
+}
+
+function searchUrl(): URL {
+  return new URL(serverEnv('AGENT_GEOCODER_URL') || 'https://nominatim.openstreetmap.org/search')
+}
+
+function reverseUrl(): URL {
+  const search = searchUrl().toString()
+  return new URL(search.includes('/search') ? search.replace(/\/search\/?(\?.*)?$/, '/reverse') : 'https://nominatim.openstreetmap.org/reverse')
+}
+
+async function mapLocality(view: AgentViewContext | null): Promise<string | null> {
+  if (!view || geocoderOff()) return null
+  const key = `${view.center.lat.toFixed(2)},${view.center.lng.toFixed(2)}`
+  if (localityCache.has(key)) return localityCache.get(key) ?? null
   try {
-    const url = new URL(serverEnv('AGENT_GEOCODER_URL') || 'https://nominatim.openstreetmap.org/search')
+    const url = reverseUrl()
     url.searchParams.set('format', 'jsonv2')
-    url.searchParams.set('limit', '1')
-    url.searchParams.set('q', query)
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(6_000),
-      headers: { accept: 'application/json', 'user-agent': 'WorldPulse-agent/0.1 (hackathon demo data exchange)' },
-    })
+    url.searchParams.set('lat', String(view.center.lat))
+    url.searchParams.set('lon', String(view.center.lng))
+    url.searchParams.set('zoom', '10')
+    const response = await fetch(url, { signal: AbortSignal.timeout(6_000), headers: GEOCODER_HEADERS })
     if (!response.ok) return null
-    const rows = (await response.json()) as unknown
-    if (!Array.isArray(rows) || rows.length === 0 || !isRecord(rows[0])) {
-      geocodeCache.set(key, null)
-      return null
-    }
-    const row = rows[0]
-    const center = latLng(row.lat, row.lon)
-    if (!center) return null
-    let spanKm: number | null = null
-    if (Array.isArray(row.boundingbox) && row.boundingbox.length === 4) {
-      const [south, north, west, east] = row.boundingbox.map(Number)
-      if ([south, north, west, east].every(Number.isFinite)) {
-        spanKm = metersBetween({ lat: south, lng: west }, { lat: north, lng: east }) / 2000
-      }
-    }
-    const label =
-      typeof row.display_name === 'string'
-        ? row.display_name
-            .split(',')
-            .slice(0, 2)
-            .map((part) => part.trim())
-            .filter(Boolean)
-            .join(', ')
-        : query
-    const hit: GeoHit = { ...center, label: label || query, spanKm }
-    if (geocodeCache.size > 200) geocodeCache.clear()
-    geocodeCache.set(key, hit)
-    return hit
+    const row = (await response.json()) as unknown
+    if (!isRecord(row)) return null
+    const address = isRecord(row.address) ? row.address : {}
+    const city =
+      stringField(address.city) ??
+      stringField(address.town) ??
+      stringField(address.village) ??
+      stringField(address.municipality) ??
+      stringField(address.county)
+    const state = stringField(address.state) ?? stringField(address.state_code)
+    const label = [city, state].filter(Boolean).join(', ') || null
+    if (localityCache.size > 200) localityCache.clear()
+    localityCache.set(key, label)
+    return label
   } catch {
     return null
   }
+}
+
+async function geocodePlace(query: string, bias: MapBias | null): Promise<GeoHit | null> {
+  if (geocoderOff()) return null
+  const qualified = qualifyPlaceQuery(query, bias)
+  const cacheKey = `${qualified.toLowerCase()}|${bias?.locality ?? ''}|${bias?.center ? `${bias.center.lat.toFixed(2)},${bias.center.lng.toFixed(2)}` : ''}`
+  if (geocodeCache.has(cacheKey)) return geocodeCache.get(cacheKey) ?? null
+  const primary = await nominatimSearch(qualified, bias)
+  let hit = pickBestHit(primary, query, bias)
+  if ((!hit || scoreHit(hit, query, bias) < 3) && qualified !== query) {
+    const bare = await nominatimSearch(query, bias)
+    hit = pickBestHit([...primary, ...bare], query, bias)
+  }
+  if (geocodeCache.size > 200) geocodeCache.clear()
+  geocodeCache.set(cacheKey, hit)
+  return hit
+}
+
+function qualifyPlaceQuery(query: string, bias: MapBias | null): string {
+  if (!bias?.locality) return query
+  const lower = query.toLowerCase()
+  const localityTokens = bias.locality.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3)
+  if (localityTokens.some((token) => lower.includes(token))) return query
+  return `${query}, ${bias.locality}`
+}
+
+async function nominatimSearch(query: string, bias: MapBias | null): Promise<GeoHit[]> {
+  try {
+    const url = searchUrl()
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('limit', '5')
+    url.searchParams.set('addressdetails', '1')
+    url.searchParams.set('q', query)
+    const box = viewboxFor(bias)
+    if (box) {
+      url.searchParams.set('viewbox', `${box.west},${box.north},${box.east},${box.south}`)
+      url.searchParams.set('bounded', '0')
+    }
+    const response = await fetch(url, { signal: AbortSignal.timeout(6_000), headers: GEOCODER_HEADERS })
+    if (!response.ok) return []
+    const rows = (await response.json()) as unknown
+    if (!Array.isArray(rows)) return []
+    return rows.flatMap((row) => {
+      const hit = parseGeoHit(row, query)
+      return hit ? [hit] : []
+    })
+  } catch {
+    return []
+  }
+}
+
+function parseGeoHit(row: unknown, query: string): GeoHit | null {
+  if (!isRecord(row)) return null
+  const center = latLng(row.lat, row.lon)
+  if (!center) return null
+  let bbox: GeoBbox | null = null
+  let spanKm: number | null = null
+  if (Array.isArray(row.boundingbox) && row.boundingbox.length === 4) {
+    const [south, north, west, east] = row.boundingbox.map(Number)
+    if ([south, north, west, east].every(Number.isFinite)) {
+      bbox = { south, north, west, east }
+      spanKm = metersBetween({ lat: south, lng: west }, { lat: north, lng: east }) / 2000
+    }
+  }
+  const displayName = typeof row.display_name === 'string' ? row.display_name : query
+  const label =
+    displayName
+      .split(',')
+      .slice(0, 3)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .join(', ') || query
+  return {
+    ...center,
+    label,
+    displayName,
+    spanKm,
+    type: typeof row.type === 'string' ? row.type : typeof row.addresstype === 'string' ? row.addresstype : '',
+    category: typeof row.category === 'string' ? row.category : typeof row.class === 'string' ? row.class : '',
+    importance: typeof row.importance === 'number' ? row.importance : 0,
+    bbox,
+  }
+}
+
+function pickBestHit(hits: readonly GeoHit[], query: string, bias: MapBias | null): GeoHit | null {
+  if (hits.length === 0) return null
+  return [...hits].sort((left, right) => scoreHit(right, query, bias) - scoreHit(left, query, bias))[0] ?? null
+}
+
+function scoreHit(hit: GeoHit, query: string, bias: MapBias | null): number {
+  const queryTokens = query.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 2)
+  const name = hit.displayName.toLowerCase()
+  const overlap = queryTokens.filter((token) => name.includes(token)).length / Math.max(1, queryTokens.length)
+  let score = overlap * 4
+  if (bias?.center) {
+    const km = metersBetween(bias.center, hit) / 1000
+    if (bias.zoom >= 8) {
+      if (km < 8) score += 3
+      else if (km < 25) score += 1.5
+      else if (km < 80) score += 0.4
+      else score -= 2
+    } else if (km < 80) score += 0.8
+  }
+  if (bias?.locality) {
+    const locTokens = bias.locality.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length >= 3)
+    if (locTokens.some((token) => name.includes(token))) score += 2
+  }
+  if (['neighbourhood', 'suburb', 'quarter', 'city_block', 'pedestrian', 'retail', 'hamlet'].includes(hit.type)) score += 1.5
+  else if (['attraction', 'monument', 'yes', 'building', 'park', 'university', 'museum', 'residential'].includes(hit.type)) {
+    score += 1.2
+  } else if (['city', 'town', 'village', 'municipality'].includes(hit.type)) score += 0.8
+  else if (['state', 'administrative', 'country'].includes(hit.type) && (hit.spanKm ?? 0) > 30) score -= 3
+  return score + Math.min(1, hit.importance)
+}
+
+function viewboxFor(bias: MapBias | null): GeoBbox | null {
+  if (!bias?.center) return bias?.bounds ?? null
+  return {
+    west: bias.center.lng - CITY_VIEWBOX_PAD_DEG,
+    east: bias.center.lng + CITY_VIEWBOX_PAD_DEG,
+    south: bias.center.lat - CITY_VIEWBOX_PAD_DEG,
+    north: bias.center.lat + CITY_VIEWBOX_PAD_DEG,
+  }
+}
+
+function stringField(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
 }
 
 // ---------- query building ----------

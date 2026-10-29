@@ -360,10 +360,14 @@ function RegionBody({ turn, plan }: { turn: AgentTurn; plan: AgentPlan }) {
       {waiting && (
         <div className="wp-rise overflow-hidden rounded-2xl border border-select/35 bg-select/[0.07] p-2.5">
           <p className="text-[11.5px] font-medium text-foreground">
-            Confirm these {cells.length.toLocaleString()} hexes
+            {plan.region.kind === 'place'
+              ? `I matched ${plan.region.label}`
+              : `Confirm these ${cells.length.toLocaleString()} hexes`}
           </p>
           <p className="mt-0.5 text-[10.5px] leading-4 text-muted-foreground">
-            Click hexes on the map to add or remove them. Processing starts one hex at a time after you confirm.
+            {plan.region.kind === 'place'
+              ? `${cells.length.toLocaleString()} hexes around this area · ${plan.region.radius_km} km. Click the map to add or remove hexes, then confirm.`
+              : 'Click hexes on the map to add or remove them. Processing starts one hex at a time after you confirm.'}
           </p>
           <div className="mt-2 flex gap-1.5">
             <button

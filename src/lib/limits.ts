@@ -22,5 +22,7 @@ export const MAX_AGENT_HEX_BATCH = 1
 /** New (unprocessed) hexes one agent run may process. `AGENT_MAX_NEW_HEXES` can lower it. */
 export const AGENT_MAX_NEW_HEXES = 36
 export const AGENT_DEFAULT_RADIUS_KM = 1
+/** Circle used when a named neighborhood geocodes to a shop or other small POI. */
+export const AGENT_NEIGHBORHOOD_RADIUS_KM = 2
 export const AGENT_MAX_RADIUS_KM = 3
 export const AGENT_DEFAULT_HAIL_DAYS = 30

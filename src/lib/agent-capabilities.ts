@@ -3,13 +3,14 @@ import {
   AGENT_DEFAULT_RADIUS_KM,
   AGENT_MAX_NEW_HEXES,
   AGENT_MAX_RADIUS_KM,
+  AGENT_NEIGHBORHOOD_RADIUS_KM,
   HAIL_MESH_START,
   MAX_HAIL_DAYS,
 } from './limits'
 import type { AgentPresenceField, AgentRegionKind } from '../types/agents'
 
 export const AGENT_REGION_OPTIONS: readonly { kind: Exclude<AgentRegionKind, 'previous'>; label: string; hint: string }[] = [
-  { kind: 'place', label: 'Named place', hint: 'A landmark, address, or neighborhood, with a radius' },
+  { kind: 'place', label: 'Named place', hint: 'A landmark, address, neighborhood, or city, geocoded in the same city as the map' },
   { kind: 'selection', label: 'Selected hexes', hint: 'Hexes already selected on the map, or a list of H3 ids in the prompt' },
   { kind: 'view', label: 'Map view', hint: 'Every hex in the current view' },
   { kind: 'point', label: 'Map center', hint: 'A circle around the middle of the map' },
@@ -20,7 +21,7 @@ export const AGENT_CAPABILITIES = [
   {
     id: 'hexes',
     title: 'Find hexes',
-    body: 'Uses hexes you already selected or paste as H3 ids. Otherwise a named place, the map view, or a custom polygon.',
+    body: 'Reads a named area from the prompt, including neighborhoods off the current view, and geocodes it in the same city as the map. Uses selected or pasted hexes only when you point at those hexes.',
   },
   {
     id: 'process',
@@ -44,6 +45,7 @@ export const AGENT_SUGGESTIONS = [
   'Restaurants with phone numbers in my selected hexes, score each as a lead from 0 to 100',
   'Buildings around the map center, classify roof hail risk as low, medium, or high',
   'Hotels inside my polygon with high confidence',
+  'Coffee shops in Westgate',
   'Query these selected hexes for coffee shops',
 ] as const
 
@@ -87,8 +89,8 @@ export function agentCapabilityBrief(maxNewHexes = AGENT_MAX_NEW_HEXES): string 
     'Region kinds:',
     ...AGENT_REGION_OPTIONS.map((option) => `- ${option.kind}: ${option.hint}.`),
     `- previous: reuse the hexes from the previous plan (for follow-ups like "add hail" or "only open ones").`,
-    'Prefer selection whenever the user already has hexes selected or pastes H3 ids, unless they name a new place, view, polygon, or map center.',
-    `Radius defaults to ${AGENT_DEFAULT_RADIUS_KM} km and is capped at ${AGENT_MAX_RADIUS_KM} km.`,
+    'When the user names a place, geocode that place. Prefer a named place over leftover selected hexes or the previous run. Use selection when they paste H3 ids or refer to selected hexes.',
+    `Radius defaults to ${AGENT_DEFAULT_RADIUS_KM} km, ${AGENT_NEIGHBORHOOD_RADIUS_KM} km for a named neighborhood, and is capped at ${AGENT_MAX_RADIUS_KM} km.`,
     `Missing hexes are processed one hex per job; at most ${maxNewHexes} new hexes per run.`,
     'Datasets: places (points of interest with category, confidence, phones, emails, socials, websites, operating_status), buildings (class, height, floors, roof), addresses. "all" joins every theme.',
     'Filters: category_terms (plain words such as "coffee", "restaurant", "hotel", "hospital"), search (name text), confidence_min (0.5, 0.7, or 0.9), open_only, require (phone, email, socials, official_id).',
