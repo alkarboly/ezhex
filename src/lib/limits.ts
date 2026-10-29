@@ -32,3 +32,5 @@ export const AGENT_LOOSE_PAD_KM = 0.8
 export const AGENT_LOOSE_SPAN_KM = 3
 export const AGENT_MAX_RADIUS_KM = 3
 export const AGENT_DEFAULT_HAIL_DAYS = 30
+/** Explorer planner model when OPENAI_AGENT_MODEL is unset. Quote and ai_column stay on the cheaper default. */
+export const AGENT_PLAN_MODEL = 'gpt-4o'

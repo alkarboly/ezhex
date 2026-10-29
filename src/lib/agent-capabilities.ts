@@ -88,7 +88,7 @@ export function agentCapabilityBrief(maxNewHexes = AGENT_MAX_NEW_HEXES): string 
     'Region kinds:',
     ...AGENT_REGION_OPTIONS.map((option) => `- ${option.kind}: ${option.hint}.`),
     `- previous: reuse the hexes from the previous plan (for follow-ups like "add hail" or "only open ones").`,
-    'When the user names a place, geocode that place. Prefer a named place over leftover selected hexes or the previous run. Use selection when they paste H3 ids or refer to selected hexes.',
+    'When the user names a place, geocode that place. If they name a city, search in that city even when the map is looking at another city. Austin, Dallas, and Houston always resolve, even if the geocoder misses. Prefer a named place over leftover selected hexes or the previous run. Use selection when they paste H3 ids or refer to selected hexes.',
     `A named street or highway highlights a ${AGENT_CORRIDOR_KM} km corridor. A neighborhood or “between A and B” without a traced road highlights a loose polygon (about ${AGENT_LOOSE_SPAN_KM} km). Circles default to ${AGENT_DEFAULT_RADIUS_KM} km, ${AGENT_NEIGHBORHOOD_RADIUS_KM} km for a small neighborhood, capped at ${AGENT_MAX_RADIUS_KM} km.`,
     `Missing hexes are processed one hex per job; at most ${maxNewHexes} new hexes per run.`,
     'Datasets: places (points of interest with category, confidence, phones, emails, socials, websites, operating_status), buildings (class, height, floors, roof), addresses. "all" joins every theme.',

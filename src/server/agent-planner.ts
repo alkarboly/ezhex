@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { cellToLatLng, getResolution, gridDisk, isValidCell, latLngToCell, polygonToCells } from 'h3-js'
-import { extractPlace, extractSpan, lookupKnownCity, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, type PlaceSpan } from '../lib/agent-place'
+import { extractPlace, extractSpan, lookupKnownCity, namedCityAwayFromMap, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, type PlaceSpan } from '../lib/agent-place'
 import { AGENT_AI_SOURCE_FIELDS, agentCapabilityBrief } from '../lib/agent-capabilities'
 import { addDay, applyGeofence, asEnrichment } from '../lib/enrichments'
 import {
@@ -24,6 +24,7 @@ import {
   AGENT_MAX_NEW_HEXES,
   AGENT_MAX_RADIUS_KM,
   AGENT_NEIGHBORHOOD_RADIUS_KM,
+  AGENT_PLAN_MODEL,
   H3_RESOLUTION,
   HAIL_MESH_START,
   MAX_AGENT_HEX_BATCH,
@@ -800,7 +801,7 @@ async function modelIntent(
     intent.region = { kind: 'selection', place: null, radius_km: null }
   } else if (heuristic.region.kind === 'place' && heuristic.region.place) {
     intent.region.kind = 'place'
-    intent.region.place = pickBetterPlace(intent.region.place, heuristic.region.place)
+    intent.region.place = pickBetterPlace(intent.region.place, heuristic.region.place, input.prompt)
   } else if (intent.region.kind === 'place' && modelPlace && !namedInPrompt) {
     intent.region = heuristic.region
   }
@@ -821,7 +822,7 @@ function planSystemPrompt(): string {
     'JSON shape: {"reply": string, "region": {"kind": "selection|view|place|point|polygon|previous", "place": string|null, "radius_km": number|null, "lat": number|null, "lng": number|null}, "dataset": "places|buildings|addresses|all", "category_terms": string[], "search": string|null, "confidence_min": 0.5|0.7|0.9|null, "open_only": boolean, "require": ("phone"|"email"|"socials"|"official_id")[], "geofence_keep": "inside"|"outside"|null, "hail_days": number|null, "ai_column": {"column": string, "value_type": "bool|enum|number|text", "prompt": string, "source_fields": string[], "enum_values": string[]}|null, "workflow_name": string}',
     'Rules:',
     '- reply: one or two short first-person sentences that say what you will build. No markdown.',
-    '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, highway, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at. "along X street/highway" is still kind place; the server highlights a corridor along the road. "X between A and B" highlights that span (a road corridor when a highway is named, otherwise a loose polygon); put a short searchable name in place (not the whole between-phrase). Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
+    '- region.kind: "selection" only when context.prompt_hexes is not empty or the user refers to selected hexes, and they did not name a new area. Use the hex ids from context; never invent hex ids. "place" whenever they name a landmark, address, street, highway, neighborhood, or city (put a Nominatim-searchable name with city and state in place). Expand short names using context.map.looking_at only when the user did not name another city. If they name a city, keep that city in place and do not use the map coordinates. Austin, Dallas, and Houston are known metros and must stay in that city. "along X street/highway" is still kind place; the server highlights a corridor along the road. "X between A and B" highlights that span (a road corridor when a highway is named, otherwise a loose polygon); put a short searchable name in place (not the whole between-phrase). Do not invent a place that is not in the request. "polygon" when a polygon is attached and no other area is named. "view" for the visible map. "point" for "here" or the map center. "previous" for follow-ups that refine the last plan without naming a new area. Prefer a named place over leftover selected hexes or the previous run.',
     '- For follow-ups, start from context.previous.intent and change only what the user asks.',
     '- dataset: buildings for commercial properties, real estate, roofs, or structures; places for businesses or points of interest; addresses for address points; all when the user wants everything.',
     '- category_terms: short lowercase singular words for the kinds of places wanted, for example ["coffee", "cafe"]. Empty when no kind is named.',
@@ -859,7 +860,7 @@ async function openAiJson(system: string, user: unknown): Promise<Record<string,
       signal: AbortSignal.timeout(15_000),
       headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
       body: JSON.stringify({
-        model: serverEnv('OPENAI_AGENT_MODEL') || serverEnv('OPENAI_MODEL') || 'gpt-4o-mini',
+        model: serverEnv('OPENAI_AGENT_MODEL') || AGENT_PLAN_MODEL,
         temperature: 0,
         response_format: { type: 'json_object' },
         messages: [
@@ -1060,14 +1061,21 @@ async function placeRegion(
   locality: string | null,
   corridor: boolean,
 ): Promise<ResolvedRegion | ApiError> {
-  const bias = mapBias(view, locality)
+  const bias = await searchBiasForPlace(place, view, locality)
   const hit = await geocodePlace(place, bias, corridor)
   let center = hit ? { lat: hit.lat, lng: hit.lng } : null
   if (hit && hint && metersBetween({ lat: hit.lat, lng: hit.lng }, hint) / 1000 > GEOCODE_HINT_KM) {
     notes.push(`I geocoded “${place}” to ${hit.label} instead of the model's coordinates.`)
-  } else if (!hit && hint) {
+  } else if (!hit && hint && trustModelHint(hint, place, view, locality)) {
     center = hint
     notes.push(`The geocoder had no match for “${place}”, so I used the model's coordinates.`)
+  }
+  if (!center) {
+    const known = lookupKnownCity(namedCityAwayFromMap(place, locality) ?? place)
+    if (known) {
+      center = { lat: known.lat, lng: known.lng }
+      notes.push(`I used ${known.name} because the geocoder had no match for “${place}”.`)
+    }
   }
   if (!center) {
     return { error: `I couldn't find “${place}”. Add the city, or select hexes on the map.`, status: 422 }
@@ -1345,6 +1353,45 @@ function mapBias(view: AgentViewContext | null, locality: string | null): MapBia
     zoom: view?.zoom ?? 0,
     locality,
   }
+}
+
+async function searchBiasForPlace(
+  place: string,
+  view: AgentViewContext | null,
+  locality: string | null,
+): Promise<MapBias | null> {
+  const named = namedCityAwayFromMap(place, locality)
+  const known = lookupKnownCity(named ?? place)
+  if (!named && !known) return mapBias(view, locality)
+  if (named) {
+    const cityHit = await geocodePlace(named, null)
+    if (cityHit) {
+      const box = cityHit.bbox ?? bboxAround([{ lat: cityHit.lat, lng: cityHit.lng }], 18)
+      return {
+        center: { lat: cityHit.lat, lng: cityHit.lng },
+        bounds: box,
+        zoom: 11,
+        locality: cityHit.label,
+        box,
+      }
+    }
+  }
+  if (known) {
+    const center = { lat: known.lat, lng: known.lng }
+    const box = bboxAround([center], 18)
+    return { center, bounds: box, zoom: 11, locality: known.name, box }
+  }
+  return named ? { center: null, bounds: null, zoom: 0, locality: named } : mapBias(view, locality)
+}
+
+function trustModelHint(
+  hint: LatLng,
+  place: string,
+  view: AgentViewContext | null,
+  locality: string | null,
+): boolean {
+  if (!namedCityAwayFromMap(place, locality) || !view) return true
+  return metersBetween(hint, view.center) / 1000 > 80
 }
 
 function viewRegion(view: AgentViewContext | null, notes: string[]): ResolvedRegion | ApiError {

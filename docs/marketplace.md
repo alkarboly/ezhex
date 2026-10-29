@@ -91,9 +91,9 @@ Env:
 - `OPENAI_MODEL` (global default model)
 - `OPENAI_QUOTE_MODEL` (optional, quote-only override)
 - `OPENAI_AI_COLUMN_MODEL` (optional, ai-column-only override)
-- `OPENAI_AGENT_MODEL` (optional, Explorer agent planner override)
+- `OPENAI_AGENT_MODEL` (Explorer agent planner; default `gpt-4o`)
 - `OPENAI_QUOTE_API_KEY` / `OPENAI_AI_COLUMN_API_KEY` / `OPENAI_AGENT_API_KEY` (optional key overrides)
-- `AGENT_MAX_NEW_HEXES` (lowers the 36 new hexes one agent request may process), `AGENT_GEOCODER=off` and `AGENT_GEOCODER_URL` (Nominatim search + reverse for the map locality)
+- `AGENT_MAX_NEW_HEXES` (lowers the 36 new hexes one agent request may process), `AGENT_GEOCODER=off` and `AGENT_GEOCODER_URL` (Nominatim search + reverse; a city named in the prompt overrides the map locality)
 
 The orchestrator does **not** free-chat a price. It emits a structured quote the server validates:
 

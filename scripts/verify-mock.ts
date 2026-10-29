@@ -973,7 +973,56 @@ const spanPlan = spanPlanRes.body as unknown as AgentPlan
 assert(spanPlan.region.kind === 'place' && spanPlan.region.label.includes('Interstate 35'), 'I-35 Austin–Buda plan missed the span')
 assert(spanPlan.h3_cells.length > 20, `I-35 Austin–Buda plan kept too few hexes: ${spanPlan.h3_cells.length}`)
 assert(lookupKnownCity('Austin')?.name === 'Austin, TX', 'known city pin missed Austin')
+assert(lookupKnownCity('Dallas')?.name === 'Dallas, TX', 'known city pin missed Dallas')
+assert(lookupKnownCity('Houston')?.name === 'Houston, TX', 'known city pin missed Houston')
 assert(lookupKnownCity('Buda, Texas')?.name === 'Buda, TX', 'known city pin missed Buda')
+assert(lookupKnownCity('Dallas before Austin')?.name === 'Dallas, TX', 'known city pin preferred the first city in the text')
+const dallasPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'find hexes in Dallas',
+  view: { center: { lat: 30.2672, lng: -97.7431 }, bounds: null, zoom: 14 },
+})
+assert(dallasPlanRes.status === 200 && isRecord(dallasPlanRes.body), `Dallas plan failed: ${JSON.stringify(dallasPlanRes.body)}`)
+const dallasPlan = dallasPlanRes.body as unknown as AgentPlan
+assert(
+  Math.abs(dallasPlan.region.center.lat - 32.7767) < 0.3 && Math.abs(dallasPlan.region.center.lng + 96.797) < 0.3,
+  `Dallas plan stayed in Austin: ${JSON.stringify(dallasPlan.region)}`,
+)
+const houstonPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'find hexes in Houston',
+  view: { center: { lat: 30.2672, lng: -97.7431 }, bounds: null, zoom: 14 },
+})
+assert(houstonPlanRes.status === 200 && isRecord(houstonPlanRes.body), `Houston plan failed: ${JSON.stringify(houstonPlanRes.body)}`)
+const houstonPlan = houstonPlanRes.body as unknown as AgentPlan
+assert(
+  Math.abs(houstonPlan.region.center.lat - 29.7604) < 0.3 && Math.abs(houstonPlan.region.center.lng + 95.3698) < 0.3,
+  `Houston plan stayed in Austin: ${JSON.stringify(houstonPlan.region)}`,
+)
+const trailPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'find hexes along tiffany trail in richardson texas',
+  view: { center: { lat: 30.2672, lng: -97.7431 }, bounds: null, zoom: 14 },
+})
+assert(
+  trailPlanRes.status === 422,
+  `named city corridor should not fall back to Austin when the geocoder is off: ${JSON.stringify(trailPlanRes.body)}`,
+)
+process.env.AGENT_GEOCODER = ''
+const liveTrailRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'find hexes along tiffany trail in richardson texas',
+  view: { center: { lat: 30.2672, lng: -97.7431 }, bounds: null, zoom: 14 },
+})
+process.env.AGENT_GEOCODER = 'off'
+if (liveTrailRes.status === 200 && isRecord(liveTrailRes.body)) {
+  const liveTrail = liveTrailRes.body as unknown as AgentPlan
+  assert(
+    Math.abs(liveTrail.region.center.lat - 32.95) < 0.4 && Math.abs(liveTrail.region.center.lng + 96.73) < 0.5,
+    `Tiffany Trail corridor stayed in Austin: ${JSON.stringify(liveTrail.region)}`,
+  )
+} else {
+  assert(
+    liveTrailRes.status === 422,
+    `named city corridor should miss closed, not land in Austin: ${JSON.stringify(liveTrailRes.body)}`,
+  )
+}
 
 const listedHex = cafeCells[0] ?? capitol
 const listedNeighbor = cafeCells[1] ?? gridDisk(listedHex, 1)[1]
@@ -990,6 +1039,16 @@ assert(
 )
 assert(extractPlace('help me find coffee along south lamar') === 'South Lamar Boulevard, Austin, TX', 'place parser missed along South Lamar')
 assert(extractPlace('find restaurants along I-35') === 'Interstate 35, Austin, TX', 'place parser missed along I-35')
+assert(extractPlace('find hexes in Dallas') === 'Dallas', 'place parser missed Dallas')
+assert(extractPlace('find hexes in Houston') === 'Houston', 'place parser missed Houston')
+assert(
+  extractPlace('find hexes along tiffany trail in richardson texas') === 'tiffany trail, richardson texas',
+  'place parser dropped the named city from a corridor',
+)
+assert(
+  extractPlace('coffee along South Lamar in Houston, TX') === 'South Lamar Boulevard, Houston, TX',
+  'known Austin road overrode a named city',
+)
 assert(
   extractPlace('I-35 between Austin and Buda, Texas') === 'Interstate 35 between Austin and Buda, Texas',
   'place parser missed I-35 between Austin and Buda',
@@ -1029,9 +1088,12 @@ const namedOverSel = await routeApi('POST', '/api/agent/plan', {
   prompt: 'Coffee shops downtown Austin',
   selection: cafeCells,
 })
+assert(namedOverSel.status === 200 && isRecord(namedOverSel.body), `named Austin place failed: ${JSON.stringify(namedOverSel.body)}`)
+const namedPlan = namedOverSel.body as unknown as AgentPlan
+assert(namedPlan.region.kind === 'place' && /austin/i.test(namedPlan.region.label), 'named place did not stay on Austin')
 assert(
-  namedOverSel.status === 422 && isRecord(namedOverSel.body) && String(namedOverSel.body.error).toLowerCase().includes('downtown austin'),
-  `named place should not reuse leftover hexes when the geocoder is off: ${JSON.stringify(namedOverSel.body)}`,
+  namedPlan.h3_cells.length !== cafeCells.length || cafeCells.some((cell) => !namedPlan.h3_cells.includes(cell)),
+  'named place reused leftover selected hexes',
 )
 
 const implicitSel = await routeApi('POST', '/api/agent/plan', { prompt: 'Coffee shops', selection: cafeCells })

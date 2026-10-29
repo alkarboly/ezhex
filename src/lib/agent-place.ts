@@ -7,8 +7,11 @@ const CAP_PLACE_RE = new RegExp(
 const LOWER_PLACE_RE = new RegExp(
   String.raw`\b(?:near|around|in|at|by|along|over|covering|within\s+[\d.]+\s*${DISTANCE_UNIT}\s+of)\s+(?!(?:my|the selected|this|these|that|those|view|here|there|the map|the view|the last|the past|last|past|each|every|them|it|a|an)\b)((?:the\s+)?[a-z0-9][a-z0-9'’.&-]*(?:\s+[a-z0-9][a-z0-9'’.&-]*){0,6}?)(?=\s+(?:with|and|that|for|using|plus|then|add|adding|score|scoring|classify|rate|rank|flag|over|during|from|within|having|where|which|who|keep|only|but|including)\b|\s*[,.;!?]|\s*$)`,
 )
-const CITY_STATE_RE =
-  /\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+)*),?\s+([A-Z]{2}|Texas|California|Florida|New York)\b/
+const STATE_TOKEN = String.raw`(?:TX|CA|FL|NY|Texas|California|Florida|New York)`
+const CITY_STATE_RE = new RegExp(
+  String.raw`\b([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+)*),?\s+(${STATE_TOKEN})\b`,
+  'i',
+)
 const DISTRICT_RE =
   /\b((?:downtown|uptown|midtown|east|west|north|south)\s+[A-Za-z][A-Za-z .'-]{1,40}?)(?=\s+(?:with|and|that|for|using|plus|then|add|score|classify|rate|over|during|from|within|having|where|keep|only|but)\b|\s*[,.;!?]|\s*$)/i
 
@@ -205,14 +208,21 @@ export type PlaceSpan = {
 
 const KNOWN_CITIES: readonly { match: RegExp; name: string; lat: number; lng: number }[] = [
   { match: /\baustin\b/i, name: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
+  { match: /\bdallas\b/i, name: 'Dallas, TX', lat: 32.7767, lng: -96.797 },
+  { match: /\bhouston\b/i, name: 'Houston, TX', lat: 29.7604, lng: -95.3698 },
   { match: /\bbuda\b/i, name: 'Buda, TX', lat: 30.0852, lng: -97.8403 },
 ]
 
 export function lookupKnownCity(text: string): { name: string; lat: number; lng: number } | null {
+  let best: (typeof KNOWN_CITIES)[number] | null = null
+  let bestAt = Number.POSITIVE_INFINITY
   for (const city of KNOWN_CITIES) {
-    if (city.match.test(text)) return { name: city.name, lat: city.lat, lng: city.lng }
+    const hit = text.match(city.match)
+    if (!hit || hit.index == null || hit.index >= bestAt) continue
+    best = city
+    bestAt = hit.index
   }
-  return null
+  return best ? { name: best.name, lat: best.lat, lng: best.lng } : null
 }
 
 export function namesSelection(text: string): boolean {
@@ -229,7 +239,7 @@ export function extractPlace(text: string): string | null {
   const span = extractSpan(text)
   if (span) return span.label
   const known = matchKnownArea(text)
-  if (known) return known
+  if (known) return qualifyKnownPlace(known, text)
   const neighborhood = matchNeighborhoodCity(text)
   if (neighborhood) return neighborhood
   const corridor = extractCorridor(text)
@@ -255,15 +265,63 @@ export function placeMentionedInPrompt(place: string, prompt: string): boolean {
   return placeTokens.some((token) => promptTokens.includes(token))
 }
 
-export function pickBetterPlace(model: string | null | undefined, heuristic: string | null | undefined): string | null {
+export function pickBetterPlace(
+  model: string | null | undefined,
+  heuristic: string | null | undefined,
+  prompt = '',
+): string | null {
   const left = cleanPlace(model ?? undefined)
   const right = cleanPlace(heuristic ?? undefined)
+  const named = namedCityInText(prompt)
+  if (named && left && right) {
+    const city = named.split(',')[0]?.trim().toLowerCase() ?? ''
+    const leftHas = city.length >= 3 && left.toLowerCase().includes(city)
+    const rightHas = city.length >= 3 && right.toLowerCase().includes(city)
+    if (leftHas !== rightHas) return leftHas ? left : right
+  }
   if (left && right) {
     if (left.includes(',') && !right.includes(',')) return left
     if (right.includes(',') && !left.includes(',')) return right
     return left.length >= right.length ? left : right
   }
   return left ?? right
+}
+
+/** City + state named in a prompt or place string, used to leave the map city. */
+export function namedCityInText(text: string): string | null {
+  const inCity = text.match(
+    new RegExp(
+      String.raw`\b(?:in|near|around|at)\s+([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,3}?),?\s+(${STATE_TOKEN})\b`,
+      'i',
+    ),
+  )
+  if (inCity) {
+    const city = cleanPlace(inCity[1])
+    const state = inCity[2]?.trim()
+    if (city && state && !SENTENCE_STARTERS.has(city.toLowerCase())) return `${city}, ${state}`
+  }
+  const trailing = text.match(
+    new RegExp(
+      String.raw`,\s*([A-Za-z][A-Za-z.'-]+(?:\s+[A-Za-z][A-Za-z.'-]+){0,2}?),?\s+(${STATE_TOKEN})\s*$`,
+      'i',
+    ),
+  )
+  if (trailing) {
+    const city = cleanPlace(trailing[1])
+    const state = trailing[2]?.trim()
+    if (city && state && !SENTENCE_STARTERS.has(city.toLowerCase())) return `${city}, ${state}`
+  }
+  return matchCityState(text)
+}
+
+/** True when the place names a city that is not the current map locality. */
+export function namedCityAwayFromMap(place: string, locality: string | null): string | null {
+  const named = namedCityInText(place)
+  if (!named) return null
+  const city = named.split(',')[0]?.trim().toLowerCase() ?? ''
+  if (city.length < 3) return null
+  if (locality && locality.toLowerCase().includes(city)) return null
+  return named
 }
 
 /** A road or area between two named places, e.g. I-35 between Austin and Buda. */
@@ -291,11 +349,23 @@ function matchKnownRoad(text: string): string | null {
   return null
 }
 
+function qualifyKnownPlace(known: string, text: string): string {
+  const named = namedCityInText(text)
+  if (!named) return known
+  const city = named.split(',')[0]?.trim() ?? ''
+  if (city.length >= 3 && known.toLowerCase().includes(city.toLowerCase())) return known
+  const road = matchKnownRoad(text)
+  return `${road ?? known.split(',')[0]?.trim() ?? known}, ${named}`
+}
+
 function extractCorridor(text: string): string | null {
   const match = text.match(
-    /\b(?:along|down)\s+(?:the\s+)?(?!with\b|side\b|here\b|there\b)(.+?)(?=\s+(?:in|near|with|and|that|for|using|plus)|[,.;!?]|$)/i,
+    /\b(?:along|down)\s+(?:the\s+)?(?!with\b|side\b|here\b|there\b)(.+?)(?:\s+(?:in|near)\s+(.+?))?(?=\s+(?:with|and|that|for|using|plus)|[,.;!?]|$)/i,
   )
-  return cleanPlace(match?.[1])
+  const road = cleanPlace(match?.[1])
+  if (!road) return null
+  const city = cleanPlace(match?.[2])
+  return city ? `${road}, ${city}` : road
 }
 
 function matchNeighborhoodCity(text: string): string | null {
