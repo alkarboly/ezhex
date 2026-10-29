@@ -46,6 +46,19 @@ export function historicalPinError(check: HexSnapshotCheck, release: string): st
   return null
 }
 
+export function formatNewDataCheck(check: Pick<HexSnapshotCheck, 'current_release_version' | 'current_count' | 'stale_count' | 'missing_count'>): string {
+  const current = check.current_release_version
+  if (check.missing_count === 0 && check.stale_count === 0) {
+    const hexLabel = check.current_count === 1 ? 'hex' : 'hexes'
+    return `Checked · ${check.current_count} ${hexLabel} on ${current}. No newer snapshot.`
+  }
+  const parts: string[] = []
+  if (check.current_count > 0) parts.push(`${check.current_count} current`)
+  if (check.stale_count > 0) parts.push(`${check.stale_count} older`)
+  if (check.missing_count > 0) parts.push(`${check.missing_count} not processed`)
+  return `Checked · ${parts.join(' · ')}. Current cut is ${current}.`
+}
+
 export function unprocessedHexError(check: HexSnapshotCheck): string | null {
   const missing = check.cells.find((cell) => !cell.processed)
   if (!missing) return null

@@ -1,3 +1,4 @@
+import { formatNewDataCheck } from '../lib/hex-snapshots'
 import type { HailEnrichRequest, HailEnrichResponse, QueryWorkflowRun } from '../types/enrichments'
 import type { WorkflowAgentQuote } from '../types/agents'
 import type { HexSnapshotCheck } from '../types/releases'
@@ -71,4 +72,23 @@ export function checkHexSnapshots(h3_cells: readonly string[]) {
 
 export function checkQueryWorkflowNewData(id: string) {
   return request<QueryWorkflowNewDataCheck>(`/api/query-workflows/${id}/check-new-data`, 'POST', {})
+}
+
+/** Subscribe demo: prefer the workflow route, fall back to the hex snapshot table. */
+export async function runWorkflowNewDataCheck(workflow: QueryWorkflow): Promise<QueryWorkflowNewDataCheck> {
+  try {
+    return await checkQueryWorkflowNewData(workflow.id)
+  } catch {
+    const check = await checkHexSnapshots(workflow.h3_cells)
+    return {
+      workflow_id: workflow.id,
+      subscribe_new_data: workflow.subscribe_new_data,
+      current_release_version: check.current_release_version,
+      processed_count: check.processed_count,
+      current_count: check.current_count,
+      stale_count: check.stale_count,
+      missing_count: check.missing_count,
+      message: formatNewDataCheck(check),
+    }
+  }
 }

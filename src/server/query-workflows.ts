@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { getResolution, isValidCell } from 'h3-js'
 import { asEnrichments } from '../lib/enrichments'
+import { formatNewDataCheck } from '../lib/hex-snapshots'
 import { defaultInspectFilters } from '../lib/feature-rows'
 import { MAX_QUERY_WORKFLOWS, MAX_SELECTED_CELLS } from '../lib/limits'
 import { OVERTURE_RELEASE_RE } from '../lib/overture-release'
@@ -460,24 +461,6 @@ function parsePatch(body: unknown): Partial<QueryWorkflow> | ApiError {
     next.subscribe_new_data = body.subscribe_new_data
   }
   return next
-}
-
-function formatNewDataCheck(check: {
-  current_release_version: string
-  current_count: number
-  stale_count: number
-  missing_count: number
-}): string {
-  const current = check.current_release_version
-  if (check.missing_count === 0 && check.stale_count === 0) {
-    const hexLabel = check.current_count === 1 ? 'hex' : 'hexes'
-    return `Checked · ${check.current_count} ${hexLabel} on ${current}. No newer snapshot.`
-  }
-  const parts: string[] = []
-  if (check.current_count > 0) parts.push(`${check.current_count} current`)
-  if (check.stale_count > 0) parts.push(`${check.stale_count} older`)
-  if (check.missing_count > 0) parts.push(`${check.missing_count} not processed`)
-  return `Checked · ${parts.join(' · ')}. Current cut is ${current}.`
 }
 
 function userClient(accessToken: string) {

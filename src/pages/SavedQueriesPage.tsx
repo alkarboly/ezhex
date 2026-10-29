@@ -10,12 +10,12 @@ import { MAX_QUERY_WORKFLOWS } from '../lib/limits'
 import { DEFAULT_OVERTURE_RELEASE } from '../lib/overture-release'
 import { cn } from '../lib/utils'
 import {
-  checkQueryWorkflowNewData,
   deleteQueryWorkflow,
   listQueryWorkflows,
   patchQueryWorkflow,
   quoteQueryWorkflow,
   runQueryWorkflow,
+  runWorkflowNewDataCheck,
 } from '../services/query-workflows'
 import {
   createWorkflowIngestionPlan,
@@ -116,7 +116,7 @@ export function SavedQueriesPage() {
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
             A workflow is a private inspect query plus optional add-ons. Rename it here. View workflow restores
             the hexes, Inspect filters, Add-ons, and the SQL editor so you can edit the saved query. Subscribe to
-            new data is a demo check against overture_hex_snapshots — no schedule yet.{' '}
+            new data checks stored snapshots as soon as you turn it on. No schedule yet.{' '}
             {MAX_QUERY_WORKFLOWS} per account.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
@@ -202,9 +202,10 @@ function WorkflowCard({
 }) {
   const [editing, setEditing] = useState(false)
   const [nameDraft, setNameDraft] = useState(workflow.name)
+  const [subscribed, setSubscribed] = useState(Boolean(workflow.subscribe_new_data))
   const [checkMessage, setCheckMessage] = useState<string | null>(null)
   const checkNew = useMutation({
-    mutationFn: () => checkQueryWorkflowNewData(workflow.id),
+    mutationFn: () => runWorkflowNewDataCheck(workflow),
     onSuccess: (result) => setCheckMessage(result.message),
     onError: (error) =>
       setCheckMessage(error instanceof Error ? error.message : 'Could not check for new data.'),
@@ -213,6 +214,21 @@ function WorkflowCard({
   useEffect(() => {
     setNameDraft(workflow.name)
   }, [workflow.name])
+
+  useEffect(() => {
+    setSubscribed(Boolean(workflow.subscribe_new_data))
+  }, [workflow.id])
+
+  const toggleSubscribe = (next: boolean) => {
+    setSubscribed(next)
+    onSubscribe(next)
+    if (next) {
+      setCheckMessage(null)
+      checkNew.mutate()
+      return
+    }
+    setCheckMessage('Subscription off.')
+  }
 
   const commitName = () => {
     const next = nameDraft.trim()
@@ -333,8 +349,9 @@ function WorkflowCard({
           <input
             data-testid="workflow-subscribe"
             type="checkbox"
-            checked={workflow.subscribe_new_data}
-            onChange={(event) => onSubscribe(event.target.checked)}
+            checked={subscribed}
+            disabled={checkNew.isPending}
+            onChange={(event) => toggleSubscribe(event.target.checked)}
             className="size-3.5 accent-[oklch(0.78_0.16_165)]"
           />
           Subscribe to new data
@@ -349,11 +366,14 @@ function WorkflowCard({
           <Bell className="size-3" />
           {checkNew.isPending ? 'Checking…' : 'Check now'}
         </button>
-        {checkMessage && (
-          <p data-testid="workflow-check-message" className="w-full text-[10px] text-muted-foreground">
-            {checkMessage}
-          </p>
-        )}
+        <p
+          data-testid="workflow-check-message"
+          className={cn('w-full text-[10px]', checkMessage ? 'text-primary' : 'text-muted-foreground')}
+        >
+          {checkNew.isPending
+            ? 'Checking stored snapshots…'
+            : (checkMessage ?? 'Turn on to check these hexes for a newer snapshot.')}
+        </p>
       </div>
     </article>
   )
