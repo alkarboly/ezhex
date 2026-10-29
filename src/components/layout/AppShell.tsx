@@ -13,21 +13,27 @@ export function AppShell() {
   const introChrome = useExplorer((state) => state.introChrome)
   const hideChrome = pathname === '/' && introChrome === 'globe'
   const hideSidebar = pathname === '/' && (introChrome === 'globe' || introChrome === 'dock')
+  const overlaySidebar = pathname === '/'
 
   useEffect(() => {
     if (window.matchMedia('(max-width: 1100px)').matches) setFiltersOpen(false)
   }, [setFiltersOpen])
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-background">
-      {!mobile && (
+    <div className="relative flex h-dvh w-full overflow-hidden bg-background">
+      {!mobile && overlaySidebar && (
         <div
           aria-hidden={hideSidebar}
           className={cn(
-            'h-full shrink-0 overflow-hidden transition-[width] duration-700 ease-[cubic-bezier(0.22,1,0.32,1)]',
-            hideSidebar ? 'pointer-events-none w-0' : 'w-[76px]',
+            'wp-intro-fade absolute inset-y-0 left-0 z-30 w-[76px]',
+            hideSidebar ? 'pointer-events-none -translate-x-3 opacity-0' : 'translate-x-0 opacity-100',
           )}
         >
+          <Sidebar />
+        </div>
+      )}
+      {!mobile && !overlaySidebar && (
+        <div className="h-full w-[76px] shrink-0">
           <Sidebar />
         </div>
       )}

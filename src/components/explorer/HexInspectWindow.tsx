@@ -198,10 +198,10 @@ function QueryHexMenu({ cells }: { cells: readonly string[] }) {
 }
 
 function clampPosition(x: number, y: number, width: number, height: number) {
-  const maxX = Math.max(8, window.innerWidth - width - 8)
+  const maxX = Math.max(84, window.innerWidth - width - 8)
   const maxY = Math.max(8, window.innerHeight - height - 72)
   return {
-    x: Math.min(maxX, Math.max(8, x)),
+    x: Math.min(maxX, Math.max(84, x)),
     y: Math.min(maxY, Math.max(8, y)),
   }
 }

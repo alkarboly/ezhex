@@ -74,14 +74,14 @@ export function AgentDock({ mobile }: { mobile: boolean }) {
       )}
       {!open && (
         <div
-          className="group pointer-events-none absolute left-3 z-40 flex items-end gap-2.5"
-          style={{ bottom: mobile ? 78 : 14 }}
+          className="group pointer-events-none absolute z-40 flex items-end gap-2.5"
+          style={{ left: mobile ? 12 : 84, bottom: mobile ? 78 : 14 }}
         >
           <button
             type="button"
             aria-label="Open the WorldPulse agent"
             onClick={openAgent}
-            className="wp-bubble-pop pointer-events-auto relative grid size-[4.25rem] place-items-center rounded-[1.65rem] rounded-bl-[6px] bg-[#071217] shadow-[0_16px_40px_-16px_rgba(61,222,192,0.85),0_0_0_1px_rgba(61,222,192,0.28)] transition-transform duration-200 hover:scale-[1.05] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary active:scale-95"
+            className="pointer-events-auto relative grid size-[4.25rem] place-items-center rounded-[1.65rem] rounded-bl-[6px] bg-[#071217] shadow-[0_16px_40px_-16px_rgba(61,222,192,0.85),0_0_0_1px_rgba(61,222,192,0.28)] transition-transform duration-200 hover:scale-[1.05] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary active:scale-95"
           >
             {introHint && (
               <>
@@ -167,7 +167,7 @@ function AgentPanel({ mobile, onClose }: { mobile: boolean; onClose: () => void 
         'glass pointer-events-auto absolute z-40 flex origin-bottom-left animate-[wp-agent-open_280ms_cubic-bezier(0.2,0.8,0.2,1)] flex-col overflow-hidden rounded-[26px]',
         mobile
           ? 'inset-x-2 bottom-2 h-[64dvh]'
-          : 'bottom-3 left-3 h-[min(46rem,calc(100%-1.5rem))] w-[min(25rem,calc(100%-1.5rem))]',
+          : 'bottom-3 left-[84px] h-[min(46rem,calc(100%-1.5rem))] w-[min(25rem,calc(100%-1.5rem))]',
       )}
     >
       <div

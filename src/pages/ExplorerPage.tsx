@@ -264,24 +264,35 @@ export function ExplorerPage() {
       />
       <HexInspectWindow cells={selected} />
       <EnrichPanel />
-      {showAgent && <AgentStage mobile={mobile} />}
-      {showAgent && <AgentDock mobile={mobile} />}
+      <div
+        aria-hidden={!showAgent}
+        className={cn(
+          'wp-intro-fade absolute inset-0 z-40',
+          showAgent ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-3 opacity-0',
+        )}
+      >
+        <AgentStage mobile={mobile} />
+        <AgentDock mobile={mobile} />
+      </div>
 
       <div
         aria-hidden={!showMapChrome}
         className={cn(
-          'pointer-events-none absolute inset-0 z-20 transition-opacity duration-700 ease-[cubic-bezier(0.22,1,0.32,1)]',
-          showMapChrome ? 'opacity-100' : 'opacity-0',
+          'wp-intro-fade pointer-events-none absolute inset-0 z-20',
+          showMapChrome ? 'opacity-100' : 'opacity-0 [&_.pointer-events-auto]:pointer-events-none',
         )}
       >
       {mobile ? (
         <>
           <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            {showSidebar && (
-              <div className="pointer-events-auto">
-                <MobileNavButton />
-              </div>
-            )}
+            <div
+              className={cn(
+                'wp-intro-fade pointer-events-auto',
+                showSidebar ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-2 opacity-0',
+              )}
+            >
+              <MobileNavButton />
+            </div>
             <div className="min-w-0 flex-1" />
             <div className="glass pointer-events-auto flex flex-col overflow-hidden rounded-full">
               <LayersButton touch={touch} side="bottom" align="end" className="size-11" />
@@ -338,7 +349,7 @@ export function ExplorerPage() {
         </>
       ) : (
         <>
-          <div className="pointer-events-none absolute top-3 left-3 z-20">
+          <div className="wp-intro-fade pointer-events-none absolute top-3 z-20" style={{ left: showSidebar ? 88 : 12 }}>
             <SnapshotLegend />
           </div>
           <div className="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2">{status}</div>
@@ -364,7 +375,7 @@ export function ExplorerPage() {
             <MapControls mapRef={mapRef} touch={touch} />
           </div>
           <div
-            className="pointer-events-none absolute right-3 bottom-3 z-20 flex justify-center transition-[left] duration-300"
+            className="wp-intro-fade pointer-events-none absolute right-3 bottom-3 z-20 flex justify-center"
             style={{ left: agentOpen ? AGENT_PANEL_INSET : showSidebar ? 84 : 12 }}
           >
             <div className="pointer-events-auto">{dock}</div>
