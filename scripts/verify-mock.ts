@@ -523,6 +523,11 @@ const createdJob = await routeApi('POST', '/api/workflow-ingestion/jobs', {
 assert(createdJob.status === 200 && isRecord(createdJob.body), 'ingestion job create failed')
 assert(createdJob.body.status === 'succeeded', 'mock-covered hexes should resolve as ready')
 assert(typeof createdJob.body.id === 'string', 'ingestion job id is missing')
+const fetchedJob = await routeApi('GET', `/api/workflow-ingestion/jobs/${createdJob.body.id}`)
+assert(
+  fetchedJob.status === 200 && isRecord(fetchedJob.body) && fetchedJob.body.id === createdJob.body.id,
+  'created ingestion job was missing on GET',
+)
 assert(Array.isArray(createdJob.body.logs) && createdJob.body.logs.length > 0, 'ready job has no logs')
 assert(
   createdJob.body.logs.every(

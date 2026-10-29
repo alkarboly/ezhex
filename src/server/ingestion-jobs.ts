@@ -14,11 +14,15 @@ import type {
   JobLogLevel,
   WorkflowIngestionPlanRequest,
 } from '../types/workflows'
+import { jobStore } from './job-store'
 import { planWorkflowIngestion } from './workflow-ingestion'
 
 const MAX_JOBS = 200
-const jobs = new Map<string, IngestionJob>()
 let mockReady: Set<string> | null = null
+
+function jobs(): Map<string, IngestionJob> {
+  return jobStore()
+}
 
 function mockReadyCells(): ReadonlySet<string> {
   if (!mockReady) mockReady = new Set(mockCoverageCells())
@@ -26,19 +30,21 @@ function mockReadyCells(): ReadonlySet<string> {
 }
 
 export function listIngestionJobs(): IngestionJob[] {
-  for (const job of [...jobs.values()]) {
+  const store = jobs()
+  for (const job of [...store.values()]) {
     if (job.status === 'queued') runIngestionJob(job.id)
   }
-  return [...jobs.values()].sort((left, right) => right.created_at.localeCompare(left.created_at))
+  return [...store.values()].sort((left, right) => right.created_at.localeCompare(left.created_at))
 }
 
 export function getIngestionJob(id: string): IngestionJob | null {
-  return jobs.get(id) ?? null
+  const store = jobs()
+  return store.get(id) ?? [...store.values()].find((job) => job.run_id === id) ?? null
 }
 
 export function createIngestionJob(body: unknown): IngestionJob {
   const plan = planWorkflowIngestion(body)
-  const existing = [...jobs.values()].find(
+  const existing = [...jobs().values()].find(
     (job) =>
       job.release_version === plan.release_version &&
       job.hex_set_hash === plan.hex_set_hash &&
@@ -83,18 +89,22 @@ export function createIngestionJob(body: unknown): IngestionJob {
   }
   remember(job)
   if (ready) return job
-  if (mock) return runIngestionJob(job.id)
-  return startOvertureJob(job.id)
+  if (mock) return runStoredJob(job)
+  return startOvertureJob(job)
 }
 
 export function runIngestionJob(id: string): IngestionJob {
-  const job = jobs.get(id)
+  const job = getIngestionJob(id)
   if (!job) throw new Error('No such ingestion job.')
+  return runStoredJob(job)
+}
+
+function runStoredJob(job: IngestionJob): IngestionJob {
   if (job.status === 'succeeded' || job.status === 'running') return job
   if (job.status === 'cancelled') throw new Error('This job was cancelled.')
 
   const now = new Date().toISOString()
-  if (readDataMode().resolved === 'supabase') return startOvertureJob(id)
+  if (readDataMode().resolved === 'supabase') return startOvertureJob(job)
 
   job.status = 'running'
   job.started_at = now
@@ -161,14 +171,14 @@ function coverageForCell(
   releases: ReadonlyMap<string, string>,
   currentRelease: string,
 ): HexCoverage {
-  const processing = [...jobs.values()].find(
+  const processing = [...jobs().values()].find(
     (job) => job.h3_cells.includes(h3) && (job.status === 'queued' || job.status === 'running'),
   )
   if (processing) {
     return { h3, status: 'processing', snapshot: null, release_version: null, job_id: processing.id }
   }
 
-  const succeeded = [...jobs.values()].find((job) => job.h3_cells.includes(h3) && job.status === 'succeeded')
+  const succeeded = [...jobs().values()].find((job) => job.h3_cells.includes(h3) && job.status === 'succeeded')
   const stored = releases.get(h3) ?? null
   const release = newerRelease(stored, succeeded?.release_version ?? null)
   if (release || succeeded) {
@@ -193,9 +203,7 @@ function newerRelease(left: string | null, right: string | null): string | null 
   return compareOvertureRelease(left, right) >= 0 ? left : right
 }
 
-function startOvertureJob(id: string): IngestionJob {
-  const job = jobs.get(id)
-  if (!job) throw new Error('No such ingestion job.')
+function startOvertureJob(job: IngestionJob): IngestionJob {
   if (job.status === 'succeeded' || job.status === 'running') return job
   if (job.status === 'cancelled') throw new Error('This job was cancelled.')
   const now = new Date().toISOString()
@@ -205,12 +213,12 @@ function startOvertureJob(id: string): IngestionJob {
   job.error_message = null
   job.note = 'Downloading Overture for these hexes.'
   appendLog(job, 'info', 'Starting Overture download on this Node process.')
-  void finishOvertureJob(id)
+  void finishOvertureJob(job.id)
   return job
 }
 
 async function finishOvertureJob(id: string) {
-  const job = jobs.get(id)
+  const job = getIngestionJob(id)
   if (!job) return
   try {
     const result = await ingestOverturePlan(job.plan, (level, message) => appendLog(job, level, message))
@@ -251,8 +259,11 @@ function sameDatasets(left: readonly string[], right: readonly string[]): boolea
 }
 
 function remember(job: IngestionJob) {
-  jobs.set(job.id, job)
-  if (jobs.size <= MAX_JOBS) return
-  const oldest = listIngestionJobs().at(-1)
-  if (oldest) jobs.delete(oldest.id)
+  const store = jobs()
+  store.set(job.id, job)
+  if (store.size <= MAX_JOBS) return
+  const oldest = [...store.values()]
+    .filter((entry) => entry.id !== job.id && entry.status !== 'queued' && entry.status !== 'running')
+    .sort((left, right) => left.created_at.localeCompare(right.created_at))[0]
+  if (oldest) store.delete(oldest.id)
 }

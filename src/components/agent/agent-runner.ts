@@ -320,13 +320,19 @@ async function processHexes(id: string, plan: AgentPlan, signal: AbortSignal): P
     patchBatch(id, index, { state: 'running', log: 'Creating the ingest job' })
     const started = performance.now()
     try {
-      const created = await createIngestionJob({
+      const payload = {
         release_version: plan.release_version,
         h3_cells: cells,
-        datasets: ['places', 'buildings', 'addresses'],
-      })
+        datasets: ['places', 'buildings', 'addresses'] as ['places', 'buildings', 'addresses'],
+      }
+      const created = await createIngestionJob(payload)
       patchBatch(id, index, { jobId: created.id, runId: created.run_id, log: lastLog(created) })
-      const done = await followJob(created, signal, (job) => patchBatch(id, index, { log: lastLog(job) }))
+      const done = await followJob(
+        created,
+        signal,
+        (job) => patchBatch(id, index, { log: lastLog(job) }),
+        () => createIngestionJob(payload),
+      )
       const elapsed = performance.now() - started
       if (elapsed < MIN_BATCH_MS) await sleep(MIN_BATCH_MS - elapsed, signal)
       if (done.status !== 'succeeded') throw new Error(done.error_message || `Job ${done.run_id} ${done.status}.`)
@@ -440,15 +446,24 @@ async function followJob(
   start: IngestionJob,
   signal: AbortSignal,
   onUpdate: (job: IngestionJob) => void,
+  recreate?: () => Promise<IngestionJob>,
 ): Promise<IngestionJob> {
   let job = start
   const began = Date.now()
+  let retried = false
   while (job.status === 'queued' || job.status === 'running') {
     if (Date.now() - began > JOB_TIMEOUT_MS) {
       throw new Error('This job is taking more than 10 minutes. It keeps running on the Jobs page.')
     }
     await sleep(POLL_MS, signal)
-    job = await getIngestionJob(job.id)
+    try {
+      job = await getIngestionJob(job.id)
+    } catch (error) {
+      const missing = error instanceof Error && /No such ingestion job/i.test(error.message)
+      if (!missing || !recreate || retried) throw error
+      retried = true
+      job = await recreate()
+    }
     onUpdate(job)
   }
   return job

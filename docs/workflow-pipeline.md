@@ -28,7 +28,7 @@ UI / API caller
      validates hexes + connectedness + limits
      returns plan JSON with release, bbox, caps, and storage prefixes
   -> POST /api/workflow-ingestion/jobs
-     same validation, then an in-memory job
+     same validation, then an in-memory job on one process-wide store
      UI always sends places, buildings, and addresses
      DATA_MODE=supabase: DuckDB reads geometry plus Overture attributes, associates rows, writes Supabase
      DATA_MODE=mock: Node runs a local ingest
@@ -93,7 +93,7 @@ Lists jobs in the Node process, newest first, with the same `logs` array. The st
 
 `GET /api/workflow-ingestion/jobs/:id`
 
-Returns one job, including its live log stream.
+Returns one job, including its live log stream. Lookup accepts the job id or `run_id`. A 404 means the in-memory store lost the job (restart or isolate split); the Explorer agent creates that hex’s job again.
 
 Each log line is `{ at, level, message }` where `level` is `info`, `warn`, or `error`. Lines cover job create, hex list, DuckDB/S3 reads, bbox vs selected-hex counts, Supabase RPC batches, and success or failure.
 
