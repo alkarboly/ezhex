@@ -1,5 +1,7 @@
 import { getResolution, isValidCell } from 'h3-js'
 import { addDay, asEnrichments } from '../lib/enrichments'
+import { defaultInspectFilters } from '../lib/feature-rows'
+import { compileInspectSql } from '../lib/inspect-sql'
 import { boundsForCells } from '../lib/h3'
 import { HAIL_MESH_START, MAX_SELECTED_CELLS } from '../lib/limits'
 import { defaultOvertureRelease } from '../lib/overture'
@@ -12,6 +14,7 @@ import {
   quoteWorkflowAgents,
 } from './agent-marketplace'
 import { resolveUser } from './auth'
+import { getSupabaseClient } from '../lib/supabase'
 import { checkHexSnapshots } from './hex-snapshots'
 
 const MOCK_OWNER = 'mock-guest'
@@ -82,8 +85,21 @@ export async function draftAgentAssist(
     })
     notes.push('Added a default AI row classifier (`broker_signal`).')
   }
+  const filters = {
+    ...defaultInspectFilters,
+    kind: 'places' as const,
+    confidenceMin: 0.5,
+  }
+  notes.unshift('Configured the inspect query for places with confidence at least 0.5.')
   const quote = await buildQuote(owner.ownerId, { ...parsed, enrichments })
-  return { enrichments, quote, notes }
+  return {
+    h3_cells: parsed.h3_cells,
+    filters,
+    sql: compileInspectSql(parsed.h3_cells, filters, parsed.release_version),
+    enrichments,
+    quote,
+    notes,
+  }
 }
 
 type ParsedRequest = {
@@ -119,7 +135,7 @@ function parseRequest(body: unknown): ParsedRequest | { error: string; status: n
 async function assistOwner(
   cookies: Record<string, string>,
 ): Promise<{ ownerId: string } | { error: string; status: number }> {
-  if (readDataMode().resolved === 'mock') return { ownerId: MOCK_OWNER }
+  if (readDataMode().resolved === 'mock' || !getSupabaseClient()) return { ownerId: MOCK_OWNER }
   const resolved = await resolveUser(cookies)
   if (!resolved.user) return { error: 'Sign in to use agent assist.', status: 401 }
   return { ownerId: resolved.user.id }

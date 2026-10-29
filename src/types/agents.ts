@@ -56,6 +56,9 @@ export type AgentAssistQuoteRequest = {
 }
 
 export type AgentAssistDraftResponse = {
+  h3_cells: string[]
+  filters: import('../lib/feature-rows').InspectFilters
+  sql: string
   enrichments: import('./enrichments').WorkflowEnrichment[]
   quote: WorkflowAgentQuote
   notes: string[]

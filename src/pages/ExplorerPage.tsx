@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { getResolution } from 'h3-js'
 import { LocateFixed } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -14,6 +14,7 @@ import { MOBILE_QUERY, TOUCH_QUERY, useMediaQuery } from '../hooks/useMediaQuery
 import { filterFeatureRows } from '../lib/feature-rows'
 import { readyCellsInParents, type ViewportStatus } from '../lib/h3'
 import { H3_RESOLUTION } from '../lib/limits'
+import { draftAgentAssist } from '../services/agent-assist'
 import { getHexStatus } from '../services/workflow-ingestion'
 import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
@@ -175,6 +176,20 @@ export function ExplorerPage() {
     setAction({ mode, cells: [...next] })
   }
 
+  const buildQuery = useMutation({
+    mutationFn: () => draftAgentAssist({ h3_cells: selected, enrichments: [], estimated_rows: selected.length * 22 }),
+    onSuccess: (draft) => {
+      useExplorer.getState().applyAgentQuery({
+        h3_cells: draft.h3_cells,
+        filters: draft.filters,
+        sql: draft.sql,
+        enrichments: draft.enrichments,
+        notes: draft.notes,
+      })
+    },
+    onError: (error) => setNotice(error instanceof Error ? error.message : 'The agent could not build this query.'),
+  })
+
   const onCreated = async (job: IngestionJob) => {
     setAction(null)
     setNotice(
@@ -196,6 +211,8 @@ export function ExplorerPage() {
       onClear={clearSelection}
       onAction={(mode) => openAction(mode, selected)}
       onEnrich={() => setEnrichOpen(!enrichOpen)}
+      onBuild={() => buildQuery.mutate()}
+      building={buildQuery.isPending}
     />
   )
 
@@ -340,12 +357,16 @@ function SelectionDock({
   onClear,
   onAction,
   onEnrich,
+  onBuild,
+  building,
 }: {
   selected: readonly string[]
   coverage: ReadonlyMap<string, HexDataStatus>
   onClear: () => void
   onAction: (mode: HexAction) => void
   onEnrich: () => void
+  onBuild: () => void
+  building: boolean
 }) {
   const processing = selected.some((cell) => coverage.get(cell) === 'processing')
   return (
@@ -368,6 +389,14 @@ function SelectionDock({
         className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
       >
         Process
+      </button>
+      <button
+        type="button"
+        disabled={selected.length === 0 || building}
+        onClick={onBuild}
+        className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40"
+      >
+        {building ? 'Building…' : 'Build query'}
       </button>
       <button
         type="button"

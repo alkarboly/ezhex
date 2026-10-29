@@ -134,6 +134,13 @@ type ExplorerState = {
   clearGeofenceDraft: () => void
   setEnrichOpen: (enrichOpen: boolean) => void
   setHailSummaries: (hailSummaries: HailHexSummary[]) => void
+  applyAgentQuery: (input: {
+    h3_cells: readonly string[]
+    filters: InspectFilters
+    sql: string
+    enrichments: WorkflowEnrichment[]
+    notes?: readonly string[]
+  }) => void
 }
 
 const initialSort = defaultSort('places')
@@ -485,6 +492,30 @@ function createExplorerStore() {
   clearGeofenceDraft: () => set({ geofenceDraft: [], drawMode: 'off' }),
   setEnrichOpen: (enrichOpen) => set({ enrichOpen }),
   setHailSummaries: (hailSummaries) => set({ hailSummaries }),
+  applyAgentQuery: (input) => {
+    const cells = [...new Set(input.h3_cells)].slice(0, MAX_SELECTED_CELLS)
+    set((state) => ({
+      selectedCells: cells,
+      page: 0,
+      inspectOpen: true,
+      enrichOpen: true,
+      queryHexPreview: false,
+      inspectFilters: input.filters,
+      draftEnrichments: input.enrichments,
+      inspectRelease: null,
+      inspectReplay: {
+        nonce: (state.inspectReplay?.nonce ?? 0) + 1,
+        workflowId: null,
+        workflowName: 'Agent query',
+        filters: input.filters,
+        sql: input.sql,
+        customSql: false,
+        releaseVersion: null,
+      },
+      fit: cells.length > 0 ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
+      notice: input.notes?.[0] ?? `Agent query · ${cells.length} hexes. Edit the inspect controls or enrichments, then save.`,
+    }))
+  },
 }))
 }
 
@@ -496,7 +527,10 @@ declare global {
 
 const existing = globalThis.__worldpulseExplorer
 export const useExplorer =
-  existing && 'inspectFilters' in existing.getState() && 'patchInspectFilters' in existing.getState()
+  existing &&
+  'inspectFilters' in existing.getState() &&
+  'patchInspectFilters' in existing.getState() &&
+  'applyAgentQuery' in existing.getState()
     ? existing
     : createExplorerStore()
 globalThis.__worldpulseExplorer = useExplorer

@@ -22,8 +22,6 @@ export function EnrichPanel() {
   const clearGeofenceDraft = useExplorer((state) => state.clearGeofenceDraft)
   const upsert = useExplorer((state) => state.upsertDraftEnrichment)
   const draft = useExplorer((state) => state.draftEnrichments)
-  const setDraft = useExplorer((state) => state.setDraftEnrichments)
-  const setNotice = useExplorer((state) => state.setNotice)
   const defaults = useMemo(() => defaultHailRange(), [])
   const [start, setStart] = useState(defaults.start)
   const [end, setEnd] = useState(defaults.end)
@@ -45,8 +43,13 @@ export function EnrichPanel() {
   const assistPopulate = useMutation({
     mutationFn: () => draftAgentAssist({ h3_cells: selected, enrichments: draft, estimated_rows: selected.length * 22 }),
     onSuccess: (result) => {
-      setDraft(result.enrichments)
-      if (result.notes.length > 0) setNotice(result.notes.join(' '))
+      useExplorer.getState().applyAgentQuery({
+        h3_cells: result.h3_cells,
+        filters: result.filters,
+        sql: result.sql,
+        enrichments: result.enrichments,
+        notes: result.notes,
+      })
     },
   })
   const draftSignature = useMemo(() => JSON.stringify(draft), [draft])
@@ -132,7 +135,7 @@ export function EnrichPanel() {
         <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
           <p className="text-[11px] font-medium">Agent assist</p>
           <p className="mt-1 text-[10px] text-muted-foreground">
-            Uses your current query + enhancement controls, populates suggestions, and updates quote lines live so you
+            Build full query fills the inspect query and all three enrichments from the selected hexes. Quote lines update live so you
             can reconfigure before running.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -142,7 +145,7 @@ export function EnrichPanel() {
               onClick={() => assistPopulate.mutate()}
               className="h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
             >
-              {assistPopulate.isPending ? 'Populating…' : 'Populate controls'}
+              {assistPopulate.isPending ? 'Building…' : 'Build full query'}
             </button>
             <span className="text-[10px] text-muted-foreground">
               {assistQuote.isFetching ? 'Updating quote…' : 'Quote updates live'}
