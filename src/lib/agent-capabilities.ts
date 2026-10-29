@@ -23,22 +23,22 @@ export const AGENT_CAPABILITIES = [
   {
     id: 'hexes',
     title: 'Find hexes',
-    body: 'Highlights hexes from the prompt: a corridor along a named street or highway, or a loose polygon around a neighborhood, city, or the area between two places. Uses selected or pasted hexes only when you point at those hexes.',
+    body: 'A corridor along a road, or an area around a place. Uses selected hexes only if you ask.',
   },
   {
     id: 'process',
     title: 'Process',
-    body: 'Creates one Overture job per missing hex.',
+    body: 'One Overture job per missing hex.',
   },
   {
     id: 'query',
     title: 'Query',
-    body: 'Reads the processed rows, then picks the dataset, categories, and filters.',
+    body: 'Picks the dataset, categories, and filters.',
   },
   {
     id: 'enrich',
     title: 'Add-ons',
-    body: 'Optional Weather (hail), a custom polygon, or AI enhance that writes one column from each row.',
+    body: 'Weather, a custom polygon, or AI enhance.',
   },
 ] as const
 

@@ -212,13 +212,6 @@ export function EnrichPanel() {
           })}
         </div>
 
-        {!addon && (
-          <p className="text-[11px] text-muted-foreground">
-            Choose an add-on. None of these run unless you pick them. Weather currently offers hail; a custom polygon
-            fences rows; AI enhance writes one new column from each row.
-          </p>
-        )}
-
         {addon === 'weather' && (
           <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
             <p className="text-[11px] font-medium">Weather</p>
