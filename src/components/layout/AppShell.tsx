@@ -12,6 +12,7 @@ export function AppShell() {
   const setFiltersOpen = useExplorer((state) => state.setFiltersOpen)
   const introChrome = useExplorer((state) => state.introChrome)
   const hideChrome = pathname === '/' && introChrome === 'globe'
+  const hideSidebar = pathname === '/' && (introChrome === 'globe' || introChrome === 'dock')
 
   useEffect(() => {
     if (window.matchMedia('(max-width: 1100px)').matches) setFiltersOpen(false)
@@ -21,10 +22,10 @@ export function AppShell() {
     <div className="flex h-dvh w-full overflow-hidden bg-background">
       {!mobile && (
         <div
-          aria-hidden={hideChrome}
+          aria-hidden={hideSidebar}
           className={cn(
             'h-full shrink-0 overflow-hidden transition-[width] duration-700 ease-[cubic-bezier(0.22,1,0.32,1)]',
-            hideChrome ? 'pointer-events-none w-0' : 'w-[76px]',
+            hideSidebar ? 'pointer-events-none w-0' : 'w-[76px]',
           )}
         >
           <Sidebar />

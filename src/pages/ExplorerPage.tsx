@@ -65,6 +65,7 @@ export function ExplorerPage() {
   const setEnrichOpen = useExplorer((state) => state.setEnrichOpen)
   const introChrome = useExplorer((state) => state.introChrome)
   const showMapChrome = introChrome !== 'globe'
+  const showSidebar = introChrome === 'sidebar' || introChrome === 'agent'
   const showAgent = introChrome === 'agent'
   const drawMode = useExplorer((state) => state.drawMode)
   const configured = Boolean(source.data?.supabase?.urlConfigured && source.data?.supabase?.anonKeyConfigured)
@@ -276,9 +277,11 @@ export function ExplorerPage() {
       {mobile ? (
         <>
           <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
-            <div className="pointer-events-auto">
-              <MobileNavButton />
-            </div>
+            {showSidebar && (
+              <div className="pointer-events-auto">
+                <MobileNavButton />
+              </div>
+            )}
             <div className="min-w-0 flex-1" />
             <div className="glass pointer-events-auto flex flex-col overflow-hidden rounded-full">
               <LayersButton touch={touch} side="bottom" align="end" className="size-11" />
@@ -362,7 +365,7 @@ export function ExplorerPage() {
           </div>
           <div
             className="pointer-events-none absolute right-3 bottom-3 z-20 flex justify-center transition-[left] duration-300"
-            style={{ left: agentOpen ? AGENT_PANEL_INSET : 84 }}
+            style={{ left: agentOpen ? AGENT_PANEL_INSET : showSidebar ? 84 : 12 }}
           >
             <div className="pointer-events-auto">{dock}</div>
           </div>

@@ -25,8 +25,10 @@ export type SheetSnap = 'peek' | 'half' | 'full'
 export type FitRequest = { nonce: number; zoomIn: boolean; cells?: readonly string[] }
 export type MobileTab = 'query' | 'results'
 export type DrawMode = 'off' | 'geofence'
-/** Opening load: globe first, then sidebar, then the agent click prompt. */
-export type IntroChrome = 'globe' | 'sidebar' | 'agent'
+/** Opening load: globe, then the selection dock, then sidebar, then the agent. */
+export type IntroChrome = 'globe' | 'dock' | 'sidebar' | 'agent'
+const INTRO_DOCK_MS = 800
+const INTRO_AGENT_MS = 2000
 export type InspectReplay = {
   nonce: number
   workflowId: string | null
@@ -209,11 +211,15 @@ function createExplorerStore() {
       set({ introChrome: 'agent', introHint: false })
       return
     }
-    set({ introChrome: 'sidebar', introHint: false })
+    set({ introChrome: 'dock', introHint: false })
     window.setTimeout(() => {
-      if (get().introChrome !== 'sidebar') return
-      set({ introChrome: 'agent', introHint: true })
-    }, 1100)
+      if (get().introChrome !== 'dock') return
+      set({ introChrome: 'sidebar', introHint: false })
+      window.setTimeout(() => {
+        if (get().introChrome !== 'sidebar') return
+        set({ introChrome: 'agent', introHint: true })
+      }, INTRO_AGENT_MS)
+    }, INTRO_DOCK_MS)
   },
   dismissIntroHint: () => set({ introHint: false }),
   setDataset: (dataset) => {
@@ -576,7 +582,8 @@ export const useExplorer =
   'patchInspectFilters' in existing.getState() &&
   'applyAgentQuery' in existing.getState() &&
   'revealCells' in existing.getState() &&
-  'introChrome' in existing.getState()
+  'introChrome' in existing.getState() &&
+  /dock/.test(existing.getState().completeGlobeFlight.toString())
     ? existing
     : createExplorerStore()
 globalThis.__worldpulseExplorer = useExplorer
