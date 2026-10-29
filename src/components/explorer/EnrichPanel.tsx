@@ -1,12 +1,13 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
-import { HAIL_MESH_START } from '../../lib/limits'
-import { addDay } from '../../lib/enrichments'
+import { asGeometry, type GeoJsonPosition } from '../../lib/geojson'
+import { HAIL_MESH_START, MAX_GEOFENCE_VERTICES } from '../../lib/limits'
+import { addDay, closedRing } from '../../lib/enrichments'
 import { formatCount } from '../../lib/format'
 import { draftAgentAssist, quoteAgentAssist } from '../../services/agent-assist'
 import { enrichHail } from '../../services/query-workflows'
 import { useExplorer } from '../../store/explorer-store'
-import type { GeofenceKeep, WorkflowEnrichment } from '../../types/enrichments'
+import type { GeofenceKeep, GeofencePolygon, WorkflowEnrichment } from '../../types/enrichments'
 
 export function EnrichPanel() {
   const open = useExplorer((state) => state.enrichOpen)
@@ -32,6 +33,11 @@ export function EnrichPanel() {
   const [aiFields, setAiFields] = useState('name, category, main_category, address, operating_status')
   const [aiEnumValues, setAiEnumValues] = useState('low, medium, high')
   const [aiError, setAiError] = useState<string | null>(null)
+  const [agentPrompt, setAgentPrompt] = useState(
+    'Find places likely to be broker-ready leads, use the latest 30 days of hail, and set a useful AI column.',
+  )
+  const [polygonText, setPolygonText] = useState('')
+  const [polygonError, setPolygonError] = useState<string | null>(null)
 
   const hail = useMutation({
     mutationFn: () => enrichHail({ h3_cells: selected, start_date: start, end_date: end }),
@@ -40,8 +46,14 @@ export function EnrichPanel() {
       upsert({ id: 'hail_history', kind: 'hail_history', start_date: result.start_date, end_date: result.end_date })
     },
   })
-  const assistPopulate = useMutation({
-    mutationFn: () => draftAgentAssist({ h3_cells: selected, enrichments: draft, estimated_rows: selected.length * 22 }),
+  const assistBuild = useMutation({
+    mutationFn: (prompt?: string) =>
+      draftAgentAssist({
+        h3_cells: selected,
+        enrichments: draft,
+        estimated_rows: selected.length * 22,
+        prompt: prompt && prompt.trim().length > 0 ? prompt : undefined,
+      }),
     onSuccess: (result) => {
       useExplorer.getState().applyAgentQuery({
         h3_cells: result.h3_cells,
@@ -111,12 +123,40 @@ export function EnrichPanel() {
     })
   }
 
+  const applyPolygonInput = (raw: string) => {
+    setPolygonError(null)
+    const parsed = parsePolygonText(raw)
+    if (!parsed) {
+      setPolygonError('Provide a Polygon GeoJSON, Feature, FeatureCollection, WKT POLYGON, or a list of [lng,lat] points.')
+      return
+    }
+    const firstRing = parsed.coordinates[0] ?? []
+    if (firstRing.length > MAX_GEOFENCE_VERTICES + 1) {
+      setPolygonError(`Polygon is limited to ${MAX_GEOFENCE_VERTICES} vertices.`)
+      return
+    }
+    upsert({ id: 'geofence', kind: 'geofence', keep, polygon: parsed })
+    clearGeofenceDraft()
+    useExplorer.getState().setNotice(`Geofence loaded · ${firstRing.length - 1} vertices · keep ${keep}`)
+  }
+
+  const loadPolygonFile = async (file: File) => {
+    setPolygonError(null)
+    try {
+      const text = await file.text()
+      setPolygonText(text)
+      applyPolygonInput(text)
+    } catch {
+      setPolygonError('Could not read that polygon file.')
+    }
+  }
+
   if (!open) return null
 
   return (
     <section
       data-testid="enrich-panel"
-      className="glass pointer-events-auto absolute right-3 bottom-20 z-30 flex w-[min(26rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl"
+      className="glass pointer-events-auto absolute right-2 bottom-2 left-2 z-30 flex max-h-[calc(100vh-1rem)] w-auto flex-col overflow-hidden rounded-2xl sm:right-3 sm:bottom-20 sm:left-auto sm:w-[min(30rem,calc(100vw-1.5rem))] sm:max-h-[calc(100vh-6rem)]"
     >
       <header className="flex items-center justify-between gap-2 px-3.5 py-2.5">
         <div>
@@ -131,27 +171,43 @@ export function EnrichPanel() {
           Close
         </button>
       </header>
-      <div className="grid gap-3 px-3.5 pb-3.5">
+      <div className="grid gap-3 overflow-y-auto px-3.5 pb-3.5">
         <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
-          <p className="text-[11px] font-medium">Agent assist</p>
+          <p className="text-[11px] font-medium">Agent chat</p>
           <p className="mt-1 text-[10px] text-muted-foreground">
-            Build full query fills the inspect query and all three enrichments from the selected hexes. Quote lines update live so you
-            can reconfigure before running.
+            Describe what you want. The agent builds the inspect query and all enrichments into these controls.
           </p>
+          <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
+            Prompt
+            <textarea
+              value={agentPrompt}
+              onChange={(event) => setAgentPrompt(event.target.value)}
+              className="min-h-16 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
+              placeholder="Example: show buildings with strict confidence and 90 days of hail, then score lead quality from 0 to 100."
+            />
+          </label>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              disabled={selected.length === 0 || assistPopulate.isPending}
-              onClick={() => assistPopulate.mutate()}
+              disabled={selected.length === 0 || assistBuild.isPending}
+              onClick={() => assistBuild.mutate(agentPrompt)}
               className="h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground disabled:opacity-40"
             >
-              {assistPopulate.isPending ? 'Building…' : 'Build full query'}
+              {assistBuild.isPending ? 'Building…' : 'Build from chat'}
+            </button>
+            <button
+              type="button"
+              disabled={selected.length === 0 || assistBuild.isPending}
+              onClick={() => assistBuild.mutate()}
+              className="h-7 rounded-full bg-primary/15 px-3 text-[11px] font-medium text-primary hover:bg-primary/25 disabled:opacity-40"
+            >
+              Default build
             </button>
             <span className="text-[10px] text-muted-foreground">
               {assistQuote.isFetching ? 'Updating quote…' : 'Quote updates live'}
             </span>
           </div>
-          {assistPopulate.error && <p className="mt-1 text-[11px] text-destructive">{assistPopulate.error.message}</p>}
+          {assistBuild.error && <p className="mt-1 text-[11px] text-destructive">{assistBuild.error.message}</p>}
           {assistQuote.error && <p className="mt-1 text-[11px] text-destructive">{assistQuote.error.message}</p>}
           {assistQuote.data && (
             <div className="mt-2 rounded-md border border-white/[0.08] bg-black/30 p-2">
@@ -175,7 +231,7 @@ export function EnrichPanel() {
         <section className="rounded-xl border border-primary/20 bg-black/25 p-2.5">
           <p className="text-[11px] font-medium">Geofence</p>
           <p className="mt-1 text-[10px] text-muted-foreground">
-            Draw a custom polygon. Keep only rows inside or outside it when the workflow runs.
+            Draw on the map, upload a file, or paste polygon text. Keep rows inside or outside it when the workflow runs.
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <button
@@ -207,6 +263,36 @@ export function EnrichPanel() {
               Clear
             </button>
           </div>
+          <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
+            Upload polygon (.geojson, .json, .txt)
+            <input
+              type="file"
+              accept=".geojson,.json,.txt,application/geo+json,application/json,text/plain"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) void loadPolygonFile(file)
+                event.currentTarget.value = ''
+              }}
+              className="rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground file:mr-2 file:rounded file:border-0 file:bg-primary/20 file:px-2 file:py-1 file:text-[11px] file:text-primary"
+            />
+          </label>
+          <label className="mt-2 grid gap-1 text-[10px] text-muted-foreground">
+            Polygon text (GeoJSON / Feature / FeatureCollection / WKT POLYGON / [[lng,lat],...])
+            <textarea
+              value={polygonText}
+              onChange={(event) => setPolygonText(event.target.value)}
+              className="min-h-20 rounded-md border border-white/[0.08] bg-black/40 px-2 py-1.5 text-[11px] text-foreground"
+              placeholder='{"type":"Polygon","coordinates":[[[-97.75,30.27],[-97.72,30.27],[-97.72,30.24],[-97.75,30.24],[-97.75,30.27]]]}'
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => applyPolygonInput(polygonText)}
+            className="mt-2 h-7 rounded-full bg-primary px-3 text-[11px] font-medium text-primary-foreground"
+          >
+            Apply polygon text
+          </button>
+          {polygonError && <p className="mt-1.5 text-[11px] text-destructive">{polygonError}</p>}
           <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
             {geofenceDraft.length} vertices
             {draft.some((step) => step.kind === 'geofence') ? ' · fence on workflow' : ''}
@@ -356,4 +442,82 @@ function defaultHailRange() {
 
 function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`
+}
+
+function parsePolygonText(raw: string): GeofencePolygon | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const asJson = parsePolygonJson(trimmed)
+  if (asJson) return asJson
+  return parsePolygonWkt(trimmed)
+}
+
+function parsePolygonJson(raw: string): GeofencePolygon | null {
+  try {
+    return polygonFromValue(JSON.parse(raw) as unknown)
+  } catch {
+    return null
+  }
+}
+
+function polygonFromValue(value: unknown): GeofencePolygon | null {
+  const geometry = asGeometry(value)
+  if (geometry?.type === 'Polygon') return normalizePolygon(geometry.coordinates)
+  if (geometry?.type === 'MultiPolygon') return normalizePolygon(geometry.coordinates[0] ?? [])
+  if (!isRecord(value)) return null
+  if (value.type === 'Feature' && value.geometry) return polygonFromValue(value.geometry)
+  if (value.type === 'FeatureCollection' && Array.isArray(value.features)) {
+    for (const feature of value.features) {
+      const polygon = polygonFromValue(feature)
+      if (polygon) return polygon
+    }
+    return null
+  }
+  if (Array.isArray(value) && value.every(isPosition)) return normalizePolygon([value])
+  if (Array.isArray(value) && value.every((item) => Array.isArray(item) && item.every(isPosition))) {
+    return normalizePolygon(value as GeoJsonPosition[][])
+  }
+  return null
+}
+
+function parsePolygonWkt(raw: string): GeofencePolygon | null {
+  const normalized = raw.replace(/\s+/g, ' ').trim()
+  if (!/^polygon\s*\(\(/i.test(normalized) || !/\)\)$/.test(normalized)) return null
+  const body = normalized.replace(/^polygon\s*\(\(/i, '').replace(/\)\)\s*$/i, '')
+  const rings: GeoJsonPosition[][] = []
+  for (const ringText of body.split(/\)\s*,\s*\(/)) {
+    const ring: GeoJsonPosition[] = []
+    for (const pair of ringText.split(',')) {
+      const parts = pair.trim().split(/\s+/)
+      if (parts.length < 2) return null
+      const lng = Number(parts[0])
+      const lat = Number(parts[1])
+      if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null
+      ring.push([lng, lat])
+    }
+    rings.push(ring)
+  }
+  return normalizePolygon(rings)
+}
+
+function normalizePolygon(rings: GeoJsonPosition[][]): GeofencePolygon | null {
+  if (rings.length === 0) return null
+  const closed = rings.map((ring) => closedRing(ring))
+  if (closed.some((ring) => !ring)) return null
+  return { type: 'Polygon', coordinates: closed as GeoJsonPosition[][] }
+}
+
+function isPosition(value: unknown): value is GeoJsonPosition {
+  return (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    typeof value[0] === 'number' &&
+    Number.isFinite(value[0]) &&
+    typeof value[1] === 'number' &&
+    Number.isFinite(value[1])
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

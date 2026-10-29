@@ -47,14 +47,14 @@ UI / API caller
      GET/POST/PATCH/DELETE /api/query-workflows
      owner RLS, 5 per account, nationwide hexes
      enrichments stay on the workflow and are private
-     POST /api/agent-assist/draft configures the inspect query (places, confidence, generated SQL) and the three enrichments for the selected hexes
+     POST /api/agent-assist/draft configures the inspect query and enrichments for the selected hexes, and can apply a natural-language prompt (`prompt`)
      POST /api/agent-assist/quote updates quote lines as query/enhancements change
      POST /api/query-workflows/:id/quote returns agent quote lines + simulated ledger balance
      POST /api/query-workflows/:id/run auto-processes missing hexes (<10 per batch), then checks snapshots, then query + enrichments
      GET /api/ledger returns simulated ledger entries (debits, payouts, tips)
   -> Enrich
      POST /api/enrichments/hail
-     geofence keep inside|outside a drawn polygon
+     geofence keep inside|outside a polygon from draw, upload, or pasted text
      hail_history from NOAA MRMS MESH_Max_1440min 12Z only, clamped to first process
   -> POST /api/hex-snapshots/check
      processed | first_release_version | latest_release_version | has_current

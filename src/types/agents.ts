@@ -53,6 +53,7 @@ export type AgentAssistQuoteRequest = {
   enrichments: import('./enrichments').WorkflowEnrichment[]
   release_version?: string | null
   estimated_rows?: number
+  prompt?: string
 }
 
 export type AgentAssistDraftResponse = {

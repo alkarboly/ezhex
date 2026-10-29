@@ -756,11 +756,20 @@ assert(Array.isArray(quoted.body.lines) && quoted.body.lines.length >= 2, 'workf
 const assistDraft = await routeApi('POST', '/api/agent-assist/draft', {
   h3_cells: [capitol, sampleCells[1] ?? capitol],
   enrichments: [],
+  prompt: 'Use buildings only, keep outside the geofence, use 90 day hail history, and add a numeric ai score column',
 })
 assert(assistDraft.status === 200 && isRecord(assistDraft.body), 'agent assist draft failed')
 assert(Array.isArray(assistDraft.body.enrichments) && assistDraft.body.enrichments.length >= 3, 'agent assist did not populate enrichments')
-assert(isRecord(assistDraft.body.filters) && assistDraft.body.filters.kind === 'places', 'agent assist did not configure the inspect query')
+assert(isRecord(assistDraft.body.filters) && assistDraft.body.filters.kind === 'buildings', 'agent assist prompt did not configure dataset')
 assert(typeof assistDraft.body.sql === 'string' && assistDraft.body.sql.includes('SELECT'), 'agent assist did not build inspect SQL')
+const promptGeofence = Array.isArray(assistDraft.body.enrichments)
+  ? assistDraft.body.enrichments.find((step) => isRecord(step) && step.kind === 'geofence')
+  : null
+assert(isRecord(promptGeofence) && promptGeofence.keep === 'outside', 'agent assist prompt did not set geofence keep outside')
+const promptAi = Array.isArray(assistDraft.body.enrichments)
+  ? assistDraft.body.enrichments.find((step) => isRecord(step) && step.kind === 'ai_column')
+  : null
+assert(isRecord(promptAi) && promptAi.value_type === 'number', 'agent assist prompt did not set a numeric ai column')
 const assistQuote = await routeApi('POST', '/api/agent-assist/quote', {
   h3_cells: [capitol],
   enrichments: assistDraft.body.enrichments,

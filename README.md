@@ -133,8 +133,8 @@ render deploys create SERVICE_ID --wait --confirm
 - Optional Supabase accounts in Settings: create, sign in, sign out, delete account. The public map does not require a login
 - Inspect is SQL: generated from hexes and filters, collapsed until opened, editable custom SELECT, copy SQL, download CSV. The hex chip lists included cells. Preview hexes frames all of them; Exit query closes inspect. The map follows those inspect filters while the query is open
 - Query workflows (5 per account) save that inspect SQL, hex set, and private enrichments. Selecting one previews every hex on the map, including nationwide selections
-- Enrich adds a geofence (keep inside or outside a drawn polygon), hail history from NOAA MRMS MESH 12Z files, and one typed `ai_column` per row. Only hex-day mm and run result rows are retained
-- Selection dock **Build query** fills the existing inspect query and all three enrichments for the selected hexes so they can be edited before a run
+- Enrich adds a geofence (keep inside or outside a polygon from draw, upload, or pasted text), hail history from NOAA MRMS MESH 12Z files, and one typed `ai_column` per row. Only hex-day mm and run result rows are retained
+- Selection dock **Build query** fills the existing inspect query and all three enrichments for the selected hexes. The Enrich panel includes **Agent chat** so you can describe the query/enrichment intent in plain language before a run
 - Workflows run through an agent quote path (orchestrator + specialist lines), auto-process missing hexes in batches under 10, debit a simulated ledger, and credit demo tips from agents
 - Ledger page at `/ledger` shows seeded credits, spend, tips, and per-agent entries for the signed-in user (or mock guest)
 - Hard caps on hex count, bbox area, and row counts for ingest. Query workflows allow up to 300 disconnected hexes
