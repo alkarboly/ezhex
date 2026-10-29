@@ -61,6 +61,14 @@ export function compileInspectSql(
   return lines.join('\n')
 }
 
+/** Generated inspect SQL includes `--` headers; custom SQL must not. */
+export function stripGeneratedComments(sql: string): string {
+  return sql
+    .split(/\r?\n/)
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+}
+
 export function validateInspectSql(sql: string): string | null {
   const trimmed = sql.trim()
   if (!trimmed) return 'SQL is required.'

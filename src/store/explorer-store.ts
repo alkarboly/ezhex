@@ -33,6 +33,8 @@ export type InspectReplay = {
   nonce: number
   workflowId: string | null
   workflowName: string | null
+  /** When set, Inspect edits can be saved back onto this agent turn. */
+  agentTurnId: string | null
   filters: InspectFilters
   sql: string
   customSql: boolean
@@ -75,7 +77,11 @@ type ExplorerState = {
   /** Query setting: frame every included hex so the map shows coverage. */
   queryHexPreview: boolean
   inspectPosition: { x: number; y: number }
+  /** Live agent stage caption on the map. */
+  stagePosition: { x: number; y: number }
   inspectReplay: InspectReplay | null
+  /** Edited Inspect SQL. Null means compile from hexes and filters. */
+  inspectCustomSql: string | null
   draftEnrichments: WorkflowEnrichment[]
   drawMode: DrawMode
   geofenceDraft: GeoJsonPosition[]
@@ -122,6 +128,7 @@ type ExplorerState = {
   previewQueryHexes: () => void
   exitQuery: () => void
   setInspectPosition: (inspectPosition: { x: number; y: number }) => void
+  setStagePosition: (stagePosition: { x: number; y: number }) => void
   previewWorkflow: (input: {
     id: string
     name: string
@@ -133,6 +140,7 @@ type ExplorerState = {
     release_version?: string | null
   }) => void
   setInspectRelease: (inspectRelease: string | null) => void
+  setInspectCustomSql: (inspectCustomSql: string | null) => void
   clearWorkflowPreview: () => void
   setDraftEnrichments: (draftEnrichments: WorkflowEnrichment[]) => void
   upsertDraftEnrichment: (enrichment: WorkflowEnrichment) => void
@@ -151,6 +159,10 @@ type ExplorerState = {
     enrichments: WorkflowEnrichment[]
     notes?: readonly string[]
     workflowName?: string
+    agentTurnId?: string | null
+    workflowId?: string | null
+    /** True when `sql` is a person-edited SELECT, not the compiled inspect query. */
+    customSql?: boolean
     openInspect?: boolean
     openEnrich?: boolean
     fit?: boolean
@@ -196,7 +208,9 @@ function createExplorerStore() {
   inspectFilters: defaultInspectFilters,
   queryHexPreview: false,
   inspectPosition: { x: 420, y: 72 },
+  stagePosition: { x: 456, y: 16 },
   inspectReplay: null,
+  inspectCustomSql: null,
   draftEnrichments: [],
   drawMode: 'off',
   geofenceDraft: [],
@@ -456,10 +470,12 @@ function createExplorerStore() {
       inspectOpen: false,
       queryHexPreview: false,
       inspectReplay: null,
+      inspectCustomSql: null,
       inspectRelease: null,
       inspectFilters: defaultInspectFilters,
     }),
   setInspectPosition: (inspectPosition) => set({ inspectPosition }),
+  setStagePosition: (stagePosition) => set({ stagePosition }),
   previewWorkflow: (input) => {
     const cells = [...new Set(input.h3_cells)].slice(0, MAX_SELECTED_CELLS)
     set((state) => ({
@@ -474,12 +490,14 @@ function createExplorerStore() {
         nonce: (state.inspectReplay?.nonce ?? 0) + 1,
         workflowId: input.id,
         workflowName: input.name,
+        agentTurnId: null,
         filters: input.filters,
         sql: input.sql,
         customSql: true,
         releaseVersion: input.release_version ?? null,
         openSql: true,
       },
+      inspectCustomSql: input.sql,
       inspectRelease: input.release_version ?? null,
       draftEnrichments: input.enrichments ?? [],
       fit: cells.length > 0 ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
@@ -492,12 +510,14 @@ function createExplorerStore() {
   clearWorkflowPreview: () =>
     set({
       inspectReplay: null,
+      inspectCustomSql: null,
       inspectOpen: false,
       queryHexPreview: false,
       inspectRelease: null,
       inspectFilters: defaultInspectFilters,
     }),
   setInspectRelease: (inspectRelease) => set({ inspectRelease, page: 0 }),
+  setInspectCustomSql: (inspectCustomSql) => set({ inspectCustomSql }),
   setDraftEnrichments: (draftEnrichments) => set({ draftEnrichments }),
   upsertDraftEnrichment: (enrichment) =>
     set((state) => {
@@ -545,14 +565,16 @@ function createExplorerStore() {
       inspectRelease: null,
       inspectReplay: {
         nonce: (state.inspectReplay?.nonce ?? 0) + 1,
-        workflowId: null,
+        workflowId: input.workflowId ?? null,
         workflowName: input.workflowName ?? 'Agent query',
+        agentTurnId: input.agentTurnId ?? null,
         filters: input.filters,
         sql: input.sql,
-        customSql: true,
+        customSql: input.customSql === true,
         releaseVersion: null,
         openSql: true,
       },
+      inspectCustomSql: input.customSql ? input.sql : null,
       fit: cells.length > 0 && input.fit !== false ? { nonce: state.fit.nonce + 1, zoomIn: true } : state.fit,
       notice:
         input.notice !== undefined
@@ -581,6 +603,9 @@ export const useExplorer =
   'inspectFilters' in existing.getState() &&
   'patchInspectFilters' in existing.getState() &&
   'applyAgentQuery' in existing.getState() &&
+  'setInspectCustomSql' in existing.getState() &&
+  'stagePosition' in existing.getState() &&
+  /customSql/.test(existing.getState().applyAgentQuery.toString()) &&
   'revealCells' in existing.getState() &&
   'introChrome' in existing.getState() &&
   /dock/.test(existing.getState().completeGlobeFlight.toString())

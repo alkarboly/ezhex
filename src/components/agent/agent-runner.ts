@@ -5,7 +5,7 @@ import { compileInspectSql } from '../../lib/inspect-sql'
 import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../../lib/limits'
 import { fitGeofencePolygon, polygonVertexCount } from '../../lib/polygon-input'
 import { AgentRequestError, buildAgentQuery, planAgent } from '../../services/agent'
-import { createQueryWorkflow, enrichHail, runQueryWorkflow } from '../../services/query-workflows'
+import { createQueryWorkflow, enrichHail, patchQueryWorkflow, runQueryWorkflow } from '../../services/query-workflows'
 import { createIngestionJob, getHexStatus, getIngestionJob } from '../../services/workflow-ingestion'
 import {
   newAgentTurn,
@@ -228,10 +228,97 @@ export function attachAgentPolygon(polygon: GeofencePolygon, label: string) {
 /** Opens the inspect table and add-ons panel so a person can change what the agent built. */
 export function reviewInInspect() {
   const explorer = useExplorer.getState()
+  const turn = [...useAgent.getState().turns].reverse().find((entry) => entry.query)
   if (config.desktop()) explorer.setInspectPosition({ x: config.panelRight() + 16, y: 64 })
   else useAgent.getState().setOpen(false)
-  explorer.setInspectOpen(true)
-  explorer.setEnrichOpen(true)
+  if (!turn?.query) {
+    explorer.setInspectOpen(true)
+    explorer.setEnrichOpen(true)
+    return
+  }
+  const cells = explorer.selectedCells.length > 0 ? explorer.selectedCells : (turn.plan?.h3_cells ?? [])
+  explorer.applyAgentQuery({
+    h3_cells: cells,
+    filters: explorer.inspectOpen ? explorer.inspectFilters : turn.query.filters,
+    sql: explorer.inspectCustomSql ?? turn.query.sql,
+    customSql: explorer.inspectCustomSql != null,
+    enrichments: explorer.draftEnrichments.length > 0 ? explorer.draftEnrichments : turn.query.enrichments,
+    workflowName: turn.query.workflow_name,
+    agentTurnId: turn.id,
+    workflowId: turn.workflow?.id ?? null,
+    openInspect: true,
+    openEnrich: true,
+    fit: false,
+    notice: 'Edit filters, SQL, or Add-ons, then Save to agent.',
+  })
+}
+
+/** Writes Inspect filters, SQL, and Add-ons onto the agent turn, and PATCHes a saved workflow when one exists. */
+export async function saveInspectEdits(input: { sql: string; customSql: boolean; rowCount: number }) {
+  const explorer = useExplorer.getState()
+  const replay = explorer.inspectReplay
+  const turnId = replay?.agentTurnId
+  const workflowId = replay?.workflowId
+  if (!turnId && !workflowId) throw new Error('Open the agent workflow in Inspect, then save.')
+  const cells = explorer.selectedCells
+  if (cells.length === 0) throw new Error('Select at least one hex, then save.')
+  const filters = explorer.inspectFilters
+  const enrichments = explorer.draftEnrichments
+  if (turnId) {
+    const turn = findTurn(turnId)
+    if (turn?.query) {
+      const fenced = turn.query.enrichments.some((step) => step.kind === 'geofence')
+      patch(turnId, {
+        query: {
+          ...turn.query,
+          filters,
+          sql: input.sql,
+          enrichments,
+          matched_rows: input.rowCount,
+          fenced_rows: fenced ? input.rowCount : turn.query.fenced_rows,
+        },
+      })
+    }
+  }
+  if (workflowId) {
+    const saved = await patchQueryWorkflow(workflowId, {
+      sql: input.sql,
+      custom_sql: input.customSql,
+      h3_cells: cells,
+      filters,
+      enrichments,
+      release_version: explorer.inspectRelease,
+    })
+    const replayNow = useExplorer.getState().inspectReplay
+    if (replayNow) {
+      useExplorer.setState({
+        inspectReplay: {
+          ...replayNow,
+          workflowId: saved.id,
+          workflowName: saved.name,
+          filters,
+          sql: input.sql,
+          customSql: input.customSql,
+        },
+        inspectCustomSql: input.customSql ? input.sql : null,
+        notice: `Saved “${saved.name}”.`,
+      })
+    } else {
+      useExplorer.getState().setNotice(`Saved “${saved.name}”.`)
+    }
+    return
+  }
+  const replayNow = useExplorer.getState().inspectReplay
+  const name = replayNow?.workflowName ?? 'agent workflow'
+  if (replayNow) {
+    useExplorer.setState({
+      inspectReplay: { ...replayNow, filters, sql: input.sql, customSql: input.customSql },
+      inspectCustomSql: input.customSql ? input.sql : null,
+      notice: `Saved to ${name}.`,
+    })
+  } else {
+    useExplorer.getState().setNotice(`Saved to ${name}.`)
+  }
 }
 
 // ---------- steps ----------
@@ -400,6 +487,7 @@ async function composeQuery(
     sql: query.sql,
     enrichments: query.enrichments,
     workflowName: query.workflow_name,
+    agentTurnId: id,
     openInspect: false,
     openEnrich: false,
     fit: false,
@@ -503,11 +591,13 @@ async function saveWorkflow(turn: AgentTurn, query: AgentQueryResponse): Promise
   const cells = explorer.selectedCells.length > 0 ? explorer.selectedCells : (turn.plan?.h3_cells ?? [])
   if (cells.length === 0) throw new StepError('Select at least one hex, then approve again.')
   const filters = explorer.inspectOpen ? explorer.inspectFilters : query.filters
+  const customSql = explorer.inspectCustomSql
+  const sql = customSql ?? (explorer.inspectOpen ? compileInspectSql(cells, filters, explorer.inspectRelease) : query.sql)
   const name = `${query.workflow_name || 'Agent workflow'} · ${clockLabel()}`.slice(0, 120)
   const saved = await createQueryWorkflow({
     name,
-    sql: compileInspectSql(cells, filters, explorer.inspectRelease),
-    custom_sql: false,
+    sql,
+    custom_sql: customSql != null,
     h3_cells: [...cells],
     filters,
     enrichments: explorer.draftEnrichments,

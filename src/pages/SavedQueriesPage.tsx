@@ -111,14 +111,11 @@ export function SavedQueriesPage() {
     <div className="min-h-0 flex-1 overflow-auto">
       <div className="mx-auto flex max-w-3xl flex-col gap-5 px-6 py-8">
         <header className="overflow-hidden rounded-2xl border border-primary/20 bg-[linear-gradient(135deg,rgba(46,230,166,0.12),rgba(8,12,18,0.4)_55%,rgba(245,196,81,0.08))] p-5">
-          <p className="font-mono text-[10px] tracking-[0.22em] text-primary uppercase">Query workflows</p>
-          <h1 className="mt-1 text-xl font-semibold">Saved inspect SQL</h1>
+          <p className="font-mono text-[10px] tracking-[0.22em] text-primary uppercase">Workflows</p>
+          <h1 className="mt-1 text-xl font-semibold">Saved queries</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-            A workflow is a private inspect query plus optional add-ons. Rename it here. View workflow restores
-            the hexes, Inspect filters, Add-ons, and the SQL editor. Quote & run executes it: process missing hexes,
-            then geofence, weather, and AI enhance as specialist jobs on that run. Subscribe to new data checks
-            stored snapshots as soon as you turn it on. No schedule yet.{' '}
-            {MAX_QUERY_WORKFLOWS} per account.
+            Rename here. View restores the map. Quote & run processes hexes and add-ons. Subscribe checks snapshots
+            now.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
             <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 font-mono text-primary">
@@ -458,7 +455,7 @@ function IngestPlanSection() {
       </summary>
       <div className="grid gap-4 border-t border-white/[0.06] px-4 py-4">
         <p className="text-sm leading-6 text-muted-foreground">
-          This is the guarded ingestion plan. Query workflows above do not use these caps. Queue a run from{' '}
+          This is the guarded ingestion plan. Saved queries above do not use these caps. Queue a run from{' '}
           <Link to="/jobs" className="text-primary hover:underline">
             Jobs
           </Link>

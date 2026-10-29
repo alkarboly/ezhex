@@ -23,6 +23,7 @@ import { compileInspectSql, validateInspectSql } from '../../lib/inspect-sql'
 import { MAX_QUERY_WORKFLOWS } from '../../lib/limits'
 import { cn } from '../../lib/utils'
 import { checkHexSnapshots, createQueryWorkflow, listQueryWorkflows, patchQueryWorkflow } from '../../services/query-workflows'
+import { saveInspectEdits } from '../agent/agent-runner'
 import { useExplorer } from '../../store/explorer-store'
 import { DATASET_IDS, DATASET_META, type DatasetId } from '../../types/datasets'
 import { nativeSelectClass } from '../ui/input'
@@ -98,6 +99,8 @@ export function HexQueryTable() {
   const inspectReplay = useExplorer((state) => state.inspectReplay)
   const previewWorkflow = useExplorer((state) => state.previewWorkflow)
   const draftEnrichments = useExplorer((state) => state.draftEnrichments)
+  const inspectCustomSql = useExplorer((state) => state.inspectCustomSql)
+  const setInspectCustomSql = useExplorer((state) => state.setInspectCustomSql)
   const inspectRelease = useExplorer((state) => state.inspectRelease)
   const setInspectRelease = useExplorer((state) => state.setInspectRelease)
   const snapshots = useQuery({
@@ -140,7 +143,6 @@ export function HexQueryTable() {
   const hasOfficialId = inspectFilters.hasOfficialId
   const [sortField, setSortField] = useState<string>('name')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
-  const [customSql, setCustomSql] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [workflowName, setWorkflowName] = useState('')
@@ -205,13 +207,13 @@ export function HexQueryTable() {
     () => compileInspectSql(selectedCells, inspectFilters, inspectRelease),
     [inspectFilters, inspectRelease, selectedCells],
   )
-  const sql = customSql ?? generatedSql
-  const sqlError = customSql ? validateInspectSql(customSql) : null
+  const sql = inspectCustomSql ?? generatedSql
+  const sqlError = inspectCustomSql ? validateInspectSql(inspectCustomSql) : null
   const saveExisting = useMutation({
     mutationFn: (id: string) =>
       patchQueryWorkflow(id, {
         sql,
-        custom_sql: customSql != null,
+        custom_sql: inspectCustomSql != null,
         h3_cells: selectedCells,
         filters: inspectFilters,
         enrichments: draftEnrichments,
@@ -225,14 +227,38 @@ export function HexQueryTable() {
     },
     onError: (next) => setSaveError(next instanceof Error ? next.message : 'Could not save the workflow.'),
   })
+  const saveAgent = useMutation({
+    mutationFn: () => saveInspectEdits({ sql, customSql: inspectCustomSql != null, rowCount: filtered.length }),
+    onSuccess: () => {
+      setSaveError(null)
+      void client.invalidateQueries({ queryKey: ['query-workflows'] })
+    },
+    onError: (next) => setSaveError(next instanceof Error ? next.message : 'Could not save the agent workflow.'),
+  })
+
+  const persistInspect = () => {
+    setSaveError(null)
+    if (sqlError) {
+      setSaveError(sqlError)
+      return
+    }
+    void client.invalidateQueries({ queryKey: ['auth-session'] }).then(() => {
+      if (inspectReplay?.agentTurnId) {
+        saveAgent.mutate()
+        return
+      }
+      const id = inspectReplay?.workflowId
+      if (id) saveExisting.mutate(id)
+    })
+  }
 
   useEffect(() => {
     if (!inspectReplay) return
     setInspectFilters(inspectReplay.filters)
-    setCustomSql(inspectReplay.sql)
+    setInspectCustomSql(inspectReplay.customSql ? inspectReplay.sql : null)
     setInspectRelease(inspectReplay.releaseVersion)
     setSaveError(null)
-  }, [inspectReplay, setInspectFilters, setInspectRelease])
+  }, [inspectReplay, setInspectCustomSql, setInspectFilters, setInspectRelease])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2" data-testid="hex-query-table">
@@ -307,6 +333,23 @@ export function HexQueryTable() {
           />
           <span className="text-[11px] tabular-nums text-muted-foreground">{formatCount(filtered.length)} rows</span>
           {fetching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
+          {(inspectReplay?.agentTurnId || inspectReplay?.workflowId) && (
+            <button
+              type="button"
+              data-testid="save-inspect-to-agent"
+              disabled={saveAgent.isPending || saveExisting.isPending}
+              onClick={() => persistInspect()}
+              className="ml-auto inline-flex h-6 items-center rounded-full bg-primary px-2.5 text-[10px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            >
+              {saveAgent.isPending || saveExisting.isPending
+                ? 'Saving…'
+                : inspectReplay?.agentTurnId
+                  ? 'Save to agent'
+                  : inspectReplay?.workflowName
+                    ? `Save to “${inspectReplay.workflowName}”`
+                    : 'Save to workflow'}
+            </button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <ConfidencePick
@@ -350,7 +393,7 @@ export function HexQueryTable() {
       </div>
       <SqlWorkbench
         sql={sql}
-        custom={customSql != null}
+        custom={inspectCustomSql != null}
         sqlError={sqlError}
         copied={copied}
         createOpen={createOpen}
@@ -359,9 +402,9 @@ export function HexQueryTable() {
         rowCount={sorted.length}
         hexCount={selectedCells.length}
         onSqlChange={(next) => {
-          setCustomSql(next === generatedSql ? null : next)
+          setInspectCustomSql(next === generatedSql ? null : next)
         }}
-        onReset={() => setCustomSql(null)}
+        onReset={() => setInspectCustomSql(null)}
         onCopy={() => {
           void navigator.clipboard.writeText(sql).then(() => {
             setCopied(true)
@@ -387,7 +430,7 @@ export function HexQueryTable() {
             create.mutate({
               name: workflowName.trim() || defaultWorkflowName(selectedCells.length),
               sql,
-              custom_sql: customSql != null,
+              custom_sql: inspectCustomSql != null,
               h3_cells: selectedCells,
               filters: inspectFilters,
               enrichments: draftEnrichments,
@@ -399,21 +442,11 @@ export function HexQueryTable() {
         replayNonce={inspectReplay?.nonce ?? null}
         openSql={inspectReplay?.openSql ?? false}
         workflowId={inspectReplay?.workflowId ?? null}
+        agentTurnId={inspectReplay?.agentTurnId ?? null}
         savedName={inspectReplay?.workflowName ?? null}
-        saving={saveExisting.isPending}
+        saving={saveAgent.isPending || saveExisting.isPending}
         saveError={saveError}
-        onSaveToWorkflow={() => {
-          const id = inspectReplay?.workflowId
-          if (!id) return
-          setSaveError(null)
-          if (sqlError) {
-            setSaveError(sqlError)
-            return
-          }
-          void client.invalidateQueries({ queryKey: ['auth-session'] }).then(() => {
-            saveExisting.mutate(id)
-          })
-        }}
+        onSaveToWorkflow={() => persistInspect()}
       />
       {invalid[0] && <p className="text-[11px] text-destructive">{invalid[0]}</p>}
       {error && <p className="text-[11px] text-destructive">{error.message}</p>}
@@ -526,6 +559,7 @@ function SqlWorkbench({
   replayNonce,
   openSql,
   workflowId,
+  agentTurnId,
   savedName,
   saving,
   saveError,
@@ -551,6 +585,7 @@ function SqlWorkbench({
   replayNonce: number | null
   openSql: boolean
   workflowId: string | null
+  agentTurnId: string | null
   savedName: string | null
   saving: boolean
   saveError: string | null
@@ -633,10 +668,10 @@ function SqlWorkbench({
           <Download className="size-3" />
           Download CSV
         </SqlAction>
-        {workflowId && (
+        {(workflowId || agentTurnId) && (
           <SqlAction primary onClick={onSaveToWorkflow} testId="save-to-workflow">
             <Workflow className="size-3" />
-            {saving ? 'Saving…' : savedName ? `Save to “${savedName}”` : 'Save to workflow'}
+            {saving ? 'Saving…' : agentTurnId ? 'Save to agent' : savedName ? `Save to “${savedName}”` : 'Save to workflow'}
           </SqlAction>
         )}
         <SqlAction primary={!workflowId} onClick={onToggleCreate}>

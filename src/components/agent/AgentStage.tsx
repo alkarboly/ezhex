@@ -1,5 +1,7 @@
 import { CloudHail, DatabaseZap, Funnel, Hexagon, MapPinned, Sparkles } from 'lucide-react'
+import { useLayoutEffect, useRef } from 'react'
 import { useAgent, type AgentStepId, type AgentTurn } from '../../store/agent-store'
+import { useExplorer } from '../../store/explorer-store'
 import { AgentOrb, Chip, HexGlyph, ShimmerBar } from './agent-ui'
 
 const STAGE: Record<AgentStepId, { kicker: string; line: (turn: AgentTurn) => string }> = {
@@ -55,94 +57,144 @@ const STAGE: Record<AgentStepId, { kicker: string; line: (turn: AgentTurn) => st
   run: { kicker: 'Running', line: () => 'Saving the workflow and debiting the ledger' },
 }
 
-/** Live caption on the map while the agent builds a workflow. */
+/** Live caption on the map while the agent builds a workflow. Drag it off hexes. */
 export function AgentStage({ mobile }: { mobile: boolean }) {
   const turn = useAgent((state) => state.turns[state.turns.length - 1] ?? null)
-  const open = useAgent((state) => state.open)
-  if (!turn) return null
-  if (turn.status !== 'working' && turn.status !== 'running' && turn.status !== 'review' && turn.status !== 'confirm') {
-    return null
-  }
+  const position = useExplorer((state) => state.stagePosition)
+  const setStagePosition = useExplorer((state) => state.setStagePosition)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null)
+  const visible =
+    turn &&
+    (turn.status === 'working' || turn.status === 'running' || turn.status === 'review' || turn.status === 'confirm')
+  const step = visible
+    ? (turn.steps.find((entry) => entry.state === 'active' || entry.state === 'waiting') ??
+      turn.steps.find((entry) => entry.state === 'done'))
+    : undefined
 
-  const step = turn.steps.find((entry) => entry.state === 'active' || entry.state === 'waiting') ?? turn.steps.find((entry) => entry.state === 'done')
-  if (!step) return null
+  useLayoutEffect(() => {
+    if (!visible || !panelRef.current) return
+    const next = clampStagePosition(position.x, position.y, panelRef.current.offsetWidth, panelRef.current.offsetHeight)
+    if (next.x !== position.x || next.y !== position.y) setStagePosition(next)
+  }, [mobile, position.x, position.y, setStagePosition, step?.id, visible])
+
+  if (!turn || !visible || !step) return null
   const copy = STAGE[step.id]
   const busy = turn.status === 'working' || turn.status === 'running'
 
+  const beginStageDrag = (event: { button: number; clientX: number; clientY: number; stopPropagation: () => void; preventDefault: () => void }) => {
+    if (event.button !== 0 || drag.current) return
+    event.stopPropagation()
+    event.preventDefault()
+    const start = { x: event.clientX, y: event.clientY, left: position.x, top: position.y }
+    drag.current = start
+    const onMove = (move: { clientX: number; clientY: number }) => {
+      const panel = panelRef.current
+      if (!panel) return
+      setStagePosition(
+        clampStagePosition(
+          start.left + move.clientX - start.x,
+          start.top + move.clientY - start.y,
+          panel.offsetWidth,
+          panel.offsetHeight,
+        ),
+      )
+    }
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('mouseup', onUp)
+      drag.current = null
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('mouseup', onUp)
+  }
+
   return (
     <div
-      className="pointer-events-none absolute z-[25] flex justify-center"
-      style={
-        mobile
-          ? { left: 12, right: 12, top: 'max(5.6rem, calc(env(safe-area-inset-top) + 5.2rem))' }
-          : { left: open ? 440 : 96, right: 96, top: 64 }
-      }
+      ref={panelRef}
+      data-testid="agent-stage"
+      title="Drag to move"
+      className="glass wp-rise pointer-events-auto absolute z-[25] max-w-[min(28rem,calc(100vw-1rem))] cursor-grab touch-none overflow-hidden rounded-2xl px-3 py-2.5 shadow-[0_18px_50px_-24px_rgba(0,0,0,0.8)] active:cursor-grabbing"
+      style={{ left: position.x, top: position.y }}
+      onPointerDown={beginStageDrag}
+      onMouseDown={beginStageDrag}
     >
-      <div className="glass wp-rise pointer-events-none max-w-[28rem] overflow-hidden rounded-2xl px-3 py-2.5 shadow-[0_18px_50px_-24px_rgba(0,0,0,0.8)]">
-        <div className="flex items-center gap-2.5">
-          <AgentOrb size={28} busy={busy} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[9.5px] font-medium tracking-[0.16em] text-primary uppercase">{copy.kicker}</p>
-            <p className="truncate text-[12.5px] font-medium text-foreground">{copy.line(turn)}</p>
-          </div>
+      <div className="flex items-center gap-2.5">
+        <AgentOrb size={28} busy={busy} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[9.5px] font-medium tracking-[0.16em] text-primary uppercase">{copy.kicker}</p>
+          <p className="truncate text-[12.5px] font-medium text-foreground">{copy.line(turn)}</p>
         </div>
-        {busy && <ShimmerBar className="mt-2" />}
-        {step.id === 'region' && turn.plan && (
-          <div className="mt-2 flex flex-wrap items-center gap-[3px]">
-            {turn.plan.h3_cells.slice(0, 28).map((cell, index) => (
-              <HexGlyph
-                key={cell}
-                tone={index < turn.revealed ? (turn.plan?.ready.includes(cell) ? 'ready' : 'missing') : 'idle'}
-                delay={0}
-                pulse={index === turn.revealed - 1}
-              />
-            ))}
-            {turn.plan.h3_cells.length > 28 && (
-              <span className="ml-1 font-mono text-[10px] text-muted-foreground">+{turn.plan.h3_cells.length - 28}</span>
-            )}
-          </div>
-        )}
-        {step.id === 'query' && turn.query && (
-          <div className="mt-2 flex flex-wrap gap-1">
-            <Chip tone="primary" icon={<Funnel className="size-3" />}>
-              {turn.query.filters.kind}
-            </Chip>
-            {turn.query.categories.slice(0, 4).map((pick) => (
-              <Chip key={pick.value}>
-                {pick.value} · {pick.count}
-              </Chip>
-            ))}
-          </div>
-        )}
-        {step.id === 'weather' && turn.hail && (
-          <p className="mt-1.5 flex items-center gap-1 text-[10.5px] text-select">
-            <CloudHail className="size-3" />
-            {turn.hail.cells.filter((cell) => cell.hail_days > 0).length} hexes with hail
-          </p>
-        )}
-        {(step.id === 'plan' || step.id === 'review') && (
-          <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <Hexagon className="size-3 text-primary" /> hexes
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <DatabaseZap className="size-3 text-primary" /> process
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Funnel className="size-3 text-primary" /> query
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <MapPinned className="size-3 text-primary" /> geofence
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <CloudHail className="size-3 text-select" /> weather
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Sparkles className="size-3 text-[#cbb8ff]" /> AI column
-            </span>
-          </div>
-        )}
       </div>
+      {busy && <ShimmerBar className="mt-2" />}
+      {step.id === 'region' && turn.plan && (
+        <div className="mt-2 flex flex-wrap items-center gap-[3px]">
+          {turn.plan.h3_cells.slice(0, 28).map((cell, index) => (
+            <HexGlyph
+              key={cell}
+              tone={index < turn.revealed ? (turn.plan?.ready.includes(cell) ? 'ready' : 'missing') : 'idle'}
+              delay={0}
+              pulse={index === turn.revealed - 1}
+            />
+          ))}
+          {turn.plan.h3_cells.length > 28 && (
+            <span className="ml-1 font-mono text-[10px] text-muted-foreground">+{turn.plan.h3_cells.length - 28}</span>
+          )}
+        </div>
+      )}
+      {step.id === 'query' && turn.query && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          <Chip tone="primary" icon={<Funnel className="size-3" />}>
+            {turn.query.filters.kind}
+          </Chip>
+          {turn.query.categories.slice(0, 4).map((pick) => (
+            <Chip key={pick.value}>
+              {pick.value} · {pick.count}
+            </Chip>
+          ))}
+        </div>
+      )}
+      {step.id === 'weather' && turn.hail && (
+        <p className="mt-1.5 flex items-center gap-1 text-[10.5px] text-select">
+          <CloudHail className="size-3" />
+          {turn.hail.cells.filter((cell) => cell.hail_days > 0).length} hexes with hail
+        </p>
+      )}
+      {(step.id === 'plan' || step.id === 'review') && (
+        <div className="mt-2 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+          <span className="inline-flex items-center gap-1">
+            <Hexagon className="size-3 text-primary" /> hexes
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <DatabaseZap className="size-3 text-primary" /> process
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Funnel className="size-3 text-primary" /> query
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <MapPinned className="size-3 text-primary" /> geofence
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <CloudHail className="size-3 text-select" /> weather
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Sparkles className="size-3 text-[#cbb8ff]" /> AI column
+          </span>
+        </div>
+      )}
     </div>
   )
+}
+
+function clampStagePosition(x: number, y: number, width: number, height: number) {
+  const maxX = Math.max(8, window.innerWidth - width - 8)
+  const maxY = Math.max(8, window.innerHeight - height - 72)
+  return {
+    x: Math.min(maxX, Math.max(8, x)),
+    y: Math.min(maxY, Math.max(8, y)),
+  }
 }

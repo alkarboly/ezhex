@@ -5,7 +5,7 @@ import { formatNewDataCheck } from '../lib/hex-snapshots'
 import { defaultInspectFilters } from '../lib/feature-rows'
 import { MAX_QUERY_WORKFLOWS, MAX_SELECTED_CELLS } from '../lib/limits'
 import { OVERTURE_RELEASE_RE } from '../lib/overture-release'
-import { asInspectFilters, validateInspectSql } from '../lib/inspect-sql'
+import { asInspectFilters, stripGeneratedComments, validateInspectSql } from '../lib/inspect-sql'
 import { readDataMode } from '../lib/server-env'
 import { createUserClient } from '../lib/supabase'
 import type { QueryWorkflow, QueryWorkflowList, QueryWorkflowNewDataCheck } from '../types/query-workflows'
@@ -512,14 +512,6 @@ function respond(result: unknown): RouteResult {
     return { status: result.status, body: { error: result.error } }
   }
   return { status: 200, body: result }
-}
-
-/** Generated inspect SQL includes comments; custom SQL must not. */
-function stripGeneratedComments(sql: string): string {
-  return sql
-    .split(/\r?\n/)
-    .filter((line) => !line.trim().startsWith('--'))
-    .join('\n')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
