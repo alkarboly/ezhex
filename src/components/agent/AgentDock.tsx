@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react'
 import { AGENT_CAPABILITIES, AGENT_SUGGESTIONS } from '../../lib/agent-capabilities'
 import { cn } from '../../lib/utils'
 import { useAgent, type AgentTurn } from '../../store/agent-store'
+import { useExplorer } from '../../store/explorer-store'
 import { AgentComposer, DrawBar } from './AgentComposer'
 import { AgentTurnCard } from './AgentTurnCard'
 import { agentPrompt, attachAgentPolygon, stopAgent } from './agent-runner'
@@ -31,14 +32,21 @@ export function AgentDock({ mobile }: { mobile: boolean }) {
   const drawing = useAgent((state) => state.drawing)
   const latest = useAgent((state) => state.turns[state.turns.length - 1] ?? null)
   const turnCount = useAgent((state) => state.turns.length)
+  const introHint = useExplorer((state) => state.introHint)
   const busy = latest?.status === 'working' || latest?.status === 'running'
+
+  const openAgent = () => {
+    useExplorer.getState().dismissIntroHint()
+    setOpen(true)
+  }
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault()
         const state = useAgent.getState()
-        state.setOpen(!state.open)
+        if (state.open) state.setOpen(false)
+        else openAgent()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -72,9 +80,15 @@ export function AgentDock({ mobile }: { mobile: boolean }) {
           <button
             type="button"
             aria-label="Open the WorldPulse agent"
-            onClick={() => setOpen(true)}
+            onClick={openAgent}
             className="wp-bubble-pop pointer-events-auto relative grid size-[4.25rem] place-items-center rounded-[1.65rem] rounded-bl-[6px] bg-[#071217] shadow-[0_16px_40px_-16px_rgba(61,222,192,0.85),0_0_0_1px_rgba(61,222,192,0.28)] transition-transform duration-200 hover:scale-[1.05] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary active:scale-95"
           >
+            {introHint && (
+              <>
+                <span aria-hidden className="wp-intro-ping pointer-events-none absolute inset-[-6px] rounded-[1.85rem]" />
+                <span aria-hidden className="wp-intro-ping pointer-events-none absolute inset-[-6px] rounded-[1.85rem] [animation-delay:0.7s]" />
+              </>
+            )}
             <AgentOrb size={58} busy={busy} />
             <span
               aria-hidden
@@ -89,7 +103,7 @@ export function AgentDock({ mobile }: { mobile: boolean }) {
           {status ? (
             <button
               type="button"
-              onClick={() => setOpen(true)}
+              onClick={openAgent}
               className="glass wp-rise pointer-events-auto flex max-w-[17rem] items-center gap-2 rounded-full py-1.5 pr-3.5 pl-2.5 text-[11.5px]"
             >
               <span
@@ -103,10 +117,17 @@ export function AgentDock({ mobile }: { mobile: boolean }) {
           ) : (
             !mobile &&
             turnCount === 0 && (
-              <span className="glass wp-rise pointer-events-none rounded-full px-3.5 py-1.5 text-[12px] text-foreground/90">
+              <button
+                type="button"
+                onClick={openAgent}
+                className={cn(
+                  'glass wp-rise pointer-events-auto rounded-full px-3.5 py-1.5 text-left text-[12px] text-foreground/90',
+                  introHint && 'shadow-[0_0_24px_-6px_rgba(61,222,192,0.9)]',
+                )}
+              >
                 <Sparkles className="mr-1 inline size-3.5 -translate-y-px text-primary" />
-                Ask the agent
-              </span>
+                {introHint ? 'Click to start' : 'Ask the agent'}
+              </button>
             )
           )}
         </div>

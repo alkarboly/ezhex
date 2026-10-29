@@ -535,6 +535,7 @@ export function H3Map({
       unlockIntroControls(map)
       container.dataset.arrival = ''
       settleViewMode()
+      useExplorer.getState().completeGlobeFlight()
       if (appliedBasemap.current === openingBasemap) {
         report()
         return
@@ -552,6 +553,7 @@ export function H3Map({
       showGlobe(map)
       if (!arriving) {
         report()
+        useExplorer.getState().completeGlobeFlight()
         return
       }
       hideOpeningAssets(map)
@@ -686,6 +688,7 @@ export function H3Map({
     const slowTimer = window.setTimeout(() => {
       if (!map.isStyleLoaded()) {
         setMapError('The basemap is taking too long to load. Check the network connection and reload.')
+        useExplorer.getState().completeGlobeFlight()
       }
     }, 12000)
 

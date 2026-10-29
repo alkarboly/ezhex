@@ -18,6 +18,7 @@ import { filterFeatureRows } from '../lib/feature-rows'
 import { readyCellsInParents, type ViewportStatus } from '../lib/h3'
 import { H3_RESOLUTION } from '../lib/limits'
 import { getHexStatus } from '../services/workflow-ingestion'
+import { cn } from '../lib/utils'
 import { useAgent } from '../store/agent-store'
 import { useExplorer } from '../store/explorer-store'
 import { DATASET_META } from '../types/datasets'
@@ -62,6 +63,9 @@ export function ExplorerPage() {
   const clearWorkflowPreview = useExplorer((state) => state.clearWorkflowPreview)
   const enrichOpen = useExplorer((state) => state.enrichOpen)
   const setEnrichOpen = useExplorer((state) => state.setEnrichOpen)
+  const introChrome = useExplorer((state) => state.introChrome)
+  const showMapChrome = introChrome !== 'globe'
+  const showAgent = introChrome === 'agent'
   const drawMode = useExplorer((state) => state.drawMode)
   const configured = Boolean(source.data?.supabase?.urlConfigured && source.data?.supabase?.anonKeyConfigured)
   const queryUnavailable = source.data?.mode === 'supabase' && !configured
@@ -259,9 +263,16 @@ export function ExplorerPage() {
       />
       <HexInspectWindow cells={selected} />
       <EnrichPanel />
-      <AgentStage mobile={mobile} />
-      <AgentDock mobile={mobile} />
+      {showAgent && <AgentStage mobile={mobile} />}
+      {showAgent && <AgentDock mobile={mobile} />}
 
+      <div
+        aria-hidden={!showMapChrome}
+        className={cn(
+          'pointer-events-none absolute inset-0 z-20 transition-opacity duration-700 ease-[cubic-bezier(0.22,1,0.32,1)]',
+          showMapChrome ? 'opacity-100' : 'opacity-0',
+        )}
+      >
       {mobile ? (
         <>
           <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start gap-2 px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
@@ -365,6 +376,7 @@ export function ExplorerPage() {
           )}
         </>
       )}
+      </div>
 
       <HexActionDialog
         open={action != null}

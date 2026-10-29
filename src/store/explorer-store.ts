@@ -25,6 +25,8 @@ export type SheetSnap = 'peek' | 'half' | 'full'
 export type FitRequest = { nonce: number; zoomIn: boolean; cells?: readonly string[] }
 export type MobileTab = 'query' | 'results'
 export type DrawMode = 'off' | 'geofence'
+/** Opening load: globe first, then sidebar, then the agent click prompt. */
+export type IntroChrome = 'globe' | 'sidebar' | 'agent'
 export type InspectReplay = {
   nonce: number
   workflowId: string | null
@@ -77,6 +79,10 @@ type ExplorerState = {
   enrichOpen: boolean
   hailSummaries: HailHexSummary[]
   inspectRelease: string | null
+  introChrome: IntroChrome
+  introHint: boolean
+  completeGlobeFlight: () => void
+  dismissIntroHint: () => void
   setDataset: (dataset: DatasetId) => void
   toggleCell: (h3: string, shiftKey: boolean) => void
   clearSelection: () => void
@@ -194,6 +200,21 @@ function createExplorerStore() {
   enrichOpen: false,
   hailSummaries: [],
   inspectRelease: null,
+  introChrome: 'globe',
+  introHint: false,
+  completeGlobeFlight: () => {
+    if (get().introChrome !== 'globe') return
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      set({ introChrome: 'agent', introHint: false })
+      return
+    }
+    set({ introChrome: 'sidebar', introHint: false })
+    window.setTimeout(() => {
+      if (get().introChrome !== 'sidebar') return
+      set({ introChrome: 'agent', introHint: true })
+    }, 1100)
+  },
+  dismissIntroHint: () => set({ introHint: false }),
   setDataset: (dataset) => {
     const sort = defaultSort(dataset)
     set({
@@ -549,7 +570,8 @@ export const useExplorer =
   'inspectFilters' in existing.getState() &&
   'patchInspectFilters' in existing.getState() &&
   'applyAgentQuery' in existing.getState() &&
-  'revealCells' in existing.getState()
+  'revealCells' in existing.getState() &&
+  'introChrome' in existing.getState()
     ? existing
     : createExplorerStore()
 globalThis.__worldpulseExplorer = useExplorer
