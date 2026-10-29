@@ -82,7 +82,7 @@ export function AgentDock({ mobile }: { mobile: boolean }) {
         >
           <button
             type="button"
-            aria-label="Open the WorldPulse agent"
+            aria-label="Open the ReadyHex agent"
             onClick={openAgent}
             className="pointer-events-auto relative grid size-[4.25rem] place-items-center rounded-[1.65rem] rounded-bl-[6px] bg-[#071217] shadow-[0_16px_40px_-16px_rgba(61,222,192,0.85),0_0_0_1px_rgba(61,222,192,0.28)] transition-transform duration-200 hover:scale-[1.05] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary active:scale-95"
           >
@@ -162,7 +162,7 @@ function AgentPanel({ mobile, onClose }: { mobile: boolean; onClose: () => void 
     <section
       data-agent-panel
       role="dialog"
-      aria-label="WorldPulse agent"
+      aria-label="ReadyHex agent"
       onKeyDown={(event) => {
         if (event.key === 'Escape') onClose()
       }}
@@ -180,7 +180,7 @@ function AgentPanel({ mobile, onClose }: { mobile: boolean; onClose: () => void 
       <header className="relative flex items-center gap-2.5 px-3.5 pt-3 pb-2.5">
         <AgentOrb size={34} busy={busy} />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold tracking-tight">WorldPulse Agent</p>
+          <p className="text-[13px] font-semibold tracking-tight">ReadyHex Agent</p>
           <p className="truncate text-[10.5px] text-muted-foreground">{headerStatus(latest)}</p>
         </div>
         <button

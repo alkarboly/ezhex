@@ -21,7 +21,7 @@ User selects hexes and inspect filters (or the Explorer agent derives them from 
   → query-workflow run logs + `/ledger` show quote, accept, debit, tip, and result
 ```
 
-Rho is the **bank the agents spend from**. OpenAI is the **broker**. WorldPulse owns the catalog, the run, and the log. Rho does not broker. The browser does not call OpenAI or Rho.
+Rho is the **bank the agents spend from**. OpenAI is the **broker**. ReadyHex owns the catalog, the run, and the log. Rho does not broker. The browser does not call OpenAI or Rho.
 
 ## What already exists
 
@@ -52,7 +52,7 @@ Hackathon access (do not commit any of this):
 - Access dies after the hackathon
 - Never paste the password, VPN profile, or card PAN into chat, git, or the browser bundle
 
-Public docs (`docs.rho.co`) are mostly **read-only**. A token is scoped to **one business**. Tokens cannot mint a Rho account per WorldPulse user. The OpenAPI lists `accounts_payable:payments:write`, but published AP endpoints are GET. Staging may allow UI payments and possibly a write token — check Settings → API / Access Tokens **while on the VPN**.
+Public docs (`docs.rho.co`) are mostly **read-only**. A token is scoped to **one business**. Tokens cannot mint a Rho account per ReadyHex user. The OpenAPI lists `accounts_payable:payments:write`, but published AP endpoints are GET. Staging may allow UI payments and possibly a write token — check Settings → API / Access Tokens **while on the VPN**.
 
 Public sandbox (`https://rhoapi-sandbox.rho.co/api/v1`, `Authorization: Bearer sandbox`) is fictional GET data. Staging behind VPN is the real demo rail.
 
@@ -68,7 +68,7 @@ One staging treasury. The virtual card is the orchestrator’s debit card.
 | Vendor: geofence | `geofence` |
 | Vendor: ai_column | `ai_column` |
 
-Do **not** open a Rho login per WorldPulse sign-up. WorldPulse users get **in-app credits** seeded from the staging pot. Rho holds the company/agent pots.
+Do **not** open a Rho login per ReadyHex sign-up. ReadyHex users get **in-app credits** seeded from the staging pot. Rho holds the company/agent pots.
 
 Env (names only, values in `.env` / Render, never in repo):
 

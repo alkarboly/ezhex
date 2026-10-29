@@ -44,7 +44,7 @@ def parse_args() -> argparse.Namespace:
         "--metrics-prefix",
         help="Override plan metrics_prefix. Hex metrics are written under runs/<run_id>/hex_metrics.",
     )
-    parser.add_argument("--app-name", default="worldpulse-workflow-ingest")
+    parser.add_argument("--app-name", default="readyhex-workflow-ingest")
     return parser.parse_args()
 
 

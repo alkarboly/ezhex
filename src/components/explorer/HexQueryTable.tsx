@@ -370,7 +370,7 @@ export function HexQueryTable() {
         }}
         onDownload={() => {
           const stamp = new Date().toISOString().slice(0, 10)
-          downloadCsv(`worldpulse-inspect-${stamp}.csv`, featureRowsToCsv(sorted))
+          downloadCsv(`readyhex-inspect-${stamp}.csv`, featureRowsToCsv(sorted))
         }}
         onToggleCreate={() => {
           setCreateOpen((open) => !open)

@@ -1,6 +1,6 @@
 import type { IngestionJob } from '../types/workflows'
 
-const STORE = Symbol.for('worldpulse.ingestion-jobs')
+const STORE = Symbol.for('readyhex.ingestion-jobs')
 
 type Store = { jobs: Map<string, IngestionJob> }
 

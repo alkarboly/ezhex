@@ -9,7 +9,7 @@ export function LicensesPage() {
         <header>
           <h1 className="text-xl font-semibold">Licenses</h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            WorldPulse displays and stores public map data. This page is the attribution and license notice for that
+            ReadyHex displays and stores public map data. This page is the attribution and license notice for that
             data.
           </p>
         </header>

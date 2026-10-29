@@ -33,9 +33,9 @@ Optional overrides:
 ```bash
 python pipelines/spark/workflow_ingest.py \
   --plan /tmp/plan.json \
-  --input-prefix s3://worldpulse/overture-silver \
-  --output-prefix s3://worldpulse/workflows \
-  --metrics-prefix s3://worldpulse/workflow-metrics
+  --input-prefix s3://readyhex/overture-silver \
+  --output-prefix s3://readyhex/workflows \
+  --metrics-prefix s3://readyhex/workflow-metrics
 ```
 
 ## Output layout

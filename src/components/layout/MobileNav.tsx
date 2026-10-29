@@ -32,7 +32,7 @@ export function MobileNavButton({ className }: { className?: string }) {
           <div className="flex items-center gap-3">
             <BrandMark size={34} />
             <div className="min-w-0">
-              <Dialog.Title className="text-sm font-semibold">WorldPulse</Dialog.Title>
+              <Dialog.Title className="text-sm font-semibold">ReadyHex</Dialog.Title>
               <Dialog.Description className="text-xs text-muted-foreground">Austin H3 explorer</Dialog.Description>
             </div>
             <Dialog.Close
@@ -99,7 +99,7 @@ export function MobilePageHeader() {
   return (
     <header className="flex shrink-0 items-center gap-3 border-b border-white/[0.06] px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
       <MobileNavButton />
-      <span className="text-sm font-semibold">{item?.label ?? 'WorldPulse'}</span>
+      <span className="text-sm font-semibold">{item?.label ?? 'ReadyHex'}</span>
     </header>
   )
 }

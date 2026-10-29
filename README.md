@@ -1,6 +1,6 @@
-# WorldPulse
+# ReadyHex
 
-WorldPulse is an H3 map for exploring Overture building, address, and place records. Process a hex to download all three themes, with geometry and links, from the public Overture release into Supabase.
+ReadyHex (readyhex.com) is an H3 map for exploring Overture building, address, and place records. Process a hex to download all three themes, with geometry and links, from the public Overture release into Supabase.
 
 ## Run locally
 
@@ -100,6 +100,8 @@ Workflow ingestion envs in `.env.example`:
 - `WORKFLOW_METRICS_PREFIX`
 
 ## Deploy
+
+Production is [readyhex.com](https://readyhex.com). Point that domain at this Render web service. Rename the existing Render web service to `readyhex` in the dashboard if its name does not match, so a blueprint sync does not create a second service.
 
 Render runs a Node web service. `render.yaml` builds `main` with Node 22.16.0 using `build:web` at a 384MB heap, then starts `NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js`. Do not set `NODE_OPTIONS` in the dashboard or the Vite build will OOM. It sets `DATA_MODE=supabase` and the 8,000 / 20,000 ingest caps. The install uses `npm ci --include=dev` so TypeScript and Vite are present when `NODE_ENV` is `production`.
 

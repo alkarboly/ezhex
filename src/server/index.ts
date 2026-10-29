@@ -26,7 +26,7 @@ if (!production) {
 }
 
 server.listen(port, '0.0.0.0', () => {
-  console.log(`WorldPulse listening on ${port}`)
+  console.log(`ReadyHex listening on ${port}`)
 })
 
 process.on('SIGTERM', () => {

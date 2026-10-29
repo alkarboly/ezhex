@@ -16,7 +16,7 @@ export function compileInspectSql(
 ): string {
   const hexes = [...new Set(cells)]
   const lines = [
-    '-- WorldPulse inspect',
+    '-- ReadyHex inspect',
     '-- Places left-join linked addresses and buildings. Inspect also appends unmatched rows from the same hexes.',
     'SELECT',
     '  places.id,',

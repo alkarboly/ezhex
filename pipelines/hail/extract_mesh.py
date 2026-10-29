@@ -82,7 +82,7 @@ def max_for_bbox(lats, lons, values, west, south, east, north):
 
 def download_12z(day: str, dest: Path) -> str:
     url = https_url(day)
-    request = urllib.request.Request(url, headers={"User-Agent": "worldpulse-hail/1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "readyhex-hail/1"})
     with urllib.request.urlopen(request, timeout=60) as response, dest.open("wb") as out:
         shutil.copyfileobj(response, out)
     return object_key(day)

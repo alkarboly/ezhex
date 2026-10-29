@@ -67,9 +67,9 @@ export function planWorkflowIngestion(body: unknown): WorkflowIngestionPlan {
     limits,
     max_rows_by_dataset: maxRowsByDataset,
     max_total_rows: maxTotalRows,
-    input_prefix: cleanPrefix(serverEnv('OVERTURE_SILVER_PREFIX') || 's3://worldpulse/overture-silver'),
-    output_prefix: cleanPrefix(serverEnv('WORKFLOW_OUTPUT_PREFIX') || 's3://worldpulse/workflows'),
-    metrics_prefix: cleanPrefix(serverEnv('WORKFLOW_METRICS_PREFIX') || 's3://worldpulse/workflow-metrics'),
+    input_prefix: cleanPrefix(serverEnv('OVERTURE_SILVER_PREFIX') || 's3://readyhex/overture-silver'),
+    output_prefix: cleanPrefix(serverEnv('WORKFLOW_OUTPUT_PREFIX') || 's3://readyhex/workflows'),
+    metrics_prefix: cleanPrefix(serverEnv('WORKFLOW_METRICS_PREFIX') || 's3://readyhex/workflow-metrics'),
     run_id: runId,
     created_at: new Date().toISOString(),
   }

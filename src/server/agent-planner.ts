@@ -825,7 +825,7 @@ async function modelIntent(
 
 function planSystemPrompt(): string {
   return [
-    'You are the planning agent for WorldPulse. Turn one user request into a structured data plan. Return only JSON.',
+    'You are the planning agent for ReadyHex. Turn one user request into a structured data plan. Return only JSON.',
     agentCapabilityBrief(maxNewHexes()),
     'JSON shape: {"reply": string, "region": {"kind": "selection|view|place|point|polygon|previous", "place": string|null, "radius_km": number|null, "lat": number|null, "lng": number|null}, "dataset": "places|buildings|addresses|all", "category_terms": string[], "search": string|null, "confidence_min": 0.5|0.7|0.9|null, "open_only": boolean, "require": ("phone"|"email"|"socials"|"official_id")[], "geofence_keep": "inside"|"outside"|null, "hail_days": number|null, "ai_column": {"column": string, "value_type": "bool|enum|number|text", "prompt": string, "source_fields": string[], "enum_values": string[]}|null, "workflow_name": string}',
     'Rules:',
@@ -1530,7 +1530,7 @@ type GeoHit = {
 }
 const geocodeCache = new Map<string, GeoHit | null>()
 const localityCache = new Map<string, string | null>()
-const GEOCODER_HEADERS = { accept: 'application/json', 'user-agent': 'WorldPulse-agent/0.1 (hackathon demo data exchange)' }
+const GEOCODER_HEADERS = { accept: 'application/json', 'user-agent': 'ReadyHex-agent/0.1 (hackathon demo data exchange)' }
 
 function geocoderOff(): boolean {
   return serverEnv('AGENT_GEOCODER') === 'off'

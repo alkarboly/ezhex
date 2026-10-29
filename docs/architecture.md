@@ -1,6 +1,6 @@
 # Architecture
 
-The explorer reads Overture rows from Supabase. Process downloads the public Overture Maps release for the selected hex bbox and writes those rows. Mock data is only used when `DATA_MODE=mock` (local verify).
+ReadyHex (readyhex.com) is the H3 explorer. The explorer reads Overture rows from Supabase. Process downloads the public Overture Maps release for the selected hex bbox and writes those rows. Mock data is only used when `DATA_MODE=mock` (local verify).
 
 ```
 Browser

@@ -30,7 +30,7 @@ export function useResultsModel(compiled: CompiledQuery, query: UseQueryResult<Q
     setExporting(true)
     try {
       const exported = await getDataProvider().runQuery({ ...compiled.spec, offset: 0, limit: MAX_QUERY_LIMIT })
-      downloadCsv(`worldpulse-${dataset}.csv`, rowsToCsv(columns, exported.rows))
+      downloadCsv(`readyhex-${dataset}.csv`, rowsToCsv(columns, exported.rows))
       if (exported.total > exported.rows.length) {
         setNotice(`Exported ${formatCount(exported.rows.length)} of ${formatCount(exported.total)} matching rows.`)
       }

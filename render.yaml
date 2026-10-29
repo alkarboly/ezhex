@@ -3,7 +3,9 @@
 # server reads it on each boot. Never put a service-role key here.
 services:
   - type: web
-    name: worldpulse
+    # Public site is readyhex.com. Rename the existing Render service to this
+    # name in the dashboard if it does not already match.
+    name: readyhex
     runtime: node
     plan: free
     branch: main

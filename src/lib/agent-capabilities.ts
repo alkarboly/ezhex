@@ -84,7 +84,7 @@ export const AGENT_AI_SOURCE_FIELDS = [
 /** Capability brief for the planning model. Kept next to the UI copy so both describe the same options. */
 export function agentCapabilityBrief(maxNewHexes = AGENT_MAX_NEW_HEXES): string {
   return [
-    'WorldPulse is a hex-based exchange for Overture Maps data. Hexes are H3 resolution 8 (about 0.74 km2 each).',
+    'ReadyHex is a hex-based exchange for Overture Maps data. Hexes are H3 resolution 8 (about 0.74 km2 each).',
     'Region kinds:',
     ...AGENT_REGION_OPTIONS.map((option) => `- ${option.kind}: ${option.hint}.`),
     `- previous: reuse the hexes from the previous plan (for follow-ups like "add hail" or "only open ones").`,

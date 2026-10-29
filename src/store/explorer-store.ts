@@ -572,10 +572,10 @@ function createExplorerStore() {
 type ExplorerStoreApi = ReturnType<typeof createExplorerStore>
 
 declare global {
-  var __worldpulseExplorer: ExplorerStoreApi | undefined
+  var __readyhexExplorer: ExplorerStoreApi | undefined
 }
 
-const existing = globalThis.__worldpulseExplorer
+const existing = globalThis.__readyhexExplorer
 export const useExplorer =
   existing &&
   'inspectFilters' in existing.getState() &&
@@ -586,4 +586,4 @@ export const useExplorer =
   /dock/.test(existing.getState().completeGlobeFlight.toString())
     ? existing
     : createExplorerStore()
-globalThis.__worldpulseExplorer = useExplorer
+globalThis.__readyhexExplorer = useExplorer

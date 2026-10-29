@@ -12,7 +12,7 @@ export function Sidebar() {
   const email = auth.session.data?.user?.email
   return (
     <aside className="relative z-30 flex h-full w-[76px] shrink-0 flex-col items-center border-r border-white/[0.06] bg-[#060a0f] py-3">
-      <NavLink to="/" aria-label="WorldPulse home" className="grid size-12 place-items-center rounded-xl">
+      <NavLink to="/" aria-label="ReadyHex home" className="grid size-12 place-items-center rounded-xl">
         <BrandMark size={34} />
       </NavLink>
       <nav className="mt-4 flex flex-col items-center gap-1">
