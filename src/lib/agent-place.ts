@@ -203,6 +203,18 @@ export type PlaceSpan = {
   label: string
 }
 
+const KNOWN_CITIES: readonly { match: RegExp; name: string; lat: number; lng: number }[] = [
+  { match: /\baustin\b/i, name: 'Austin, TX', lat: 30.2672, lng: -97.7431 },
+  { match: /\bbuda\b/i, name: 'Buda, TX', lat: 30.0852, lng: -97.8403 },
+]
+
+export function lookupKnownCity(text: string): { name: string; lat: number; lng: number } | null {
+  for (const city of KNOWN_CITIES) {
+    if (city.match.test(text)) return { name: city.name, lat: city.lat, lng: city.lng }
+  }
+  return null
+}
+
 export function namesSelection(text: string): boolean {
   return /\b(?:selected|selection|my hexes|these hexes|chosen hexes|my cells|picked hexes|these cells|this hex|this cell)\b/i.test(
     text,

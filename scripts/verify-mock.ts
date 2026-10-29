@@ -33,7 +33,7 @@ import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../src/lib/limits.ts'
 import { balancedHexBatches, connectedHexBatches } from '../src/lib/hex-batches.ts'
 import { extractHexCells } from '../src/lib/hex-ids.ts'
 import { AGENT_SUGGESTIONS } from '../src/lib/agent-capabilities.ts'
-import { extractPlace, extractSpan, namesSelection, placeMentionedInPrompt } from '../src/lib/agent-place.ts'
+import { extractPlace, extractSpan, lookupKnownCity, namesSelection, placeMentionedInPrompt } from '../src/lib/agent-place.ts'
 import { parsePolygonText } from '../src/lib/polygon-input.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
 import { buildMockDatabase } from '../src/services/mock/database.ts'
@@ -932,6 +932,16 @@ const noHailPlan = await routeApi('POST', '/api/agent/plan', {
 })
 assert(noHailPlan.status === 200 && isRecord(noHailPlan.body), `agent plan without weather failed: ${JSON.stringify(noHailPlan.body)}`)
 assert((noHailPlan.body as unknown as AgentPlan).intent.hail_days == null, 'agent plan added hail when it was not requested')
+const spanPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'Help me find commercial properties along I-35 between Austin and Buda, Texas',
+  view: { center: { lat: 30.2672, lng: -97.7431 }, bounds: null, zoom: 11 },
+})
+assert(spanPlanRes.status === 200 && isRecord(spanPlanRes.body), `I-35 Austin–Buda plan failed: ${JSON.stringify(spanPlanRes.body)}`)
+const spanPlan = spanPlanRes.body as unknown as AgentPlan
+assert(spanPlan.region.kind === 'place' && spanPlan.region.label.includes('Interstate 35'), 'I-35 Austin–Buda plan missed the span')
+assert(spanPlan.h3_cells.length > 20, `I-35 Austin–Buda plan kept too few hexes: ${spanPlan.h3_cells.length}`)
+assert(lookupKnownCity('Austin')?.name === 'Austin, TX', 'known city pin missed Austin')
+assert(lookupKnownCity('Buda, Texas')?.name === 'Buda, TX', 'known city pin missed Buda')
 
 const listedHex = cafeCells[0] ?? capitol
 const listedNeighbor = cafeCells[1] ?? gridDisk(listedHex, 1)[1]

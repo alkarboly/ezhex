@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { cellToLatLng, getResolution, gridDisk, isValidCell, latLngToCell, polygonToCells } from 'h3-js'
-import { extractPlace, extractSpan, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, type PlaceSpan } from '../lib/agent-place'
+import { extractPlace, extractSpan, lookupKnownCity, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, type PlaceSpan } from '../lib/agent-place'
 import { AGENT_AI_SOURCE_FIELDS, agentCapabilityBrief } from '../lib/agent-capabilities'
 import { addDay, applyGeofence, asEnrichment } from '../lib/enrichments'
 import {
@@ -972,14 +972,14 @@ async function spanRegion(
   notes: string[],
   locality: string | null,
 ): Promise<ResolvedRegion | ApiError> {
-  const start = await geocodePlace(qualifyCity(span.from, locality), null)
-  const end = await geocodePlace(qualifyCity(span.to, locality), null)
+  const start = await resolveSpanEnd(span.from, span.to, locality)
+  const end = await resolveSpanEnd(span.to, span.from, locality)
   if (!start || !end) {
     const missing = !start ? span.from : span.to
     return { error: `I couldn't find “${missing}”. Add the city and state, or select hexes on the map.`, status: 422 }
   }
-  const a = { lat: start.lat, lng: start.lng }
-  const b = { lat: end.lat, lng: end.lng }
+  const a = start
+  const b = end
   const center = { lat: (a.lat + b.lat) / 2, lng: (a.lng + b.lng) / 2 }
   const box = bboxAround([a, b], 8)
   const road = span.road
@@ -1021,9 +1021,18 @@ async function spanRegion(
   return circleRegion('place', span.label, center, limitRadius(AGENT_MAX_RADIUS_KM, notes))
 }
 
-function qualifyCity(name: string, locality: string | null): string {
+async function resolveSpanEnd(name: string, other: string, locality: string | null): Promise<LatLng | null> {
+  const query = qualifyCity(name, locality, other)
+  const hit = await geocodePlace(query, null)
+  if (hit) return { lat: hit.lat, lng: hit.lng }
+  const known = lookupKnownCity(name) ?? lookupKnownCity(query)
+  return known ? { lat: known.lat, lng: known.lng } : null
+}
+
+function qualifyCity(name: string, locality: string | null, other = ''): string {
   if (/,\s*[A-Z]{2}\b|\b(?:Texas|California|Florida|New York)\b/i.test(name)) return name
   if (locality && /texas/i.test(locality)) return `${name}, TX`
+  if (/\b(?:Texas|,?\s*TX)\b/i.test(other)) return `${name}, TX`
   const state = locality?.split(',').pop()?.trim()
   return state && !name.toLowerCase().includes(state.toLowerCase()) ? `${name}, ${state}` : name
 }
@@ -1506,8 +1515,10 @@ async function geocodePlace(query: string, bias: MapBias | null, preferHighway =
     const bare = await nominatimSearch(query, bias)
     hit = pickBestHit([...primary, ...bare], query, bias, preferHighway)
   }
-  if (geocodeCache.size > 200) geocodeCache.clear()
-  geocodeCache.set(cacheKey, hit)
+  if (hit) {
+    if (geocodeCache.size > 200) geocodeCache.clear()
+    geocodeCache.set(cacheKey, hit)
+  }
   return hit
 }
 
