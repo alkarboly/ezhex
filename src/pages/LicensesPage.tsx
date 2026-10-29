@@ -18,8 +18,8 @@ export function LicensesPage() {
           <h2 className="text-base font-semibold">Map credit</h2>
           <p className="mt-2 text-muted-foreground">{DATA_ATTRIBUTION_TEXT}</p>
           <p className="mt-2 text-muted-foreground">
-            The same line appears on the explorer map. Streets tiles come from OpenFreeMap. Satellite tiles come from
-            Esri. Feature rows come from the public Overture Maps release.
+            The explorer map keeps that line behind the attribution control, collapsed until opened. Streets tiles come
+            from OpenFreeMap. Satellite tiles come from Esri. Feature rows come from the public Overture Maps release.
           </p>
         </section>
 

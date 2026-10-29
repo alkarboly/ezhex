@@ -234,6 +234,7 @@ export function H3Map({
       canvasContextAttributes: { antialias: true },
       attributionControl: { compact: true, customAttribution: DATA_ATTRIBUTION_HTML },
     })
+    collapseAttribution(container)
     map.touchZoomRotate.disableRotation()
     map.scrollZoom.setWheelZoomRate(1 / 1100)
     map.scrollZoom.setZoomRate(1 / 320)
@@ -602,6 +603,7 @@ export function H3Map({
 
     map.on('style.load', () => {
       window.clearTimeout(slowTimer)
+      collapseAttribution(container)
       ensureH3Layers(map, modeRef.current)
       ensureInspectLayers(map)
       ensureGeofenceLayers(map)
@@ -1508,4 +1510,13 @@ function clearOutgoing(map: MapLibreMap) {
   const source = map.getSource('h3-out')
   if (source?.type === 'geojson') (source as GeoJSONSource).setData(EMPTY_COLLECTION)
   paintOutgoing(map, 0)
+}
+
+/** MapLibre starts the compact credit line expanded. Keep only the info button until it is opened. */
+function collapseAttribution(root: HTMLElement) {
+  const attrib = root.querySelector('.maplibregl-ctrl-attrib')
+  if (!attrib) return
+  attrib.classList.add('maplibregl-compact')
+  attrib.classList.remove('maplibregl-compact-show')
+  attrib.removeAttribute('open')
 }

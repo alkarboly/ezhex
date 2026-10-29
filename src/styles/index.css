@@ -318,6 +318,10 @@
   pointer-events: none;
 }
 
+[data-arrival='playing'] .maplibregl-ctrl-attrib {
+  visibility: hidden;
+}
+
 [data-arrival='handoff'] .maplibregl-canvas {
   opacity: 0;
 }
