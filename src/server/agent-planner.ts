@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { cellToLatLng, getResolution, gridDisk, isValidCell, latLngToCell, polygonToCells } from 'h3-js'
-import { extractPlace, extractSpan, lookupKnownCity, namedCityAwayFromMap, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, type PlaceSpan } from '../lib/agent-place'
+import { extractPlace, extractSpan, lookupKnownCity, namedCityAwayFromMap, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, roadSearchName, type PlaceSpan } from '../lib/agent-place'
 import { AGENT_AI_SOURCE_FIELDS, agentCapabilityBrief } from '../lib/agent-capabilities'
 import { addDay, applyGeofence, asEnrichment } from '../lib/enrichments'
 import {
@@ -1134,16 +1134,18 @@ async function corridorRegion(
   notes: string[],
 ): Promise<ResolvedRegion | null> {
   const box = viewboxFor(bias)
+  const road = roadSearchName(place)
   let lines: GeoJsonPosition[][] = hit?.lines ? [...hit.lines] : []
-  const extras = await nominatimSearch(place, bias)
+  const extras = await nominatimSearch(road, bias)
   for (const extra of extras) {
     if (extra.category === 'highway' || extra.lines.length > 0) lines.push(...extra.lines)
   }
-  if (lineLengthKm(lines) < 2 && box) {
-    const traced = await photonHighways(place, box)
+  if (lineLengthKm(lines) < 8 && box) {
+    const traced = await photonHighways(road, box)
     if (traced.length > 0) lines = traced
   }
-  if (box) lines = clipLinesToBbox(lines, box)
+  if (lineLengthKm(lines) < 0.3 && hit?.bbox) lines = [lineFromBox(hit.bbox)]
+  if (box && lineLengthKm(lines) > 15) lines = clipLinesToBbox(lines, box)
   if (lineLengthKm(lines) < 0.3) return null
   return highlightShape(
     label,
@@ -1230,6 +1232,21 @@ function lineLengthKm(lines: readonly GeoJsonPosition[][]): number {
     }
   }
   return km
+}
+
+function lineFromBox(box: GeoBbox): GeoJsonPosition[] {
+  const midLat = (box.south + box.north) / 2
+  const midLng = (box.west + box.east) / 2
+  if (box.north - box.south >= box.east - box.west) {
+    return [
+      [midLng, box.south],
+      [midLng, box.north],
+    ]
+  }
+  return [
+    [box.west, midLat],
+    [box.east, midLat],
+  ]
 }
 
 function clipLinesToBbox(lines: readonly GeoJsonPosition[][], box: GeoBbox): GeoJsonPosition[][] {

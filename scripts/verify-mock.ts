@@ -33,7 +33,7 @@ import { H3_RESOLUTION, MAX_AGENT_HEX_BATCH } from '../src/lib/limits.ts'
 import { balancedHexBatches, connectedHexBatches } from '../src/lib/hex-batches.ts'
 import { extractHexCells } from '../src/lib/hex-ids.ts'
 import { AGENT_SUGGESTIONS } from '../src/lib/agent-capabilities.ts'
-import { extractPlace, extractSpan, lookupKnownCity, namesSelection, placeMentionedInPrompt } from '../src/lib/agent-place.ts'
+import { extractPlace, extractSpan, lookupKnownCity, namesCorridor, namesSelection, placeMentionedInPrompt } from '../src/lib/agent-place.ts'
 import { parsePolygonText } from '../src/lib/polygon-input.ts'
 import { buildQuerySpec } from '../src/lib/query-builder.ts'
 import { buildMockDatabase } from '../src/services/mock/database.ts'
@@ -1038,6 +1038,11 @@ assert(
   'place parser missed conversational Westgate',
 )
 assert(extractPlace('help me find coffee along south lamar') === 'South Lamar Boulevard, Austin, TX', 'place parser missed along South Lamar')
+assert(namesCorridor('Help me find coffee shops along South Lamar'), 'along South Lamar should be a corridor')
+assert(namesCorridor('find hexes on South Lamar'), 'on South Lamar should be a corridor')
+assert(namesCorridor('highlight Mopac'), 'naming Mopac should be a corridor')
+assert(namesCorridor('coffee on South Congress'), 'on South Congress should be a corridor')
+assert(!namesCorridor('Help me search for commercial properties in the westgate neighborhood in austin tx'), 'Westgate should not be a corridor')
 assert(extractPlace('find restaurants along I-35') === 'Interstate 35, Austin, TX', 'place parser missed along I-35')
 assert(extractPlace('find hexes in Dallas') === 'Dallas', 'place parser missed Dallas')
 assert(extractPlace('find hexes in Houston') === 'Houston', 'place parser missed Houston')

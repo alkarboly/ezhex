@@ -192,6 +192,8 @@ const KNOWN_AREAS: readonly { match: RegExp; place: string }[] = [
 const KNOWN_ROADS: readonly { match: RegExp; road: string }[] = [
   { match: /\bsouth\s+lamar\b/i, road: 'South Lamar Boulevard' },
   { match: /\bnorth\s+lamar\b/i, road: 'North Lamar Boulevard' },
+  { match: /\b(?:south\s+congress|soco)\b/i, road: 'South Congress Avenue' },
+  { match: /\b(?:6th|sixth)\s+street\b/i, road: '6th Street' },
   { match: /\b(?:mopac|mo-?pac|loop\s*1)\b/i, road: 'Mopac Expressway' },
   { match: /\b(?:i-?35|ih-?35|interstate\s*35)\b/i, road: 'Interstate 35' },
   { match: /\b(?:(?:state\s+)?(?:highway|hwy)\s*71|ben\s+white)\b/i, road: 'Ben White Boulevard' },
@@ -232,7 +234,17 @@ export function namesSelection(text: string): boolean {
 }
 
 export function namesCorridor(text: string): boolean {
-  return extractCorridor(text) != null || extractSpan(text) != null
+  if (extractCorridor(text) != null || extractSpan(text) != null) return true
+  if (matchKnownRoad(text)) return true
+  return looksLikeRoad(extractPlace(text) ?? '')
+}
+
+/** Road name for geocoders: drop a trailing city so Photon can match the way. */
+export function roadSearchName(place: string): string {
+  const known = matchKnownRoad(place)
+  if (known) return known
+  const stripped = place.replace(/,\s*[^,]+(?:\s*,\s*[^,]+)*$/, '').trim()
+  return stripped || place
 }
 
 export function extractPlace(text: string): string | null {
@@ -278,6 +290,11 @@ export function pickBetterPlace(
     const leftHas = city.length >= 3 && left.toLowerCase().includes(city)
     const rightHas = city.length >= 3 && right.toLowerCase().includes(city)
     if (leftHas !== rightHas) return leftHas ? left : right
+  }
+  if (namesCorridor(prompt) && left && right) {
+    const leftRoad = looksLikeRoad(left) || matchKnownRoad(left) != null
+    const rightRoad = looksLikeRoad(right) || matchKnownRoad(right) != null
+    if (leftRoad !== rightRoad) return leftRoad ? left : right
   }
   if (left && right) {
     if (left.includes(',') && !right.includes(',')) return left
@@ -360,12 +377,19 @@ function qualifyKnownPlace(known: string, text: string): string {
 
 function extractCorridor(text: string): string | null {
   const match = text.match(
-    /\b(?:along|down)\s+(?:the\s+)?(?!with\b|side\b|here\b|there\b)(.+?)(?:\s+(?:in|near)\s+(.+?))?(?=\s+(?:with|and|that|for|using|plus)|[,.;!?]|$)/i,
+    /\b(?:along|down|on)\s+(?:the\s+)?(?!with\b|side\b|here\b|there\b|map\b|screen\b)(.+?)(?:\s+(?:in|near)\s+(.+?))?(?=\s+(?:with|and|that|for|using|plus)|[,.;!?]|$)/i,
   )
   const road = cleanPlace(match?.[1])
   if (!road) return null
+  if (!looksLikeRoad(road) && !matchKnownRoad(road) && !matchKnownRoad(text)) return null
   const city = cleanPlace(match?.[2])
   return city ? `${road}, ${city}` : road
+}
+
+function looksLikeRoad(text: string): boolean {
+  return /\b(?:streets?|st\.?|roads?|rd\.?|blvd|boulevard|avenues?|ave\.?|highways?|hwy|interstate|i-\d+|loop|trails?|drives?|dr\.?|parkway|pkwy|expressway|freeway|lanes?|ln\.?)\b/i.test(
+    text,
+  )
 }
 
 function matchNeighborhoodCity(text: string): string | null {
