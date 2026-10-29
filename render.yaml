@@ -9,7 +9,7 @@ services:
     branch: main
     # Build heap is 384MB. Do not set NODE_OPTIONS on the service: Render
     # applies it to the build too, and Vite OOMs at 256MB.
-    buildCommand: python3 -m pip install --user -r pipelines/hail/requirements.txt && npm ci --include=dev && NODE_OPTIONS=--max-old-space-size=384 npm run build:web
+    buildCommand: python3 -m pip install -r pipelines/hail/requirements.txt && npm ci --include=dev && NODE_OPTIONS=--max-old-space-size=384 npm run build:web
     startCommand: NODE_OPTIONS=--max-old-space-size=256 node dist-server/index.js
     healthCheckPath: /api/health
     autoDeployTrigger: commit
