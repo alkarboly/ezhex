@@ -1101,6 +1101,30 @@ assert(
   'named place reused leftover selected hexes',
 )
 
+const draftAi = {
+  id: 'ai_column',
+  kind: 'ai_column',
+  column: 'broker_flag',
+  value_type: 'bool',
+  prompt: 'Is this a broker lead?',
+  source_fields: ['name', 'category'],
+}
+const draftAiPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'Coffee shops',
+  selection: cafeCells,
+  enrichments: [draftAi],
+})
+assert(draftAiPlanRes.status === 200 && isRecord(draftAiPlanRes.body), `agent did not keep the Add-ons AI column: ${JSON.stringify(draftAiPlanRes.body)}`)
+const draftAiPlan = draftAiPlanRes.body as unknown as AgentPlan
+assert(draftAiPlan.intent.ai_column?.column === 'broker_flag', 'Add-ons AI column was dropped from the plan')
+assert(/broker_flag/.test(draftAiPlan.reply), 'plan reply did not mention the Add-ons AI column')
+const skipAiPlanRes = await routeApi('POST', '/api/agent/plan', {
+  prompt: 'Coffee shops without scoring',
+  selection: cafeCells,
+  enrichments: [draftAi],
+})
+assert(skipAiPlanRes.status === 200 && isRecord(skipAiPlanRes.body), `agent skip-AI plan failed: ${JSON.stringify(skipAiPlanRes.body)}`)
+assert((skipAiPlanRes.body as unknown as AgentPlan).intent.ai_column == null, 'agent kept the AI column after the prompt dropped it')
 const implicitSel = await routeApi('POST', '/api/agent/plan', { prompt: 'Coffee shops', selection: cafeCells })
 assert(implicitSel.status === 200 && isRecord(implicitSel.body), `agent implicit selection plan failed: ${JSON.stringify(implicitSel.body)}`)
 const implicitPlan = implicitSel.body as unknown as AgentPlan
@@ -1113,6 +1137,18 @@ const square = squarePolygon(AUSTIN_CENTER.lng, AUSTIN_CENTER.lat, 0.008)
 const polygonPlanRes = await routeApi('POST', '/api/agent/plan', { prompt: 'Restaurants inside my polygon with high confidence', polygon: square })
 assert(polygonPlanRes.status === 200 && isRecord(polygonPlanRes.body), `agent polygon plan failed: ${JSON.stringify(polygonPlanRes.body)}`)
 const polygonPlan = polygonPlanRes.body as unknown as AgentPlan
+const fenceQueryRes = await routeApi('POST', '/api/agent/query', {
+  prompt: 'Coffee shops',
+  h3_cells: implicitPlan.h3_cells,
+  intent: implicitPlan.intent,
+  region: implicitPlan.region,
+  enrichments: [{ id: 'geofence', kind: 'geofence', keep: 'inside', polygon: square }],
+})
+assert(fenceQueryRes.status === 200 && isRecord(fenceQueryRes.body), `agent query dropped the Add-ons polygon: ${JSON.stringify(fenceQueryRes.body)}`)
+assert(
+  (fenceQueryRes.body as unknown as AgentQueryResponse).enrichments.some((step) => step.kind === 'geofence'),
+  'selection query did not keep the Add-ons geofence',
+)
 assert(polygonPlan.region.kind === 'polygon' && polygonPlan.region.polygon, 'agent polygon plan lost the polygon')
 assert(polygonPlan.h3_cells.length > 1 && polygonPlan.h3_cells.includes(capitol), 'agent did not derive hexes from the polygon')
 assert((polygonPlan.intent.confidence_min ?? 0) >= 0.5, 'agent polygon plan missed the confidence ask')

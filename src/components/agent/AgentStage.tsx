@@ -1,4 +1,4 @@
-import { CloudHail, DatabaseZap, Funnel, Hexagon, Sparkles } from 'lucide-react'
+import { CloudHail, DatabaseZap, Funnel, Hexagon, MapPinned, Sparkles } from 'lucide-react'
 import { useAgent, type AgentStepId, type AgentTurn } from '../../store/agent-store'
 import { AgentOrb, Chip, HexGlyph, ShimmerBar } from './agent-ui'
 
@@ -30,12 +30,26 @@ const STAGE: Record<AgentStepId, { kicker: string; line: (turn: AgentTurn) => st
       return `${kept.toLocaleString()} of ${turn.query.total_rows.toLocaleString()} rows · ${turn.query.filters.kind}`
     },
   },
+  geofence: {
+    kicker: 'Geofence',
+    line: (turn) => {
+      const fence = turn.query?.enrichments.find((step) => step.kind === 'geofence')
+      return fence && fence.kind === 'geofence' ? `Keep ${fence.keep} · specialist job on run` : 'No custom polygon'
+    },
+  },
   weather: {
     kicker: 'Weather',
     line: (turn) =>
       turn.hail
         ? `Hail ${turn.hail.start} → ${turn.hail.end} · NOAA MESH`
         : 'Pulling weather for these hexes',
+  },
+  ai_column: {
+    kicker: 'AI column',
+    line: (turn) => {
+      const ai = turn.query?.enrichments.find((step) => step.kind === 'ai_column')
+      return ai && ai.kind === 'ai_column' ? `Write ${ai.column} · specialist job on run` : 'No AI column'
+    },
   },
   review: { kicker: 'Ready', line: (turn) => turn.query?.workflow_name ?? 'Waiting for your approval' },
   run: { kicker: 'Running', line: () => 'Saving the workflow and debiting the ledger' },
@@ -118,10 +132,13 @@ export function AgentStage({ mobile }: { mobile: boolean }) {
               <Funnel className="size-3 text-primary" /> query
             </span>
             <span className="inline-flex items-center gap-1">
+              <MapPinned className="size-3 text-primary" /> geofence
+            </span>
+            <span className="inline-flex items-center gap-1">
               <CloudHail className="size-3 text-select" /> weather
             </span>
             <span className="inline-flex items-center gap-1">
-              <Sparkles className="size-3 text-[#cbb8ff]" /> enrich
+              <Sparkles className="size-3 text-[#cbb8ff]" /> AI column
             </span>
           </div>
         )}

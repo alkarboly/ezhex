@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { cellToLatLng, getResolution, gridDisk, isValidCell, latLngToCell, polygonToCells } from 'h3-js'
 import { extractPlace, extractSpan, lookupKnownCity, namedCityAwayFromMap, namesCorridor, namesSelection, pickBetterPlace, placeMentionedInPrompt, roadSearchName, type PlaceSpan } from '../lib/agent-place'
 import { AGENT_AI_SOURCE_FIELDS, agentCapabilityBrief } from '../lib/agent-capabilities'
-import { addDay, applyGeofence, asEnrichment } from '../lib/enrichments'
+import { addDay, applyGeofence, asEnrichment, asEnrichments, dayCount } from '../lib/enrichments'
 import {
   defaultInspectFilters,
   filterFeatureRows,
@@ -69,6 +69,7 @@ type PlanInput = {
   polygon: GeofencePolygon | null
   polygonSimplified: boolean
   weather: boolean
+  enrichments: WorkflowEnrichment[]
   previous: AgentPrevious | null
 }
 
@@ -178,6 +179,7 @@ export async function planAgentRun(body: unknown, cookies: Record<string, string
   const heuristic = heuristicIntent(input)
   const model = await modelIntent(input, heuristic, locality)
   const intent = model?.intent ?? heuristic
+  applyDraftAddons(intent, input.prompt, input.enrichments)
   if (input.weather && intent.hail_days == null) intent.hail_days = AGENT_DEFAULT_HAIL_DAYS
   withHailSourceFields(intent)
 
@@ -219,7 +221,7 @@ export async function planAgentRun(body: unknown, cookies: Record<string, string
 
   return {
     id: randomUUID(),
-    reply: model?.reply || describePlan(intent, resolved.region, missing.length),
+    reply: planReply(model?.reply, intent, resolved.region, missing.length),
     used_model: Boolean(model),
     intent,
     region: resolved.region,
@@ -244,6 +246,9 @@ export async function buildAgentQuery(body: unknown, cookies: Record<string, str
   const region = parseRegion(body.region)
   if (!region) return { error: 'Region is invalid.', status: 400 }
   const intent = sanitizeIntent(body.intent, emptyIntent())
+  const drafts = asEnrichments(body.enrichments ?? [])
+  if (!drafts) return { error: 'Enrichments must be a geofence, hail_history, or ai_column list.', status: 400 }
+  applyDraftAddons(intent, prompt, drafts)
   const owner = await assistOwner(cookies)
   if ('error' in owner) return owner
 
@@ -291,7 +296,7 @@ export async function buildAgentQuery(body: unknown, cookies: Record<string, str
   for (const field of intent.require) filters[presenceFilterKey(field)] = 'yes'
 
   const matched = filterFeatureRows(rows, filters)
-  const enrichments = agentEnrichments(intent, region)
+  const enrichments = agentEnrichments(intent, region, drafts)
   const geofence = enrichments.find((step) => step.kind === 'geofence')
   const fenced = geofence && geofence.kind === 'geofence' ? applyGeofence(matched, geofence) : null
   const hailStep = enrichments.find((step) => step.kind === 'hail_history')
@@ -352,6 +357,8 @@ function parsePlanRequest(body: unknown): PlanInput | ApiError {
     polygon = fitted.polygon
     polygonSimplified = fitted.simplified
   }
+  const enrichments = asEnrichments(body.enrichments ?? [])
+  if (!enrichments) return { error: 'Enrichments must be a geofence, hail_history, or ai_column list.', status: 400 }
   return {
     prompt,
     selection: selection.cells,
@@ -360,6 +367,7 @@ function parsePlanRequest(body: unknown): PlanInput | ApiError {
     polygon,
     polygonSimplified,
     weather: body.weather === true,
+    enrichments,
     previous: parsePrevious(body.previous),
   }
 }
@@ -1774,13 +1782,48 @@ function presenceFilterKey(field: AgentPresenceField): 'hasPhone' | 'hasEmail' |
   return 'hasOfficialId'
 }
 
-function agentEnrichments(intent: AgentIntent, region: AgentRegion): WorkflowEnrichment[] {
+function applyDraftAddons(intent: AgentIntent, prompt: string, drafts: readonly WorkflowEnrichment[]) {
+  const skipHail = /\b(?:no|without|remove|drop|skip)\s+(?:the\s+)?(?:hail|weather|storm)/.test(prompt.toLowerCase())
+  const skipAi = /\b(?:no|without|remove|drop|skip)\s+(?:the\s+)?(?:ai|score|scoring|column|label)/.test(prompt.toLowerCase())
+  const draftHail = drafts.find((step) => step.kind === 'hail_history')
+  const draftAi = drafts.find((step) => step.kind === 'ai_column')
+  if (skipHail) intent.hail_days = null
+  else if (intent.hail_days == null && draftHail && draftHail.kind === 'hail_history') {
+    intent.hail_days = Math.min(MAX_HAIL_DAYS, dayCount(draftHail.start_date, draftHail.end_date))
+  }
+  if (skipAi) intent.ai_column = null
+  else if (!intent.ai_column && draftAi && draftAi.kind === 'ai_column') {
+    intent.ai_column = {
+      column: draftAi.column,
+      value_type: draftAi.value_type,
+      prompt: draftAi.prompt,
+      source_fields: [...draftAi.source_fields],
+      ...(draftAi.enum_values ? { enum_values: [...draftAi.enum_values] } : {}),
+    }
+  }
+}
+
+function agentEnrichments(
+  intent: AgentIntent,
+  region: AgentRegion,
+  drafts: readonly WorkflowEnrichment[] = [],
+): WorkflowEnrichment[] {
   const steps: unknown[] = []
-  if (region.polygon) steps.push({ id: 'geofence', kind: 'geofence', keep: intent.geofence_keep ?? 'inside', polygon: region.polygon })
+  if (region.polygon) {
+    steps.push({ id: 'geofence', kind: 'geofence', keep: intent.geofence_keep ?? 'inside', polygon: region.polygon })
+  } else {
+    const draftFence = drafts.find((step) => step.kind === 'geofence')
+    if (draftFence) steps.push(draftFence)
+  }
   if (intent.hail_days != null) {
     const end = new Date().toISOString().slice(0, 10)
     const start = addDay(end, -(Math.min(MAX_HAIL_DAYS, intent.hail_days) - 1))
-    steps.push({ id: 'hail_history', kind: 'hail_history', start_date: start < HAIL_MESH_START ? HAIL_MESH_START : start, end_date: end })
+    steps.push({
+      id: 'hail_history',
+      kind: 'hail_history',
+      start_date: start < HAIL_MESH_START ? HAIL_MESH_START : start,
+      end_date: end,
+    })
   }
   if (intent.ai_column) steps.push({ id: 'ai_column', kind: 'ai_column', ...intent.ai_column })
   return steps.flatMap((step) => {
@@ -1824,6 +1867,23 @@ function describePlan(intent: AgentIntent, region: AgentRegion, missing: number)
   if (steps.length === 0) return `${head}.`
   if (steps.length === 1) return `${head}, then ${steps[0]}.`
   return `${head}, then ${steps.slice(0, -1).join(', ')}, and ${steps[steps.length - 1]}.`
+}
+
+function planReply(modelReply: string | undefined, intent: AgentIntent, region: AgentRegion, missing: number): string {
+  const described = describePlan(intent, region, missing)
+  if (!modelReply) return described
+  const extras: string[] = []
+  if (intent.hail_days != null && !/\b(?:hail|weather|storm)\b/i.test(modelReply)) {
+    extras.push(`add ${intent.hail_days} days of weather`)
+  }
+  if (intent.ai_column) {
+    const named = new RegExp(`\\b${intent.ai_column.column}\\b`, 'i').test(modelReply)
+    if (!named && !/\b(?:score|scoring|ai column)\b/i.test(modelReply)) {
+      extras.push(`score every row into \`${intent.ai_column.column}\``)
+    }
+  }
+  if (extras.length === 0) return modelReply
+  return `${modelReply.replace(/[.!?]\s*$/, '')}, then ${extras.join(' and ')}.`
 }
 
 function defaultWorkflowName(intent: AgentIntent, region: AgentRegion): string {

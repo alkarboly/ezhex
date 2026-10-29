@@ -18,8 +18,14 @@ import {
 } from '../../store/agent-store'
 import { useExplorer } from '../../store/explorer-store'
 import type { AgentPlan, AgentPrevious, AgentQueryResponse, AgentViewContext } from '../../types/agents'
-import type { GeofencePolygon, HailHistoryEnrichment, WorkflowEnrichment } from '../../types/enrichments'
-import type { IngestionJob } from '../../types/workflows'
+import type {
+  AiColumnEnrichment,
+  GeofenceEnrichment,
+  GeofencePolygon,
+  HailHistoryEnrichment,
+  WorkflowEnrichment,
+} from '../../types/enrichments'
+import type { IngestionJob, JobLog } from '../../types/workflows'
 
 type RunnerConfig = {
   client: QueryClient | null
@@ -90,6 +96,7 @@ export async function runAgent(prompt: string): Promise<void> {
   try {
     begin(id, 'plan', 'Reading your request')
     const explorer = useExplorer.getState()
+    const drafts = [...explorer.draftEnrichments]
     const plan = await planAgent(
       {
         prompt: text,
@@ -97,15 +104,16 @@ export async function runAgent(prompt: string): Promise<void> {
         view: config.getView(),
         polygon: agent.attachment?.polygon ?? null,
         weather: agent.weather,
+        enrichments: drafts,
         previous,
       },
       signal,
     )
-    patch(id, { plan })
+    patch(id, { plan, drafts })
     finish(id, 'plan', plan.used_model ? 'Planned with the model' : 'Planned with built-in rules')
 
     current = 'region'
-    await showRegion(id, plan, signal)
+    await showRegion(id, plan, drafts, signal)
   } catch (error) {
     if (signal.aborted) stopTurn(id, current)
     else failTurn(id, current, error)
@@ -135,8 +143,12 @@ export async function confirmAgentHexes(id: string): Promise<void> {
     const cells = await processHexes(id, plan, signal)
     current = 'query'
     const query = await composeQuery(id, turn.prompt, plan, cells, signal)
+    current = 'geofence'
+    previewGeofence(id, query)
     current = 'weather'
     await previewWeather(id, cells, query, signal)
+    current = 'ai_column'
+    previewAi(id, query)
     current = 'review'
     patchStep(id, 'review', { state: 'waiting', startedAt: Date.now(), detail: 'Waiting for your approval' })
     patch(id, { status: 'review' })
@@ -161,9 +173,11 @@ export async function approveAgent(id: string): Promise<void> {
   try {
     const workflow = turn.workflow ?? (await saveWorkflow(turn, turn.query))
     patch(id, { workflow })
-    patchStep(id, 'run', { detail: 'Agents running · process, enrich, ledger' })
+    beginSpecialistRun(id)
+    patchStep(id, 'run', { detail: 'Agents running · process, geofence, weather, AI column, ledger' })
     const run = await runQueryWorkflow(workflow.id)
     if (run.status === 'failed') throw new Error(run.error_message || 'The workflow run failed.')
+    applyRunLogs(id, run.logs)
     patch(id, {
       status: 'done',
       result: {
@@ -174,6 +188,7 @@ export async function approveAgent(id: string): Promise<void> {
         rows: run.rows,
         spentCents: run.quote_total_usd_cents,
         tipsCents: run.tips_usd_cents,
+        logs: run.logs,
       },
     })
     finish(id, 'run', `${run.row_count} rows · ${formatUsd(run.quote_total_usd_cents)} charged`)
@@ -221,16 +236,12 @@ export function reviewInInspect() {
 
 // ---------- steps ----------
 
-async function showRegion(id: string, plan: AgentPlan, signal: AbortSignal) {
+async function showRegion(id: string, plan: AgentPlan, drafts: readonly WorkflowEnrichment[], signal: AbortSignal) {
   begin(id, 'region', plan.region.label)
   const explorer = useExplorer.getState()
   if (explorer.inspectOpen || explorer.inspectReplay) explorer.exitQuery()
-  explorer.setHailSummaries([])
-  explorer.setDraftEnrichments(
-    plan.region.polygon
-      ? [{ id: 'geofence', kind: 'geofence', keep: plan.intent.geofence_keep ?? 'inside', polygon: plan.region.polygon }]
-      : [],
-  )
+  useExplorer.getState().setHailSummaries([])
+  useExplorer.getState().setDraftEnrichments(mergePlanDrafts(plan, drafts))
   explorer.revealCells([])
   explorer.fitToCells(plan.h3_cells)
   await sleep(420, signal)
@@ -371,7 +382,17 @@ async function composeQuery(
   signal: AbortSignal,
 ): Promise<AgentQueryResponse> {
   begin(id, 'query', `Reading rows in ${plural(cells.length, 'hex', 'hexes')}`)
-  const query = await buildAgentQuery({ prompt, h3_cells: cells, intent: plan.intent, region: plan.region }, signal)
+  const drafts = findTurn(id)?.drafts ?? useExplorer.getState().draftEnrichments
+  const query = await buildAgentQuery(
+    {
+      prompt,
+      h3_cells: cells,
+      intent: plan.intent,
+      region: plan.region,
+      enrichments: drafts,
+    },
+    signal,
+  )
   patch(id, { query })
   useExplorer.getState().applyAgentQuery({
     h3_cells: cells,
@@ -387,6 +408,59 @@ async function composeQuery(
   const kept = query.fenced_rows ?? query.matched_rows
   finish(id, 'query', `${formatRows(kept)} of ${formatRows(query.total_rows)} rows selected`)
   return query
+}
+
+function previewGeofence(id: string, query: AgentQueryResponse) {
+  const fence = query.enrichments.find((step): step is GeofenceEnrichment => step.kind === 'geofence')
+  if (!fence) {
+    patchStep(id, 'geofence', { state: 'skipped', detail: 'Not requested' })
+    return
+  }
+  finish(id, 'geofence', `Keep ${fence.keep} · ${polygonVertexCount(fence.polygon)} vertices · runs with the workflow`)
+}
+
+function previewAi(id: string, query: AgentQueryResponse) {
+  const ai = query.enrichments.find((step): step is AiColumnEnrichment => step.kind === 'ai_column')
+  if (!ai) {
+    patchStep(id, 'ai_column', { state: 'skipped', detail: 'Not requested' })
+    return
+  }
+  finish(id, 'ai_column', `Will write \`${ai.column}\` (${ai.value_type}) on run`)
+}
+
+function beginSpecialistRun(id: string) {
+  const turn = findTurn(id)
+  if (!turn) return
+  for (const step of ['geofence', 'weather', 'ai_column'] as const) {
+    if (turn.steps.find((entry) => entry.id === step)?.state === 'done') {
+      begin(id, step, 'Running on the saved workflow')
+    }
+  }
+}
+
+function applyRunLogs(id: string, logs: readonly JobLog[]) {
+  for (const line of logs) {
+    const geofence = line.message.match(/agent run geofence succeeded · (\d+) -> (\d+) rows/)
+    if (geofence) finish(id, 'geofence', `${geofence[1]} → ${geofence[2]} rows`)
+    const hail = line.message.match(/agent run hail_history succeeded · (.+)/)
+    if (hail) finish(id, 'weather', hail[1])
+    const ai = line.message.match(/agent run ai_column succeeded · (.+)/)
+    if (ai) finish(id, 'ai_column', ai[1])
+  }
+  const turn = findTurn(id)
+  if (!turn) return
+  for (const step of ['geofence', 'weather', 'ai_column'] as const) {
+    const entry = turn.steps.find((item) => item.id === step)
+    if (entry?.state === 'active') finish(id, step, entry.detail ?? 'Done')
+  }
+}
+
+function mergePlanDrafts(plan: AgentPlan, drafts: readonly WorkflowEnrichment[]): WorkflowEnrichment[] {
+  const kept = drafts.filter((step) => step.kind === 'ai_column' || step.kind === 'hail_history')
+  const fence: WorkflowEnrichment[] = plan.region.polygon
+    ? [{ id: 'geofence', kind: 'geofence', keep: plan.intent.geofence_keep ?? 'inside', polygon: plan.region.polygon }]
+    : drafts.filter((step) => step.kind === 'geofence')
+  return [...fence, ...kept]
 }
 
 async function previewWeather(id: string, cells: string[], query: AgentQueryResponse, signal: AbortSignal) {

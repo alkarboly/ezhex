@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import type { FeatureRow } from '../lib/feature-rows'
 import type { AgentPlan, AgentQueryResponse } from '../types/agents'
-import type { GeofencePolygon, HailHexSummary } from '../types/enrichments'
+import type { GeofencePolygon, HailHexSummary, WorkflowEnrichment } from '../types/enrichments'
+import type { JobLog } from '../types/workflows'
 
-export const AGENT_STEP_IDS = ['plan', 'region', 'process', 'query', 'weather', 'review', 'run'] as const
+export const AGENT_STEP_IDS = ['plan', 'region', 'process', 'query', 'geofence', 'weather', 'ai_column', 'review', 'run'] as const
 export type AgentStepId = (typeof AGENT_STEP_IDS)[number]
 export type AgentStepState = 'pending' | 'active' | 'done' | 'skipped' | 'error' | 'waiting'
 
@@ -45,6 +46,7 @@ export type AgentResult = {
   rows: FeatureRow[]
   spentCents: number
   tipsCents: number
+  logs: JobLog[]
 }
 
 export type AgentErrorKind = 'auth' | 'limit' | 'credits' | 'generic'
@@ -56,6 +58,8 @@ export type AgentTurn = {
   status: AgentTurnStatus
   steps: AgentStep[]
   plan: AgentPlan | null
+  /** Add-ons captured at plan time so confirm/query still see them if the explorer draft is cleared. */
+  drafts: WorkflowEnrichment[]
   batches: AgentBatch[]
   revealed: number
   query: AgentQueryResponse | null
@@ -100,6 +104,7 @@ export function newAgentTurn(id: string, prompt: string): AgentTurn {
     status: 'working',
     steps: AGENT_STEP_IDS.map((step) => ({ id: step, state: 'pending', detail: null, startedAt: null, endedAt: null })),
     plan: null,
+    drafts: [],
     batches: [],
     revealed: 0,
     query: null,

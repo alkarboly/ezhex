@@ -122,6 +122,8 @@ export type AgentPlanRequest = {
   polygon?: import('./enrichments').GeofencePolygon | null
   /** Composer weather toggle. Forces hail_history on. */
   weather?: boolean
+  /** Add-ons already saved on the explorer (geofence, hail_history, ai_column). */
+  enrichments?: import('./enrichments').WorkflowEnrichment[]
   previous?: AgentPrevious | null
 }
 
@@ -149,6 +151,8 @@ export type AgentQueryRequest = {
   h3_cells: string[]
   intent: AgentIntent
   region: AgentRegion
+  /** Add-ons already on the explorer. Kept when the region has no polygon of its own. */
+  enrichments?: import('./enrichments').WorkflowEnrichment[]
 }
 
 export type AgentCategoryPick = { value: string; count: number }

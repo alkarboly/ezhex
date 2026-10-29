@@ -10,6 +10,7 @@ import {
   Funnel,
   Hexagon,
   MapPin,
+  MapPinned,
   Minus,
   Rocket,
   Sparkles,
@@ -20,6 +21,7 @@ import {
 import { useEffect, useMemo, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AGENT_PRESENCE_LABELS } from '../../lib/agent-capabilities'
+import { polygonVertexCount } from '../../lib/polygon-input'
 import { downloadCsv, featureRowsToCsv } from '../../lib/csv'
 import type { FeatureRow } from '../../lib/feature-rows'
 import { cn } from '../../lib/utils'
@@ -27,7 +29,7 @@ import { quoteAgentAssist } from '../../services/agent-assist'
 import type { AgentBatch, AgentStep, AgentStepId, AgentTurn } from '../../store/agent-store'
 import { useExplorer } from '../../store/explorer-store'
 import type { AgentName, AgentPlan, AgentQueryResponse, AgentRegion } from '../../types/agents'
-import type { AiColumnEnrichment } from '../../types/enrichments'
+import type { AiColumnEnrichment, GeofenceEnrichment } from '../../types/enrichments'
 import { agentPrompt, approveAgent, confirmAgentHexes, formatUsd, reviewInInspect, stopAgent } from './agent-runner'
 import { AgentOrb, Chip, formatElapsed, HexGlyph, ShimmerBar, useNow, useTypewriter, type HexGlyphTone } from './agent-ui'
 
@@ -36,7 +38,9 @@ const STEP_META: Record<AgentStepId, { title: string; icon: LucideIcon }> = {
   region: { title: 'Find the hexes', icon: Hexagon },
   process: { title: 'Process missing hexes', icon: DatabaseZap },
   query: { title: 'Build the query', icon: Funnel },
+  geofence: { title: 'Geofence', icon: MapPinned },
   weather: { title: 'Weather', icon: CloudHail },
+  ai_column: { title: 'AI column', icon: Sparkles },
   review: { title: 'Your review', icon: UserCheck },
   run: { title: 'Run the workflow', icon: Rocket },
 }
@@ -144,7 +148,9 @@ const SPECIALISTS: { id: AgentStepId; label: string; icon: LucideIcon }[] = [
   { id: 'region', label: 'Hexes', icon: Hexagon },
   { id: 'process', label: 'Process', icon: DatabaseZap },
   { id: 'query', label: 'Query', icon: Funnel },
+  { id: 'geofence', label: 'Geofence', icon: MapPinned },
   { id: 'weather', label: 'Weather', icon: CloudHail },
+  { id: 'ai_column', label: 'AI column', icon: Sparkles },
   { id: 'run', label: 'Run', icon: Rocket },
 ]
 
@@ -319,7 +325,9 @@ function StepBody({ step, turn }: { step: AgentStep; turn: AgentTurn }) {
   if (step.id === 'region' && turn.plan) return <RegionBody turn={turn} plan={turn.plan} />
   if (step.id === 'process' && turn.batches.length > 0) return <BatchList batches={turn.batches} />
   if (step.id === 'query' && turn.query) return <QueryBody query={turn.query} />
+  if (step.id === 'geofence' && turn.query) return <GeofenceBody query={turn.query} />
   if (step.id === 'weather' && turn.hail) return <WeatherBody turn={turn} />
+  if (step.id === 'ai_column' && turn.query) return <AiColumnBody query={turn.query} />
   if (step.id === 'review' && turn.query && (turn.status === 'review' || turn.status === 'running')) {
     return <ReviewBody turn={turn} query={turn.query} />
   }
@@ -540,6 +548,33 @@ function Funnelstep({ label, value, highlight = false }: { label: string; value:
   )
 }
 
+function GeofenceBody({ query }: { query: AgentQueryResponse }) {
+  const fence = query.enrichments.find((step): step is GeofenceEnrichment => step.kind === 'geofence')
+  if (!fence) return null
+  return (
+    <p className="mt-1.5 text-[11px] text-muted-foreground">
+      Keep {fence.keep} · {polygonVertexCount(fence.polygon)} vertices. Applied on the workflow run, not as an ingest job.
+    </p>
+  )
+}
+
+function AiColumnBody({ query }: { query: AgentQueryResponse }) {
+  const ai = query.enrichments.find((step): step is AiColumnEnrichment => step.kind === 'ai_column')
+  if (!ai) return null
+  return (
+    <div className="mt-1.5 grid gap-0.5 text-[11px] text-muted-foreground">
+      <p>
+        <code className="rounded bg-white/[0.08] px-1 py-px font-mono text-[10.5px] text-[#cbb8ff]">{ai.column}</code>
+        {' · '}
+        {ai.value_type}. Written on Approve & run.
+      </p>
+      <p className="truncate" title={ai.prompt}>
+        {ai.prompt}
+      </p>
+    </div>
+  )
+}
+
 function WeatherBody({ turn }: { turn: AgentTurn }) {
   const hail = turn.hail
   if (!hail) return null
@@ -672,6 +707,15 @@ function ResultCard({ turn }: { turn: AgentTurn }) {
             </tbody>
           </table>
         </div>
+      )}
+      {result.logs.some((line) => line.message.startsWith('agent run ')) && (
+        <ul className="grid gap-0.5 font-mono text-[10px] text-muted-foreground">
+          {result.logs
+            .filter((line) => line.message.startsWith('agent run '))
+            .map((line) => (
+              <li key={`${line.at}-${line.message}`}>{line.message.replace(/^agent run /, '')}</li>
+            ))}
+        </ul>
       )}
       <div className="flex flex-wrap gap-1.5">
         <button

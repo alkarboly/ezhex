@@ -21,7 +21,10 @@ const STEP_STATUS: Record<string, string> = {
   region: 'Finding hexes',
   process: 'Processing hexes',
   query: 'Building the query',
+  geofence: 'Applying the geofence',
   weather: 'Pulling weather',
+  ai_column: 'Writing the AI column',
+  review: 'Waiting for approval',
   run: 'Running the workflow',
 }
 
@@ -296,7 +299,7 @@ function launcherStatus(turn: AgentTurn): string | null {
 }
 
 function headerStatus(turn: AgentTurn | null): string {
-  if (!turn) return 'Finds hexes, processes data, builds queries, adds weather'
+  if (!turn) return 'Finds hexes, processes data, builds queries, runs add-ons'
   if (turn.status === 'confirm') return 'Waiting for you to confirm the hexes'
   if (turn.status === 'review') return 'Waiting for your approval'
   if (turn.status === 'done') return turn.result ? `Workflow ran · ${turn.result.rowCount.toLocaleString()} rows` : 'Done'

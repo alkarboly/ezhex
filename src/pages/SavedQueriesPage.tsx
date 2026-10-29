@@ -115,8 +115,9 @@ export function SavedQueriesPage() {
           <h1 className="mt-1 text-xl font-semibold">Saved inspect SQL</h1>
           <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
             A workflow is a private inspect query plus optional add-ons. Rename it here. View workflow restores
-            the hexes, Inspect filters, Add-ons, and the SQL editor so you can edit the saved query. Subscribe to
-            new data checks stored snapshots as soon as you turn it on. No schedule yet.{' '}
+            the hexes, Inspect filters, Add-ons, and the SQL editor. Quote & run executes it: process missing hexes,
+            then geofence, weather, and AI enhance as specialist jobs on that run. Subscribe to new data checks
+            stored snapshots as soon as you turn it on. No schedule yet.{' '}
             {MAX_QUERY_WORKFLOWS} per account.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px]">
